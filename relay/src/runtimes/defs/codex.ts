@@ -691,6 +691,9 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
       completedMethod: "account/login/completed",
       parseCompleted: parseCodexLoginCompleted,
     },
+    // `codex logout --help` (0.154.0): "Remove stored authentication
+    // credentials".
+    logout: ["logout"],
     parse: ({ stderr, exitCode }) => {
       if (exitCode !== 0) return { loggedIn: false };
       const method = /Logged in using (.+)/.exec(stderr)?.[1].trim();

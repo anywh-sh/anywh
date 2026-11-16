@@ -1,6 +1,7 @@
 import { isAbsolute } from "node:path";
 import type { WebSocket } from "ws";
 import { isAgentLoginCodeMessage } from "../protocol/guards.js";
+import { afterAccountChange } from "../routes/accountChange.js";
 import { startAgentLogin, type AgentLoginSession } from "../runtimes/login/agentLogin.js";
 import { probeRuntimeAuth } from "../runtimes/probes/runtimeAuth.js";
 import type { RouteContext } from "../routes/context.js";
@@ -18,17 +19,6 @@ export type AgentLoginServerMessage =
   | { readonly type: "error"; readonly reason: AgentLoginErrorReason; readonly detail?: string };
 
 export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "bad-home" | "start-failed" | "failed" | "not-signed-in" | "superseded";
-
-/** What a new login makes stale: idle daemons started under the old one,
- * and plan usage read (or cached as "signed out") under it. Neither waits
- * on the other, and neither holds up the answer to the person. */
-function afterSignIn(runtimeId: string, ctx: RouteContext): void {
-  const recycled = ctx.sessionManager.recycleAgentProcesses(runtimeId);
-  if (recycled > 0) console.log(`[relay] ${runtimeId} login: let ${String(recycled)} idle session process(es) go`);
-  ctx.planUsage.signedIn(runtimeId).catch((error: unknown) => {
-    console.warn(`[relay] ${runtimeId} plan usage re-read after login failed:`, (error as Error).message);
-  });
-}
 
 /** One login per runtime and `$HOME`. A second device opening the same
  * login takes over: the first one's process holds a code nobody else can
@@ -122,7 +112,7 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
         return;
       case "succeeded":
         release();
-        if (ownHome) afterSignIn(runtimeId, ctx);
+        if (ownHome) afterAccountChange(runtimeId, ctx);
         void probeRuntimeAuth(def, home).then(
           (status) => {
             if (!status.loggedIn) return fail("not-signed-in");

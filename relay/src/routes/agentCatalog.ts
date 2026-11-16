@@ -1,7 +1,9 @@
 import { basename } from "node:path";
 import { parseCliVersion, type AgentDetection } from "../runtimes/detection.js";
+import { runAgentLogout } from "../runtimes/login/agentLogout.js";
 import { AuthNotProbableError, probeRuntimeAuth } from "../runtimes/probes/runtimeAuth.js";
 import type { AgentRuntimeDef } from "../runtimes/types.js";
+import { afterAccountChange } from "./accountChange.js";
 import type { RouteHandler } from "./context.js";
 
 /** One agent as the onboarding's "your agents" screen shows it. Unlike
@@ -27,6 +29,8 @@ export interface AgentCatalogEntry {
    * Which flow it runs is the socket's business, not the catalog's: the
    * app never shows a command to type. */
   readonly signIn: boolean;
+  /** Whether the relay can sign this agent out (`auth.logout`). */
+  readonly signOut: boolean;
   readonly installUrl: string | null;
   /** A fuller reference beside `installUrl`, for a CLI whose setup page
    * leaves out commands a person may need (`identity.install.docsUrl`). */
@@ -53,6 +57,7 @@ export function catalogEntry(def: AgentRuntimeDef, detection: AgentDetection, au
     account: (loggedIn && auth?.kind === "status" && auth.account) || null,
     plan: (loggedIn && auth?.kind === "status" && auth.plan) || null,
     signIn: def.auth.login !== undefined,
+    signOut: def.auth.logout !== undefined,
     installUrl: def.identity.install?.url ?? null,
     docsUrl: def.identity.install?.docsUrl ?? null,
   };
@@ -74,7 +79,46 @@ function probeAuthOutcome(def: AgentRuntimeDef, homeOverride: string | undefined
   );
 }
 
+const LOGOUT_PATH = /^\/control\/agents\/([^/]+)\/logout$/;
+
 export const handleAgentCatalogRoutes: RouteHandler = async (req, res, ctx) => {
+  const logout = req.method === "POST" ? LOGOUT_PATH.exec(req.url?.split("?")[0] ?? "") : null;
+  if (logout) {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    const runtimeId = decodeURIComponent(logout[1]);
+    const def = ctx.registry.get(runtimeId);
+    if (!def) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: `unknown runtime "${runtimeId}"` }));
+      return true;
+    }
+    if (!def.auth.logout) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: `runtime "${runtimeId}" has no sign-out` }));
+      return true;
+    }
+    try {
+      const result = await runAgentLogout(def, ctx.homeOverride);
+      if (!result.ok) {
+        console.warn(`[relay] ${runtimeId} logout failed: ${result.detail ?? "no detail"}`);
+        res.writeHead(502);
+        res.end(JSON.stringify({ error: "logout failed", ...(result.detail ? { detail: result.detail } : {}) }));
+        return true;
+      }
+    } catch (error) {
+      console.error(`[relay] ${runtimeId} logout could not run:`, (error as Error).message);
+      res.writeHead(502);
+      res.end(JSON.stringify({ error: "logout failed" }));
+      return true;
+    }
+    console.log(`[relay] ${runtimeId} signed out`);
+    afterAccountChange(runtimeId, ctx);
+    const outcome = await probeAuthOutcome(def, ctx.homeOverride);
+    res.end(JSON.stringify({ loggedIn: outcome.kind === "status" ? outcome.loggedIn : null }));
+    return true;
+  }
+
   if (req.method !== "GET" || req.url?.split("?")[0] !== "/control/agents") return false;
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Access-Control-Allow-Origin", "*");

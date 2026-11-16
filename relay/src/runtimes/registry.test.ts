@@ -183,6 +183,9 @@ test("assertCoherent: a login needs a login to run, real args, and a daemon for 
   assert.match(assertCoherent({ ...def, auth: { ...probe, login: cli([]) } })[0].message, /login\.args is empty/);
   assert.match(assertCoherent({ ...def, auth: { ...probe, login: cli(["login", " "]) } })[0].message, /blank arg/);
   assert.match(assertCoherent({ ...def, auth: { ...probe, login: rpc } })[0].message, /exec\.kind is not "jsonRpcDaemon"/);
+  assert.deepEqual(assertCoherent({ ...def, auth: { ...probe, logout: ["auth", "logout"] } }), []);
+  assert.match(assertCoherent({ ...def, auth: { kind: "none", logout: ["logout"] } })[0].message, /auth\.logout is declared/);
+  assert.match(assertCoherent({ ...def, auth: { ...probe, logout: [" "] } })[0].message, /auth\.logout is empty/);
 });
 
 // ---------------------------------------------------------------------

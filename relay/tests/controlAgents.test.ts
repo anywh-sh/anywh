@@ -23,6 +23,7 @@ interface AgentEntry {
   account: string | null;
   plan: string | null;
   signIn: boolean;
+  signOut: boolean;
   installUrl: string | null;
   docsUrl: string | null;
 }
@@ -130,6 +131,7 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     account: "fake@anywh.test",
     plan: "pro",
     signIn: true,
+    signOut: true,
     installUrl: "https://code.claude.com/docs/en/setup",
     docsUrl: null,
   });
@@ -142,6 +144,7 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     account: null,
     plan: null,
     signIn: true,
+    signOut: true,
     installUrl: "https://developers.openai.com/codex/cli",
     docsUrl: "https://github.com/openai/codex",
   });
@@ -154,6 +157,7 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     account: null,
     plan: null,
     signIn: true,
+    signOut: false,
     installUrl: "https://moonshotai.github.io/kimi-code/",
     docsUrl: null,
   });

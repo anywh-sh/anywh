@@ -20,6 +20,7 @@ test("catalogEntry: an installed, logged-in agent carries its parsed version, si
     account: null,
     plan: null,
     signIn: true,
+    signOut: true,
     installUrl: "https://developers.openai.com/codex/cli",
     docsUrl: "https://github.com/openai/codex",
   });
@@ -52,6 +53,7 @@ test("catalogEntry: a version line with nothing version-shaped is null, and a de
   const entry = catalogEntry(bare, detection(bare, true, "dev build"), { kind: "status", loggedIn: true });
   assert.equal(entry.version, null);
   assert.equal(entry.signIn, false);
+  assert.equal(entry.signOut, false);
   assert.equal(entry.installUrl, null);
   assert.equal(entry.docsUrl, null);
 });

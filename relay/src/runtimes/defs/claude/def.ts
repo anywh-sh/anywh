@@ -167,6 +167,7 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
     // probed above. A plain child is enough (measured on 2.1.323): unlike
     // `mcp login`, it reads the pasted code from a pipe.
     login: { kind: "cli-paste", args: ["auth", "login"], parsePrompt: parseClaudeLoginPrompt, parseInvalidCode: parseClaudeInvalidCode },
+    logout: ["auth", "logout"],
     parse: ({ stdout }) => {
       const status = parseClaudeAuthStatus(stdout);
       return { loggedIn: status.loggedIn, account: status.email, plan: status.subscriptionType };

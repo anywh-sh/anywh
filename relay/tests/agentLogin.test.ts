@@ -167,3 +167,16 @@ test("an unknown runtime is refused with a reason", async () => {
   await unknown.closed();
   assert.deepEqual(unknown.frames, [{ type: "error", reason: "unknown-runtime" }]);
 });
+
+test("signing out runs the agent's own logout, and the agent reads signed out after it", async () => {
+  rmSync(loggedOutFile, { force: true });
+  const response = await fetch(`http://127.0.0.1:${server.port}/control/agents/claude/logout`, { method: "POST" });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { loggedIn: false });
+  assert.equal(existsSync(loggedOutFile), true, "the fake CLI's own logout ran");
+});
+
+test("an agent with no sign-out is refused, and an unknown one is not found", async () => {
+  assert.equal((await fetch(`http://127.0.0.1:${server.port}/control/agents/kimi/logout`, { method: "POST" })).status, 400);
+  assert.equal((await fetch(`http://127.0.0.1:${server.port}/control/agents/nope/logout`, { method: "POST" })).status, 404);
+});

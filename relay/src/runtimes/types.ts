@@ -231,6 +231,10 @@ export type AuthSource = (
    * has no sign-in the relay can drive; meaningless (and rejected by
    * `assertCoherent`) on `kind: "none"`. */
   readonly login?: LoginFlow;
+  /** The args (after `identity.bin`) that sign this CLI out, removing the
+   * credentials its own login stored. Absent when the CLI has none — a
+   * hand-rolled file deletion would leave whatever else the CLI keeps. */
+  readonly logout?: readonly string[];
 };
 
 // ---------------------------------------------------------------------------

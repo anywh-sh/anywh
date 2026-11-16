@@ -369,6 +369,13 @@ if (args[0] === "--version") {
     process.stdout.write(`Successfully logged in to MCP server '${serverName}'.\n`);
     process.exit(0);
   });
+} else if (args[0] === "auth" && args[1] === "logout") {
+  // Logs the fake out the way `auth status` reads it: by creating
+  // FAKE_CLAUDE_LOGGED_OUT_FILE. Claude Code 2.1.323's own words.
+  const loggedOutFile = process.env.FAKE_CLAUDE_LOGGED_OUT_FILE;
+  if (loggedOutFile) writeFileSync(loggedOutFile, "");
+  process.stdout.write("Successfully logged out from your Anthropic account.\n");
+  process.exit(0);
 } else if (args[0] === "auth" && args[1] === "login") {
   if (process.env.FAKE_CLAUDE_LOGIN_ENV_FILE) writeFileSync(process.env.FAKE_CLAUDE_LOGIN_ENV_FILE, JSON.stringify(process.env));
   if (process.env.FAKE_CLAUDE_LOGIN_GARBLED === "1") {

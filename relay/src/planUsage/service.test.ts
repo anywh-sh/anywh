@@ -824,7 +824,7 @@ test("kimi: not reported, nor read, while it isn't installed", async () => {
   assert.equal(t.kimi(), undefined);
 });
 
-test("signedIn: a cached signed-out state and its refresh floor are dropped, and the runtime is read again at once", async () => {
+test("accountChanged: a cached signed-out state and its refresh floor are dropped, and the runtime is read again at once", async () => {
   const t = harness({ installed: ["claude", "codex"] });
   t.h.codex = () => Promise.resolve({ kind: "auth", status: "signed_out" });
   t.service.connectClient();
@@ -843,20 +843,20 @@ test("signedIn: a cached signed-out state and its refresh floor are dropped, and
       identity: null,
     });
   const closesBefore = t.calls.codexClose;
-  await t.service.signedIn("codex");
+  await t.service.accountChanged("codex");
   assert.equal(t.calls.codexClose, closesBefore + 1, "the reader holding the old login is stopped");
   assert.equal(t.calls.codexRead, readsBefore + 1);
   assert.equal(t.codex()?.status, "ok");
   assert.equal(t.codex()?.everSignedIn, true);
 });
 
-test("signedIn: Claude is re-read past its floor, and an unknown runtime is ignored", async () => {
+test("accountChanged: Claude is re-read past its floor, and an unknown runtime is ignored", async () => {
   const t = harness();
   t.service.connectClient();
   await settle();
   await t.service.refresh({ force: true, runtime: "claude" });
   const probesBefore = t.calls.probe;
-  await t.service.signedIn("claude");
+  await t.service.accountChanged("claude");
   assert.equal(t.calls.probe, probesBefore + 1);
-  await t.service.signedIn("not-an-agent");
+  await t.service.accountChanged("not-an-agent");
 });

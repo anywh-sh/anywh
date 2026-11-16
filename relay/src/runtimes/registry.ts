@@ -121,6 +121,14 @@ export function assertCoherent(def: AgentRuntimeDef): readonly CoherenceIssue[] 
     }
   }
 
+  if (auth.logout !== undefined) {
+    if (auth.kind === "none") {
+      issues.push({ message: 'auth.logout is declared but auth.kind is "none" — a CLI with no login has nothing to sign out' });
+    } else if (auth.logout.length === 0 || auth.logout.some((arg) => arg.trim() === "")) {
+      issues.push({ message: "auth.logout is empty or has a blank arg — the bare binary is not a logout command" });
+    }
+  }
+
   if (identity.env.strip.length === 0) {
     issues.push({ message: "identity.env.strip is empty — every runtime bills some credential if it leaks into a spawned child" });
   }
