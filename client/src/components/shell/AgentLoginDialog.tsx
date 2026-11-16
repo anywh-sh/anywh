@@ -85,6 +85,12 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
   const socketRef = useRef<WebSocket | null>(null);
   const onSignedInRef = useRef(onSignedIn);
   onSignedInRef.current = onSignedIn;
+  // The login is keyed by what it signs in, not by the target object's
+  // identity: a caller that builds the target inline must not restart the
+  // sign-in on every render.
+  const targetRef = useRef(target);
+  targetRef.current = target;
+  const targetKey = target ? `${target.profile.id}\0${target.runtimeId}\0${target.home ?? ""}` : null;
 
   const agent = target ? agentName(dict.chat.composer.agentNames, target.runtimeId) : "";
   const fill = (text: string): string => text.split("{agent}").join(agent);
@@ -92,6 +98,7 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
   // One socket per open dialog (and per "Start over"); closing the dialog
   // closes it, which ends the login on the relay.
   useEffect(() => {
+    const target = targetRef.current;
     if (!open || !target) return;
     let cancelled = false;
     let socket: WebSocket | null = null;
@@ -137,7 +144,7 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
       socket?.close();
       socketRef.current = null;
     };
-  }, [open, target, attempt]);
+  }, [open, targetKey, attempt]);
 
   function submit(): void {
     const socket = socketRef.current;

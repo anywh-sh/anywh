@@ -138,6 +138,14 @@ describe("AgentLoginDialog", () => {
     expect(trackError).not.toHaveBeenCalled();
   });
 
+  it("a target rebuilt on every render keeps the one login it started", async () => {
+    const { rerender } = render(<AgentLoginDialog open onOpenChange={() => {}} target={target("claude")} />);
+    await socket();
+    rerender(<AgentLoginDialog open onOpenChange={() => {}} target={target("claude")} />);
+    rerender(<AgentLoginDialog open onOpenChange={() => {}} target={target("claude")} />);
+    expect(FakeSocket.opened).toHaveLength(1);
+  });
+
   it("closing the dialog closes the socket, which ends the login on the relay", async () => {
     const { rerender } = render(<AgentLoginDialog open onOpenChange={() => {}} target={target("claude")} />);
     const ws = await socket();
