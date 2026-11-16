@@ -534,6 +534,18 @@ export class SharedSession implements SessionDriverHost {
     if (!this.driver.getSessionId()) this.choiceMachine.dropRehydrated();
   }
 
+  /** `agentId` was just signed in again (`/agent-login`), and a daemon this
+   * session still runs holds the credentials it started with. Stops it when
+   * no turn is in flight: the next turn starts a fresh process and resumes
+   * the same thread, the path the driver's own idle reaper already takes. A
+   * turn in flight, another agent, or a session run by the agent host is
+   * left alone. Returns whether a process was let go. */
+  recycleAgentProcess(agentId: string): boolean {
+    if (this.def.identity.id !== agentId || this.turnStartedAt !== null || this.runsOutsideRelay()) return false;
+    this.driver.dispose();
+    return true;
+  }
+
   /** Tears down anything the driver holds open beyond a single turn (a
    * Codex daemon process) — called once, from `SessionManager.deleteSession`/
    * `disposeAll`, never from `stopTurn` (invariant 3: killing a turn never

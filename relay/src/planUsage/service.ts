@@ -282,6 +282,31 @@ export class PlanUsageService {
     return this.clients;
   }
 
+  /**
+   * The relay just signed `runtimeId` in (`/agent-login`). What was read
+   * under the previous login — a cached "signed out" above all — says
+   * nothing about this one, and the floor a forced refresh normally waits
+   * out was measured from it. Drops both, stops the reader still holding the
+   * old credentials, and reads again at once. A runtime this service doesn't
+   * read is ignored.
+   */
+  async signedIn(runtimeId: string): Promise<void> {
+    const runtime = RUNTIMES.find((id) => id === runtimeId);
+    if (!runtime) return;
+    const slot = this.slots[runtime];
+    // A read that started under the old login lands first, then is dropped.
+    await slot.inFlight?.catch(() => {});
+    slot.lastCallAt = undefined;
+    slot.failures = 0;
+    slot.backoffUntil = null;
+    if (runtime === "codex") this.codexReader?.close();
+    if (runtime === "kimi") this.kimiReader?.close();
+    if (runtime === "claude") this.lastClaudeAuthCheckAt = null;
+    this.update(runtime, { ...emptyPlanUsage(runtime), everSignedIn: true });
+    if (!this.installed.has(runtime)) return;
+    await this.refreshOne(runtime, true);
+  }
+
   /** On-demand read. Resolves when the reads it started (or joined) end. */
   async refresh(options: PlanUsageRefreshOptions): Promise<void> {
     const targets = RUNTIMES.filter((runtime) => this.installed.has(runtime) && (!options.runtime || options.runtime === runtime));

@@ -17,6 +17,17 @@ export type AgentLoginServerMessage =
 
 export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "start-failed" | "failed" | "not-signed-in" | "superseded";
 
+/** What a new login makes stale: idle daemons started under the old one,
+ * and plan usage read (or cached as "signed out") under it. Neither waits
+ * on the other, and neither holds up the answer to the person. */
+function afterSignIn(runtimeId: string, ctx: RouteContext): void {
+  const recycled = ctx.sessionManager.recycleAgentProcesses(runtimeId);
+  if (recycled > 0) console.log(`[relay] ${runtimeId} login: let ${String(recycled)} idle session process(es) go`);
+  ctx.planUsage.signedIn(runtimeId).catch((error: unknown) => {
+    console.warn(`[relay] ${runtimeId} plan usage re-read after login failed:`, (error as Error).message);
+  });
+}
+
 /** One login per runtime on this relay — and so per profile, since a relay
  * serves one `$HOME`. A second device opening the same login takes over:
  * the first one's process holds a code nobody else can use. */
@@ -97,6 +108,7 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
         return;
       case "succeeded":
         release();
+        afterSignIn(runtimeId, ctx);
         void probeRuntimeAuth(def, ctx.homeOverride).then(
           (status) => {
             if (!status.loggedIn) return fail("not-signed-in");

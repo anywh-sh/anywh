@@ -280,6 +280,15 @@ export class SessionManager {
     for (const session of this.sessions.values()) if (!session.runsOutsideRelay()) session.stopTurn();
   }
 
+  /** Every idle session on `agentId` lets its daemon go, so the next turn
+   * runs under the login that just replaced the old one
+   * (`SharedSession.recycleAgentProcess`). Returns how many did. */
+  recycleAgentProcesses(agentId: string): number {
+    let recycled = 0;
+    for (const session of this.sessions.values()) if (session.recycleAgentProcess(agentId)) recycled++;
+    return recycled;
+  }
+
   /** Tears down every session's driver — called once, from
    * `gracefulShutdown` (lifecycle.ts), right before the process exits.
    * A no-op for a Claude-driven session today (nothing outlives a single

@@ -46,6 +46,14 @@ if (process.argv.includes("--version")) {
   console.log("2.6.0");
   process.exit(0);
 }
+// FAKE_ACP_PIDS, if set, gets one line per ACP process started (its pid),
+// so a test can tell whether a session's daemon is still running.
+if (process.env.FAKE_ACP_PIDS && process.argv[2] === "acp") fs.appendFileSync(process.env.FAKE_ACP_PIDS, `${process.pid}\n`);
+// `kimi provider list`, the auth probe: logged in, as 2.6.0 prints it.
+if (process.argv[2] === "provider" && process.argv[3] === "list") {
+  process.stdout.write("managed:kimi-code  type=kimi  models=6  source=oauth\n\nDefault model: kimi-code/kimi-for-coding\n");
+  process.exit(0);
+}
 // `kimi login`, the device flow, as 2.6.0 prints it. FAKE_ACP_LOGIN picks
 // the outcome: `approve` (default; exits 0 after 50 ms, as if the person
 // approved), `deny` (exits 1) or `hang` (waits until killed).
@@ -353,7 +361,7 @@ function handle(message) {
 }
 
 // `kimi login` above speaks no ACP, and must not exit on stdin closing.
-if (process.argv[2] !== "login") {
+if (process.argv[2] !== "login" && process.argv[2] !== "provider") {
   const rl = readline.createInterface({ input: process.stdin });
   rl.on("line", (line) => {
     if (!line.trim()) return;
