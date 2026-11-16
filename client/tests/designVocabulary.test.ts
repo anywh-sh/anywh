@@ -185,3 +185,119 @@ describe("onboarding", () => {
     expect(hits(firstrun, /\buppercase\b/)).toEqual([]);
   });
 });
+
+/**
+ * Raw `<button>` elements still carrying their own classes, per file, frozen
+ * at the count they had when `Button` became the rule (AGENTS.md, "Primitivos
+ * de UI"). It is a ratchet: a file not listed here may not add one, a listed
+ * file may not go above its count, and a file that drops below it fails too,
+ * so the list is lowered in the same change that migrates a button and never
+ * leaves slack for a new one to slip in. Not every entry has to end up as a
+ * `Button` — a clickable row or tab is a button semantically but not
+ * visually; those leave the list by gaining their own primitive in
+ * `components/ui/`, not by staying hand-styled.
+ */
+const RAW_BUTTON_BASELINE: Record<string, number> = {
+  "components/chat/activity/CodeBlock.tsx": 1,
+  "components/chat/activity/TargetChips.tsx": 2,
+  "components/chat/activity/ToolCallRow.tsx": 1,
+  "components/chat/activity/WorkBlock.tsx": 1,
+  "components/chat/activity/WorkStepRow.tsx": 2,
+  "components/chat/AgentModelEffortButton.tsx": 1,
+  "components/chat/BackgroundJobIndicator.tsx": 3,
+  "components/chat/ChoiceCard.tsx": 6,
+  "components/chat/CodeLines.tsx": 1,
+  "components/chat/CollapsibleText.tsx": 1,
+  "components/chat/ComposerLinkHoverCard.tsx": 1,
+  "components/chat/Composer.tsx": 2,
+  "components/chat/ContextUsageButton.tsx": 2,
+  "components/chat/ContextUsageRing.tsx": 1,
+  "components/chat/FolderPickerDialog.tsx": 3,
+  "components/chat/LaunchedInBackground.tsx": 3,
+  "components/chat/MarkdownContent.tsx": 2,
+  "components/chat/PermissionModeButton.tsx": 1,
+  "components/chat/RoomCard.tsx": 1,
+  "components/chat/SlashCommandMenu.tsx": 1,
+  "components/chat/ToolCallCard.tsx": 1,
+  "components/chat/toolcall/CodeBlock.tsx": 1,
+  "components/chat/toolcall/ToolCard.tsx": 1,
+  "components/chat/toolcall/ToolGroup.tsx": 1,
+  "components/chat/VoiceButton.tsx": 1,
+  "components/chat/WorkingDirectoryButton.tsx": 1,
+  "components/files/DownloadToasts.tsx": 1,
+  "components/firstrun/AdvancedOptions.tsx": 1,
+  "components/firstrun/AgentsScreen.tsx": 1,
+  "components/firstrun/CommandLine.tsx": 1,
+  "components/firstrun/OnboardingFrame.tsx": 1,
+  "components/firstrun/Preparing.tsx": 2,
+  "components/firstrun/QuietLink.tsx": 1,
+  "components/firstrun/Segmented.tsx": 1,
+  "components/sala/AgentAnswer.tsx": 1,
+  "components/sala/AgentPanel.tsx": 7,
+  "components/sala/NewAgentLauncher.tsx": 2,
+  "components/sala/RoomPanel.tsx": 1,
+  "components/sala/SalaCanvas.tsx": 3,
+  "components/sala/SalaCard.tsx": 7,
+  "components/sala/SalaMultiBar.tsx": 4,
+  "components/sala/SalaSidePanel.tsx": 1,
+  "components/sala/SalaSubtaskCard.tsx": 4,
+  "components/sala/SalaToolbar.tsx": 7,
+  "components/sala/SessionTypeSelector.tsx": 1,
+  "components/settings/AppearanceSettings.tsx": 1,
+  "components/settings/ProfileSettings.tsx": 2,
+  "components/settings/SettingsNav.tsx": 2,
+  "components/settings/ThemeSection.tsx": 3,
+  "components/shell/FilesToggleButton.tsx": 2,
+  "components/shell/FirstLaunchBanner.tsx": 1,
+  "components/shell/PaneTabStrip.tsx": 2,
+  "components/shell/ProfileSwitcher.tsx": 1,
+  "components/shell/RailAddButton.tsx": 1,
+  "components/shell/RightPanelToggleButton.tsx": 1,
+  "components/shell/RoomPaneToggleButtons.tsx": 3,
+  "components/shell/SessionListItem.tsx": 1,
+  "components/shell/SessionList.tsx": 3,
+  "components/shell/SessionSearch.tsx": 1,
+  "components/shell/Sidebar.tsx": 2,
+  "components/shell/StatusBar.tsx": 6,
+  "components/shell/TabGroupStrip.tsx": 3,
+  "components/shell/TerminalToggleButton.tsx": 2,
+  "components/shell/UpdateModal.tsx": 1,
+  "components/shell/UpdateRestartButton.tsx": 2,
+  "components/shell/UsageIndicator.tsx": 1,
+  "components/shell/UsageRefreshButton.tsx": 1,
+  "components/shell/WindowControls.tsx": 1,
+};
+
+function rawButtonCounts(): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const file of COMPONENTS) {
+    if (file.path.startsWith("components/ui/") || file.path.includes(".stories.")) continue;
+    const count = file.text.match(/<button(?=[\s>])/g)?.length ?? 0;
+    if (count > 0) counts[file.path] = count;
+  }
+  return counts;
+}
+
+describe("primitives", () => {
+  it("builds controls from components/ui instead of a hand-styled <button>", () => {
+    // A raw `<button>` with its own classes is out of reach of every change
+    // to `Button` — which is how the app ended up with buttons that drift.
+    // Use `Button` (add a variant if none fits), or give the pattern its own
+    // primitive in `components/ui/` with a story.
+    const actual = rawButtonCounts();
+    const grew = Object.entries(actual)
+      .filter(([path, count]) => count > (RAW_BUTTON_BASELINE[path] ?? 0))
+      .map(([path, count]) => `${path}: ${String(count)} (baseline ${String(RAW_BUTTON_BASELINE[path] ?? 0)})`);
+    expect(grew).toEqual([]);
+  });
+
+  it("keeps the raw <button> baseline tight", () => {
+    // A migrated file lowers its entry (or drops it) in the same change, so
+    // the slack it freed can't be spent by the next hand-styled button.
+    const actual = rawButtonCounts();
+    const stale = Object.entries(RAW_BUTTON_BASELINE)
+      .filter(([path, count]) => (actual[path] ?? 0) < count)
+      .map(([path, count]) => `${path}: ${String(actual[path] ?? 0)} (baseline ${String(count)})`);
+    expect(stale).toEqual([]);
+  });
+});
