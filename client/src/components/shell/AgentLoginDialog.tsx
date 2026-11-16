@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
@@ -186,7 +187,7 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
           {state.step === "connecting" && (
             <div className="flex flex-col gap-2">
               <p role="status" className="flex items-center gap-2 text-xs text-text-faint">
-                <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                <Spinner size="md" />
                 {copy.connecting}
               </p>
               {state.showOutput && state.output.length > 0 && (
@@ -242,16 +243,8 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
                       spellCheck={false}
                       disabled={state.checking}
                     />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      // Same width either way, so nothing shifts when the label gives way to the spinner.
-                      className="min-w-[84px]"
-                      disabled={state.checking || code.trim().length === 0}
-                      aria-busy={state.checking}
-                      aria-label={copy.submit}
-                    >
-                      {state.checking ? <Loader2 aria-hidden="true" className="animate-spin" /> : copy.submit}
+                    <Button type="submit" size="sm" loading={state.checking} disabled={code.trim().length === 0}>
+                      {copy.submit}
                     </Button>
                   </div>
                   {state.invalid && (
@@ -277,7 +270,7 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
                     </>
                   )}
                   <p className="flex items-center gap-2 text-xs text-text-faint">
-                    <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                    <Spinner size="md" />
                     {copy.waiting}
                   </p>
                 </div>

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { Loader2 } from "lucide-react";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { SettingsRow, SettingsSectionHeading } from "@/components/settings/SettingsRow";
 import { AgentLoginDialog, type AgentLoginTarget } from "@/components/shell/AgentLoginDialog";
@@ -183,13 +182,10 @@ export function AccountsSection({ profile }: { profile: Profile }) {
               type="button"
               size="sm"
               variant="destructive"
-              className="min-w-[104px]"
-              disabled={signOutState === "working"}
-              aria-busy={signOutState === "working"}
-              aria-label={copy.disconnect}
+              loading={signOutState === "working"}
               onClick={() => void disconnect()}
             >
-              {signOutState === "working" ? <Loader2 aria-hidden="true" className="animate-spin" /> : copy.disconnect}
+              {copy.disconnect}
             </Button>
           </DialogFooter>
         </DialogContent>
