@@ -114,8 +114,10 @@ export const handleAgentCatalogRoutes: RouteHandler = async (req, res, ctx) => {
     }
     console.log(`[relay] ${runtimeId} signed out`);
     afterAccountChange(runtimeId, ctx);
-    const outcome = await probeAuthOutcome(def, ctx.homeOverride);
-    res.end(JSON.stringify({ loggedIn: outcome.kind === "status" ? outcome.loggedIn : null }));
+    // Answered as soon as the CLI's own logout succeeded: the caller re-reads
+    // the catalog anyway, and a second auth probe here only spends the time
+    // the client is willing to wait.
+    res.end(JSON.stringify({ loggedIn: false }));
     return true;
   }
 

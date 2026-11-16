@@ -140,15 +140,6 @@ function configureSession(ctx: TurnContext, sessionId: string): readonly JsonRpc
   ];
 }
 
-/**
- * `kimi provider list`: a line per configured provider when logged in
- * (`managed:kimi-code  type=kimi  models=6  source=oauth`), `No providers
- * configured.` when not — exit 0 and an empty stderr in both states, so the
- * text is the answer. It can't tell an expired login from a valid one; a
- * turn against an expired one fails with the agent's own "Authentication
- * required" instead. Never `--json`: that variant prints each provider's
- * `apiKey`.
- */
 /** `kimi login`'s prompt, as Kimi Code CLI 2.6.0 prints it:
  * `Opening browser for Kimi device login: <url carrying user_code>`, then
  * `If the browser did not open, paste the URL above and enter code: <code>`
@@ -163,6 +154,15 @@ export function parseKimiLoginPrompt(output: string): LoginPrompt | undefined {
   return expires ? { url, userCode, expiresInSec: Number(expires) } : { url, userCode };
 }
 
+/**
+ * `kimi provider list`: a line per configured provider when logged in
+ * (`managed:kimi-code  type=kimi  models=6  source=oauth`), `No providers
+ * configured.` when not — exit 0 and an empty stderr in both states, so the
+ * text is the answer. It can't tell an expired login from a valid one; a
+ * turn against an expired one fails with the agent's own "Authentication
+ * required" instead. Never `--json`: that variant prints each provider's
+ * `apiKey`.
+ */
 export function parseKimiProviderList({ stdout }: AuthProbeOutput): AuthStatus {
   // The list names a provider, never an account or a plan.
   return { loggedIn: /^\S+\s+type=\S+/m.test(stdout) };

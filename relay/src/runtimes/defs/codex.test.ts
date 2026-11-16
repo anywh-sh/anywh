@@ -470,4 +470,5 @@ test("classifyFailure: a lost login is auth, a spent plan stays a limit, the res
   assert.equal(classifyCodexFailure({ text: "You've hit your usage limit." }), "usage-limit");
   assert.equal(classifyCodexFailure({ text: "thread not found: thr-1" }), "session-invalid");
   assert.equal(classifyCodexFailure({ text: "stream disconnected before completion" }), "transient");
+  assert.equal(classifyCodexFailure({ text: "exec failed at main.rs:401:9" }), "transient");
 });

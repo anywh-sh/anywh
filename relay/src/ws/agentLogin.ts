@@ -1,4 +1,5 @@
-import { isAbsolute } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, resolve } from "node:path";
 import type { WebSocket } from "ws";
 import { isAgentLoginCodeMessage } from "../protocol/guards.js";
 import { afterAccountChange } from "../routes/accountChange.js";
@@ -52,8 +53,11 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
   if (!def.auth.login) return fail("unsupported");
   if (requestedHome !== undefined && !isAbsolute(requestedHome)) return fail("bad-home");
   const home = requestedHome ?? ctx.homeOverride;
-  const ownHome = requestedHome === undefined || requestedHome === ctx.homeOverride;
-  const key = `${runtimeId}\0${home ?? ""}`;
+  // Compared as resolved paths, and against the real `$HOME` when the relay
+  // has no override: the same folder typed out is still this relay's own.
+  const relayHome = resolve(ctx.homeOverride ?? homedir());
+  const ownHome = requestedHome === undefined || resolve(requestedHome) === relayHome;
+  const key = `${runtimeId}\0${ownHome ? relayHome : resolve(requestedHome)}`;
 
   const previous = active.get(key);
   if (previous) {

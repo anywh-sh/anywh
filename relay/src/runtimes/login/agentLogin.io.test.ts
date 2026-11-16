@@ -7,7 +7,7 @@ import { claudeRuntimeDef } from "../defs/claude/index.js";
 import { codexRuntimeDef } from "../defs/codex.js";
 import { kimiRuntimeDef } from "../defs/kimi.js";
 import type { AgentRuntimeDef } from "../types.js";
-import { startAgentLogin, stripTerminalCodes, type AgentLoginEvent, type AgentLoginSession } from "./agentLogin.js";
+import { splitTrailingEscape, startAgentLogin, stripTerminalCodes, type AgentLoginEvent, type AgentLoginSession } from "./agentLogin.js";
 
 // The fakes stand in for each CLI at its own sanctioned boundary (the
 // `claude` process, an ACP agent's CLI, `codex app-server`): they prove the
@@ -213,4 +213,14 @@ test("rpc-device: cancel tells the app-server to cancel that login before stoppi
     .split("\n")
     .map((line) => (JSON.parse(line) as { method: string }).method);
   assert.deepEqual(methods.slice(-2), ["account/login/start", "account/login/cancel"]);
+});
+
+test("splitTrailingEscape holds back only a sequence the pipe cut, never plain text after a stray ESC", () => {
+  assert.deepEqual(splitTrailingEscape("visit: \x1b]8;;https://a.te"), ["visit: ", "\x1b]8;;https://a.te"]);
+  assert.deepEqual(splitTrailingEscape("bold \x1b[1"), ["bold ", "\x1b[1"]);
+  assert.deepEqual(splitTrailingEscape("done \x1b[0m"), ["done \x1b[0m", ""]);
+  assert.deepEqual(splitTrailingEscape("link \x1b]8;;https://a.test\x07end"), ["link \x1b]8;;https://a.test\x07end", ""]);
+  // Joined back, the cut sequence strips clean.
+  const [first, held] = splitTrailingEscape("visit: \x1b]8;;https://a.te");
+  assert.equal(stripTerminalCodes(first + stripTerminalCodes(held + "st\x07https://a.test\x1b]8;;\x07\n")), "visit: https://a.test\n");
 });

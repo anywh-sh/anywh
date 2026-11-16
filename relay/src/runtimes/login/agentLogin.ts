@@ -67,6 +67,23 @@ export function stripTerminalCodes(text: string): string {
   return text.replace(ANSI_PATTERN, "");
 }
 
+// A tail that can still become a sequence once the rest arrives: a bare
+// ESC, a CSI with no final byte yet, an OSC with no terminator yet.
+// eslint-disable-next-line no-control-regex
+const PARTIAL_ESCAPE_AT_END = /\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*\x1b?)?$/;
+
+/** Splits text off a stream into what can be cleaned now and an escape
+ * sequence still being written, held back until the rest arrives: a pipe
+ * can cut one in two, and stripping either half alone leaves bytes in the
+ * text (around the URL, the one string that has to come out whole). Only a
+ * tail that could still complete is held, so a stray ESC never holds the
+ * text after it. */
+export function splitTrailingEscape(text: string): [complete: string, pending: string] {
+  const match = PARTIAL_ESCAPE_AT_END.exec(text);
+  if (!match) return [text, ""];
+  return [text.slice(0, match.index), match[0]];
+}
+
 /** Last non-empty line of what a CLI printed — its own explanation of a
  * failure, for the dialog's detail line. */
 function lastLine(output: string): string | undefined {
@@ -88,12 +105,18 @@ export function startAgentLogin(def: AgentRuntimeDef, options: StartAgentLoginOp
   let finished = false;
   const emit = (event: AgentLoginEvent): void => {
     if (finished) return;
-    if (event.type === "rejected" || event.type === "succeeded" || event.type === "failed") finished = true;
+    if (event.type === "rejected" || event.type === "succeeded" || event.type === "failed") {
+      finished = true;
+      // Over: nothing left for the timeout to give up on.
+      clearTimeout(timeout);
+    }
     for (const listener of listeners) listener(event);
   };
 
   const driver = flow.kind === "rpc-device" ? startRpcLogin(def, flow, options, emit) : startCliLogin(def, flow, options, emit);
 
+  // Declared after `emit`, which reads it: nothing emits before the driver
+  // started, and every driver reports asynchronously.
   const timeout = setTimeout(() => {
     emit({ type: "failed", detail: "the sign-in timed out" });
     driver.stop();
@@ -139,8 +162,13 @@ function startCliLogin(
   let codeSent = false;
   let stopped = false;
 
-  const onChunk = (chunk: Buffer): void => {
-    const text = stripTerminalCodes(chunk.toString("utf8"));
+  // Per stream: an escape sequence cut by the pipe, held until it ends.
+  const pending = { stdout: "", stderr: "" };
+  const onChunk = (stream: "stdout" | "stderr", chunk: string): void => {
+    const [complete, rest] = splitTrailingEscape(pending[stream] + chunk);
+    pending[stream] = rest;
+    const text = stripTerminalCodes(complete);
+    if (text.length === 0) return;
     output += text;
     emit({ type: "output", data: text });
     if (codeSent && flow.parseInvalidCode) {
@@ -161,8 +189,11 @@ function startCliLogin(
   };
   // Both streams: a CLI that prints its prompt on stderr would otherwise
   // look like it hung.
-  child.stdout.on("data", onChunk);
-  child.stderr.on("data", onChunk);
+  // Decoded as a stream, so a character split across two chunks stays whole.
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => onChunk("stdout", chunk));
+  child.stderr.on("data", (chunk: string) => onChunk("stderr", chunk));
   child.stdin.on("error", () => {
     // The CLI exiting before reading stdin is reported by `close`.
   });

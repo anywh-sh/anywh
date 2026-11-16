@@ -68,6 +68,10 @@ test("classifyFailure: session-invalid, usage-limit, auth, not-installed, and a 
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Claude AI usage limit reached|1735689600" }), "usage-limit");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Not logged in · Please run /login" }), "auth");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}' }), "auth");
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Invalid API key · Please run /login" }), "auth");
+  // A 401 or a /login that isn't about the login stays transient.
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "TypeError: x is undefined\n    at run (cli.js:401:12)" }), "transient");
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "fetch https://example.com/login failed" }), "transient");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "spawn claude ENOENT" }), "not-installed");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Overloaded" }), "transient");
 });

@@ -7,6 +7,8 @@ import WebSocket from "ws";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import { assertTurnEnded, collectUntil, connectSessionAndCollectUntil, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
+const isApprovalPrompt = (message: Record<string, unknown>): boolean => message.type === "choice_prompt" && message.kind === "approval";
+
 // A sign-in replaces the credentials an idle daemon started with: after
 // `/agent-login` succeeds, a Kimi session's `kimi acp` process (the fake ACP
 // agent, Kimi Code CLI 2.6.0 shapes) is let go, and the next turn runs on a
@@ -94,5 +96,24 @@ test("a successful sign-in lets an idle session's daemon go, and the next turn r
     .map((event) => event.text);
   assert.ok(texts.includes("echo: second"));
   assert.ok(livePids().some((pid) => !daemons.includes(pid)), "a new process ran the turn");
+  socket.close();
+});
+
+test("a sign-in during a turn doesn't cut it short; its daemon is let go once the turn ends", async () => {
+  const { socket } = await connectSessionAndCollectUntil(server.port, "recycle-mid-turn", (message) => message.type === "caught_up");
+  socket.send(JSON.stringify({ type: "set_agent", agentId: "kimi" }));
+  await collectUntil(socket, (message) => message.type === "permission_mode_state");
+  // A turn held open on an approval.
+  sendUserMessage(socket, "[[hang]]");
+  await collectUntil(socket, isApprovalPrompt);
+  const daemons = livePids();
+
+  await signIn("kimi");
+  // Still running: the turn is not cut short.
+  assert.ok(daemons.some(alive), "the turn's daemon survives the sign-in while the turn runs");
+
+  socket.send(JSON.stringify({ type: "stop_turn" }));
+  assertTurnEnded((await collectUntil(socket, isTurnEnded)).find(isTurnEnded), true);
+  await eventually(() => daemons.every((pid) => !alive(pid)));
   socket.close();
 });

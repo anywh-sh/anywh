@@ -148,6 +148,46 @@ function settingsFor(id: string, cwd: string, extraWritableRoots: readonly strin
   }
 }
 
+/** A failed Codex turn, by what it says about the login. The app-server's
+ * own JSON-RPC error for a missing login is `-32600 "codex account
+ * authentication required…"` (measured on `account/rateLimits/read`, 0.154.0);
+ * a failed turn carries the backend's words instead, so the API's 401 and
+ * an expired or revoked token count too. */
+export function classifyCodexFailure(failure: RuntimeFailure): FailureClass {
+  const text = failure.text.toLowerCase();
+  if (/thread not found/.test(text)) return "session-invalid";
+  if (/usage limit|rate limit reached|you've hit your/.test(text)) return "usage-limit";
+  // The words of an auth failure, not any 401 or "unauthorized" a turn's
+  // error text happens to contain (a stack location, a tool's own output).
+  if (/authentication required|not logged in|401 unauthorized|status 401\b|token (has )?expired|refresh token|please (log|sign) in/.test(text)) return "auth";
+  if (/enoent|command not found/.test(text)) return "not-installed";
+  return "transient";
+}
+
+/** `account/login/start {type:"chatgptDeviceCode"}`'s result, per the
+ * 0.154.0 bindings (`v2/LoginAccountResponse.ts`) and a live call:
+ * `{type:"chatgptDeviceCode", loginId, verificationUrl, userCode}`. The
+ * page is a fixed one the person types the code into — the device flow the
+ * CLI itself recommends on a headless machine (`codex login` without it
+ * waits on a `localhost:1455` callback no other device can reach). */
+export function parseCodexLoginStart(result: unknown): { loginId: string; prompt: LoginPrompt } | undefined {
+  const r = result as { type?: unknown; loginId?: unknown; verificationUrl?: unknown; userCode?: unknown } | null | undefined;
+  if (r?.type !== "chatgptDeviceCode" || typeof r.loginId !== "string" || typeof r.verificationUrl !== "string" || typeof r.userCode !== "string") {
+    return undefined;
+  }
+  // `codex login --device-auth` prints "expires in 15 minutes"; the
+  // structured reply carries no expiry of its own.
+  return { loginId: r.loginId, prompt: { url: r.verificationUrl, userCode: r.userCode, expiresInSec: 15 * 60 } };
+}
+
+/** `account/login/completed`'s params (`v2/AccountLoginCompletedNotification.ts`). */
+export function parseCodexLoginCompleted(params: unknown): { loginId: string | null; success: boolean; error?: string } | undefined {
+  const p = params as { loginId?: unknown; success?: unknown; error?: unknown } | null | undefined;
+  if (typeof p?.success !== "boolean") return undefined;
+  const loginId = typeof p.loginId === "string" ? p.loginId : null;
+  return typeof p.error === "string" ? { loginId, success: p.success, error: p.error } : { loginId, success: p.success };
+}
+
 /** `ThreadStartParams` is far richer than this in the real protocol (model
  * overrides, sandbox/approval policy, a permissions profile id, ...) — every
  * field but `cwd` is optional, and none of the rest has a `TurnContext`
@@ -179,44 +219,6 @@ function settingsFor(id: string, cwd: string, extraWritableRoots: readonly strin
  * `InitializeCapabilities`, unrelated to approvals — no attestation flow
  * exists anywhere in this relay to opt into.
  */
-/** A failed Codex turn, by what it says about the login. The app-server's
- * own JSON-RPC error for a missing login is `-32600 "codex account
- * authentication required…"` (measured on `account/rateLimits/read`, 0.154.0);
- * a failed turn carries the backend's words instead, so the API's 401 and
- * an expired or revoked token count too. */
-export function classifyCodexFailure(failure: RuntimeFailure): FailureClass {
-  const text = failure.text.toLowerCase();
-  if (/thread not found/.test(text)) return "session-invalid";
-  if (/usage limit|rate limit reached|you've hit your/.test(text)) return "usage-limit";
-  if (/authentication required|not logged in|unauthorized|\b401\b|token (has )?expired|refresh token|please (log|sign) in/.test(text)) return "auth";
-  if (/enoent|command not found/.test(text)) return "not-installed";
-  return "transient";
-}
-
-/** `account/login/start {type:"chatgptDeviceCode"}`'s result, per the
- * 0.154.0 bindings (`v2/LoginAccountResponse.ts`) and a live call:
- * `{type:"chatgptDeviceCode", loginId, verificationUrl, userCode}`. The
- * page is a fixed one the person types the code into — the device flow the
- * CLI itself recommends on a headless machine (`codex login` without it
- * waits on a `localhost:1455` callback no other device can reach). */
-export function parseCodexLoginStart(result: unknown): { loginId: string; prompt: LoginPrompt } | undefined {
-  const r = result as { type?: unknown; loginId?: unknown; verificationUrl?: unknown; userCode?: unknown } | null | undefined;
-  if (r?.type !== "chatgptDeviceCode" || typeof r.loginId !== "string" || typeof r.verificationUrl !== "string" || typeof r.userCode !== "string") {
-    return undefined;
-  }
-  // `codex login --device-auth` prints "expires in 15 minutes"; the
-  // structured reply carries no expiry of its own.
-  return { loginId: r.loginId, prompt: { url: r.verificationUrl, userCode: r.userCode, expiresInSec: 15 * 60 } };
-}
-
-/** `account/login/completed`'s params (`v2/AccountLoginCompletedNotification.ts`). */
-export function parseCodexLoginCompleted(params: unknown): { loginId: string | null; success: boolean; error?: string } | undefined {
-  const p = params as { loginId?: unknown; success?: unknown; error?: unknown } | null | undefined;
-  if (typeof p?.success !== "boolean") return undefined;
-  const loginId = typeof p.loginId === "string" ? p.loginId : null;
-  return typeof p.error === "string" ? { loginId, success: p.success, error: p.error } : { loginId, success: p.success };
-}
-
 export function codexInitialize(clientVersion: string): JsonRpcRequestSpec {
   return {
     method: "initialize",

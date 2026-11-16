@@ -12,7 +12,7 @@
 // something real to probe, ahead of an engine depending on it.
 import { AGENT_BIN, BILLED_CREDENTIAL_VARS } from "../../executables.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
-import { CLAUDE_API_KEY_PATTERN, CLAUDE_SIGNED_OUT_PATTERN, parseClaudeAuthStatus } from "../../probes/authStatus.js";
+import { CLAUDE_TURN_AUTH_PATTERN, parseClaudeAuthStatus } from "../../probes/authStatus.js";
 import { parseClaudeModelCatalog } from "./modelCatalog.js";
 import type { AgentRuntimeDef, FailureClass, LoginPrompt, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
 import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
@@ -71,17 +71,13 @@ function classifyFailure(failure: RuntimeFailure): FailureClass {
   // session.test.ts's isSessionInvalidError coverage for the same string.
   if (/usage limit reached/i.test(failure.text)) return "usage-limit";
   // After the limit: a spent plan is not a lost login.
-  if (CLAUDE_SIGNED_OUT_PATTERN.test(failure.text) || CLAUDE_API_KEY_PATTERN.test(failure.text)) return "auth";
+  if (CLAUDE_TURN_AUTH_PATTERN.test(failure.text)) return "auth";
   if (/ENOENT|command not found/i.test(failure.text)) return "not-installed";
   // Everything else (an overloaded API, a network hiccup, ...) is the safe
   // default: none of it says the session itself is invalid.
   return "transient";
 }
 
-/** `claude auth login`'s prompt, as Claude Code 2.1.323 prints it with no
- * terminal attached: `If the browser didn't open, visit: <url>` on one line,
- * then `Paste code here if prompted > `. The URL only counts once its line
- * has ended — a URL cut mid-chunk would open a page that rejects it. */
 /** `claude auth login`'s answer to a pasted code it can tell is malformed
  * before asking anyone (2.1.323, measured with `asdsda`): `Invalid code.
  * Please make sure the full code was copied.`, and it keeps reading stdin
@@ -91,6 +87,10 @@ export function parseClaudeInvalidCode(output: string): string | undefined {
   return /Invalid code[^\n]*/.exec(output)?.[0].trim();
 }
 
+/** `claude auth login`'s prompt, as Claude Code 2.1.323 prints it with no
+ * terminal attached: `If the browser didn't open, visit: <url>` on one line,
+ * then `Paste code here if prompted > `. The URL only counts once its line
+ * has ended — a URL cut mid-chunk would open a page that rejects it. */
 export function parseClaudeLoginPrompt(output: string): LoginPrompt | undefined {
   const match = /visit:\s*(https:\/\/\S+)\s*\n/.exec(output);
   return match ? { url: match[1] } : undefined;
