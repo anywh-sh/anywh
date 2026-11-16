@@ -14,9 +14,9 @@ const copy = en.settings.profile.accounts;
 const profile: Profile = { id: "work", label: "Work", host: "100.64.0.7", relayPort: 8790 };
 
 const agents = [
-  { id: "claude", bin: "claude", installed: true, version: "2.1.323", loggedIn: true, account: "me@example.com", plan: "max", signIn: true },
-  { id: "codex", bin: "codex", installed: true, version: "0.154.0", loggedIn: false, account: null, plan: null, signIn: true },
-  { id: "kimi", bin: "kimi", installed: false, version: null, loggedIn: null, account: null, plan: null, signIn: true },
+  { id: "claude", bin: "claude", installed: true, version: "2.1.323", loggedIn: true, account: "me@example.com", plan: "max", signIn: true, signOut: true },
+  { id: "codex", bin: "codex", installed: true, version: "0.154.0", loggedIn: false, account: null, plan: null, signIn: true, signOut: true },
+  { id: "kimi", bin: "kimi", installed: false, version: null, loggedIn: null, account: null, plan: null, signIn: true, signOut: false },
 ];
 
 class FakeSocket {
@@ -76,6 +76,33 @@ describe("AccountsSection", () => {
     const reads = fetchMock.mock.calls.length;
     FakeSocket.opened[0].onmessage?.({ data: JSON.stringify({ type: "done", account: "work@example.com" }) });
     await waitFor(() => expect(fetchMock.mock.calls.length).toBe(reads + 1));
+  });
+
+  it("Disconnect is offered only for a signed-in agent, and signs it out after a confirmation", async () => {
+    const user = userEvent.setup();
+    render(<AccountsSection profile={profile} />);
+    const disconnect = await body().findByRole("button", { name: copy.disconnect });
+    expect(body().getAllByRole("button", { name: copy.disconnect })).toHaveLength(1);
+    await user.click(disconnect);
+    const dialog = await body().findByRole("dialog");
+    expect(dialog).toHaveTextContent("Disconnect Claude Code?");
+    const reads = fetchMock.mock.calls.length;
+    fetchMock.mockImplementationOnce(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ loggedIn: false }) } as Response));
+    await user.click(within(dialog).getByRole("button", { name: copy.disconnect }));
+    await waitFor(() => expect(body().queryByRole("dialog")).not.toBeInTheDocument());
+    const urls = fetchMock.mock.calls.map((call) => String((call as unknown[])[0]));
+    expect(urls).toContain("http://100.64.0.7:8790/control/agents/claude/logout");
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(reads + 1));
+  });
+
+  it("a sign-out the relay couldn't do says so, and keeps the confirmation open", async () => {
+    const user = userEvent.setup();
+    render(<AccountsSection profile={profile} />);
+    await user.click(await body().findByRole("button", { name: copy.disconnect }));
+    const dialog = await body().findByRole("dialog");
+    fetchMock.mockImplementationOnce(() => Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({}) } as Response));
+    await user.click(within(dialog).getByRole("button", { name: copy.disconnect }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(copy.disconnectFailed);
   });
 
   it("says so when the machine can't be reached", async () => {

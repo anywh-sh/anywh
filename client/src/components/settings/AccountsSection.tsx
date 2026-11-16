@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { SettingsRow, SettingsSectionHeading } from "@/components/settings/SettingsRow";
 import { AgentLoginDialog, type AgentLoginTarget } from "@/components/shell/AgentLoginDialog";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useDict } from "@/i18n";
-import { fetchAgentsCatalog, type AgentInfo } from "@/lib/install/agentsCatalog";
+import { fetchAgentsCatalog, signOutAgent, type AgentInfo } from "@/lib/install/agentsCatalog";
 import type { Profile } from "@/lib/profiles/profiles";
 
 type Load = { status: "loading" } | { status: "ready"; agents: AgentInfo[] } | { status: "unreachable" };
@@ -20,6 +22,8 @@ export function AccountsSection({ profile }: { profile: Profile }) {
   const copy = dict.settings.profile.accounts;
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [signingIn, setSigningIn] = useState<AgentLoginTarget | null>(null);
+  const [signingOut, setSigningOut] = useState<string | null>(null);
+  const [signOutState, setSignOutState] = useState<"idle" | "working" | "failed">("idle");
 
   const refresh = useCallback(() => {
     let cancelled = false;
@@ -40,6 +44,21 @@ export function AccountsSection({ profile }: { profile: Profile }) {
     setLoad({ status: "loading" });
     return refresh();
   }, [refresh]);
+
+  const signingOutName = signingOut ? agentName(dict.chat.composer.agentNames, signingOut) : "";
+
+  async function disconnect(): Promise<void> {
+    if (!signingOut) return;
+    setSignOutState("working");
+    try {
+      await signOutAgent(profile, signingOut);
+      setSigningOut(null);
+      setSignOutState("idle");
+      refresh();
+    } catch {
+      setSignOutState("failed");
+    }
+  }
 
   return (
     <>
@@ -63,8 +82,60 @@ export function AccountsSection({ profile }: { profile: Profile }) {
                 {agent.loggedIn === true ? copy.switchAccount : copy.connect}
               </Button>
             )}
+            {agent.signOut && agent.loggedIn === true && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-destructive/60 text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => {
+                  setSignOutState("idle");
+                  setSigningOut(agent.id);
+                }}
+              >
+                {copy.disconnect}
+              </Button>
+            )}
           </SettingsRow>
         ))}
+
+      <Dialog
+        open={signingOut !== null}
+        onOpenChange={(open) => {
+          if (!open && signOutState !== "working") setSigningOut(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{copy.disconnectTitle.split("{agent}").join(signingOutName)}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <DialogDescription>{copy.disconnectBody.split("{agent}").join(signingOutName)}</DialogDescription>
+            {signOutState === "failed" && (
+              <p role="alert" className="text-sm text-destructive">
+                {copy.disconnectFailed}
+              </p>
+            )}
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" size="sm" variant="outline" disabled={signOutState === "working"} onClick={() => setSigningOut(null)}>
+              {dict.common.cancel}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              className="min-w-[104px]"
+              disabled={signOutState === "working"}
+              aria-busy={signOutState === "working"}
+              aria-label={copy.disconnect}
+              onClick={() => void disconnect()}
+            >
+              {signOutState === "working" ? <Loader2 aria-hidden="true" className="animate-spin" /> : copy.disconnect}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AgentLoginDialog
         open={signingIn !== null}

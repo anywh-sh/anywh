@@ -28,6 +28,8 @@ export interface AgentInfo {
   plan: string | null;
   /** Whether the relay can sign this agent in (`/agent-login`). */
   signIn: boolean;
+  /** Whether the relay can sign this agent out (`POST …/logout`). */
+  signOut: boolean;
   installUrl: string | null;
   /** A fuller install reference, for a CLI whose setup page leaves out the
    * commands; `null` from a relay that doesn't send it. */
@@ -81,6 +83,7 @@ function normalize(raw: AgentInfo): AgentInfo {
     account: typeof raw.account === "string" ? raw.account : null,
     plan: typeof raw.plan === "string" ? raw.plan : null,
     signIn: raw.signIn === true,
+    signOut: raw.signOut === true,
     installUrl: typeof raw.installUrl === "string" ? raw.installUrl : null,
     docsUrl: typeof raw.docsUrl === "string" ? raw.docsUrl : null,
   };
@@ -152,8 +155,24 @@ async function fromHostInfo(profile: Profile): Promise<AgentsCatalog> {
     account: null,
     plan: null,
     signIn: false,
+    signOut: false,
     installUrl: null,
     docsUrl: null,
   }));
   return { agents, full: false };
+}
+
+/** Signs `agentId` out on `profile`'s machine with the agent's own logout.
+ * Resolves with whether the agent still reads as signed in (`null`: could
+ * not tell); rejects when the relay couldn't sign it out. */
+export async function signOutAgent(profile: Profile, agentId: string): Promise<boolean | null> {
+  const { host, port, token } = await resolveConnection(profile);
+  const response = await fetch(`http://${host}:${String(port)}/control/agents/${encodeURIComponent(agentId)}/logout`, {
+    method: "POST",
+    headers: authHeaders(token),
+    signal: AbortSignal.timeout(AGENTS_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`HTTP ${String(response.status)}`);
+  const body = (await response.json()) as { loggedIn?: unknown };
+  return typeof body.loggedIn === "boolean" ? body.loggedIn : null;
 }
