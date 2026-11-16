@@ -43,6 +43,7 @@ const meta = {
     variant: { control: "select", options: variants },
     size: { control: "select", options: [...textSizes, ...iconSizes] },
     disabled: { control: "boolean" },
+    loading: { control: "boolean" },
   },
 } satisfies Meta<typeof Button>;
 
@@ -75,6 +76,11 @@ export const Disabled: Story = {
   args: { disabled: true },
 };
 
+/** Same width as idle: the label stays in place, invisible, under the spinner. */
+export const Loading: Story = {
+  args: { loading: true },
+};
+
 export const WithIcon: Story = {
   args: {
     children: (
@@ -98,7 +104,7 @@ export const AsChild: Story = {
   },
 };
 
-/** Every variant at every text size, plus the icon sizes — the whole catalog on one screen. */
+/** Every variant at every size, disabled and loading — the whole catalog on one screen. */
 export const Matrix: Story = {
   parameters: { layout: "padded" },
   render: () => (
@@ -118,6 +124,9 @@ export const Matrix: Story = {
           ))}
           <Button variant={variant} disabled>
             disabled
+          </Button>
+          <Button variant={variant} loading>
+            loading
           </Button>
         </div>
       ))}
