@@ -17,6 +17,8 @@ test("catalogEntry: an installed, logged-in agent carries its parsed version, si
     installed: true,
     version: "0.154.0",
     loggedIn: true,
+    account: null,
+    plan: null,
     signIn: true,
     installUrl: "https://developers.openai.com/codex/cli",
     docsUrl: "https://github.com/openai/codex",
@@ -52,4 +54,14 @@ test("catalogEntry: a version line with nothing version-shaped is null, and a de
   assert.equal(entry.signIn, false);
   assert.equal(entry.installUrl, null);
   assert.equal(entry.docsUrl, null);
+});
+
+test("catalogEntry: a signed-in agent carries the account and plan its CLI names; a signed-out one carries neither", () => {
+  const installed = detection(claudeRuntimeDef, true, "2.1.323 (Claude Code)");
+  const signedIn = catalogEntry(claudeRuntimeDef, installed, { kind: "status", loggedIn: true, account: "me@example.com", plan: "max" });
+  assert.equal(signedIn.account, "me@example.com");
+  assert.equal(signedIn.plan, "max");
+  const signedOut = catalogEntry(claudeRuntimeDef, installed, { kind: "status", loggedIn: false, account: "stale@example.com" });
+  assert.equal(signedOut.account, null);
+  assert.equal(signedOut.plan, null);
 });

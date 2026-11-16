@@ -20,6 +20,8 @@ interface AgentEntry {
   installed: boolean;
   version: string | null;
   loggedIn: boolean | null;
+  account: string | null;
+  plan: string | null;
   signIn: boolean;
   installUrl: string | null;
   docsUrl: string | null;
@@ -125,6 +127,8 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     installed: true,
     version: "2.1.0",
     loggedIn: true,
+    account: "fake@anywh.test",
+    plan: "pro",
     signIn: true,
     installUrl: "https://code.claude.com/docs/en/setup",
     docsUrl: null,
@@ -135,6 +139,8 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     installed: false,
     version: null,
     loggedIn: null,
+    account: null,
+    plan: null,
     signIn: true,
     installUrl: "https://developers.openai.com/codex/cli",
     docsUrl: "https://github.com/openai/codex",
@@ -145,6 +151,8 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     installed: false,
     version: null,
     loggedIn: null,
+    account: null,
+    plan: null,
     signIn: true,
     installUrl: "https://moonshotai.github.io/kimi-code/",
     docsUrl: null,

@@ -19,6 +19,10 @@ export interface AgentCatalogEntry {
    * reports auth from inside a session. A probe that failed or timed out
    * is `false` — "go check your login" is the useful answer there. */
   readonly loggedIn: boolean | null;
+  /** Who and what plan the CLI says is signed in, when it names either
+   * (`AuthStatus.account`/`plan`); `null` otherwise. */
+  readonly account: string | null;
+  readonly plan: string | null;
   /** Whether the relay can sign this agent in itself (`/agent-login`).
    * Which flow it runs is the socket's business, not the catalog's: the
    * app never shows a command to type. */
@@ -30,7 +34,10 @@ export interface AgentCatalogEntry {
 }
 
 /** What the auth probe said for one installed agent. */
-export type AuthOutcome = { readonly kind: "status"; readonly loggedIn: boolean } | { readonly kind: "failed" } | { readonly kind: "unprobable" };
+export type AuthOutcome =
+  | { readonly kind: "status"; readonly loggedIn: boolean; readonly account?: string; readonly plan?: string }
+  | { readonly kind: "failed" }
+  | { readonly kind: "unprobable" };
 
 /** Pure: one def, its detection and (when installed) its auth outcome, in
  * the shape the endpoint answers with. */
@@ -43,6 +50,8 @@ export function catalogEntry(def: AgentRuntimeDef, detection: AgentDetection, au
     installed: detection.installed,
     version: (detection.installed && parseCliVersion(detection.version)) || null,
     loggedIn,
+    account: (loggedIn && auth?.kind === "status" && auth.account) || null,
+    plan: (loggedIn && auth?.kind === "status" && auth.plan) || null,
     signIn: def.auth.login !== undefined,
     installUrl: def.identity.install?.url ?? null,
     docsUrl: def.identity.install?.docsUrl ?? null,
@@ -51,7 +60,12 @@ export function catalogEntry(def: AgentRuntimeDef, detection: AgentDetection, au
 
 function probeAuthOutcome(def: AgentRuntimeDef, homeOverride: string | undefined): Promise<AuthOutcome> {
   return probeRuntimeAuth(def, homeOverride).then(
-    (status): AuthOutcome => ({ kind: "status", loggedIn: status.loggedIn }),
+    (status): AuthOutcome => ({
+      kind: "status",
+      loggedIn: status.loggedIn,
+      ...(status.account ? { account: status.account } : {}),
+      ...(status.plan ? { plan: status.plan } : {}),
+    }),
     (error: unknown): AuthOutcome => {
       if (error instanceof AuthNotProbableError) return { kind: "unprobable" };
       console.warn(`[relay] ${def.identity.id} auth probe failed:`, (error as Error).message);
