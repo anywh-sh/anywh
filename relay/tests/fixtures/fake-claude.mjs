@@ -113,6 +113,16 @@
 //                        (`{"loggedIn":false}`, exit 1, Claude Code 2.1.274)
 //                        — a file rather than a flag so a test can log the
 //                        fake out and back in under one running relay.
+//   FAKE_CLAUDE_LOGIN_ENV_FILE - if set, `auth login` writes its own
+//                        environment there as JSON (so a test can check
+//                        `BROWSER` and `HOME`). `auth login` prints Claude
+//                        Code 2.1.323's prompt with no terminal, reads one
+//                        line from stdin and accepts it only when it is
+//                        `good-code` — then deletes FAKE_CLAUDE_LOGGED_OUT_FILE,
+//                        so `auth status` reads logged in afterwards, the
+//                        way a real login lands. Anything else is the real
+//                        rejection, exit 1. FAKE_CLAUDE_LOGIN_GARBLED=1
+//                        prints text no parser recognizes and waits.
 //   FAKE_CLAUDE_AUTH_METHOD - `auth status --json`'s `authMethod` (default
 //                        `claude.ai`, the subscription login). Any other
 //                        value drops `subscriptionType`, like an API-key
@@ -137,7 +147,7 @@
 //                        FAKE_CLAUDE_ENV_FILE, and safe to print on failure.
 
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 /** The `models` the catalog probe's `initialize` reply carries by default. */
@@ -357,6 +367,31 @@ if (args[0] === "--version") {
     process.stdout.write(`Successfully logged in to MCP server '${serverName}'.\n`);
     process.exit(0);
   });
+} else if (args[0] === "auth" && args[1] === "login") {
+  if (process.env.FAKE_CLAUDE_LOGIN_ENV_FILE) writeFileSync(process.env.FAKE_CLAUDE_LOGIN_ENV_FILE, JSON.stringify(process.env));
+  if (process.env.FAKE_CLAUDE_LOGIN_GARBLED === "1") {
+    process.stdout.write("Something this version prints that nobody parses.\n");
+    setInterval(() => {}, 1000);
+  } else {
+    process.stdout.write(
+      "Opening browser to sign in…\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=fake&state=fake\nPaste code here if prompted > ",
+    );
+    let pasted = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      pasted += chunk;
+      const newline = pasted.search(/[\r\n]/);
+      if (newline === -1) return;
+      if (pasted.slice(0, newline).trim() === "good-code") {
+        const loggedOutFile = process.env.FAKE_CLAUDE_LOGGED_OUT_FILE;
+        if (loggedOutFile && existsSync(loggedOutFile)) unlinkSync(loggedOutFile);
+        process.stdout.write("Login successful.\n");
+        process.exit(0);
+      }
+      process.stdout.write("Login failed: That code wasn't accepted. It may be incomplete, expired, already used, or from an earlier sign-in attempt. Sign in again to get a new code.\n");
+      process.exit(1);
+    });
+  }
 } else if (args[0] === "auth" && args[1] === "status") {
   const loggedOutFile = process.env.FAKE_CLAUDE_LOGGED_OUT_FILE;
   if (loggedOutFile && existsSync(loggedOutFile)) {
