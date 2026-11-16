@@ -95,6 +95,17 @@ describe("AgentLoginDialog", () => {
     expect(trackFeature).toHaveBeenCalledWith("agent_signin");
   });
 
+  it("opens the page in the browser itself where the opener plugin isn't there", async () => {
+    openUrl.mockImplementationOnce(() => Promise.reject(new Error("no tauri")));
+    const open = vi.fn();
+    vi.stubGlobal("open", open);
+    const user = userEvent.setup();
+    render(<AgentLoginDialog open onOpenChange={() => {}} target={target("claude")} />);
+    (await socket()).emit({ type: "prompt", url: "https://claude.com/x", input: "code" });
+    await user.click(body().getByRole("link", { name: copy.openPage }));
+    await waitFor(() => expect(open).toHaveBeenCalledWith("https://claude.com/x", "_blank", "noopener,noreferrer"));
+  });
+
   it("Codex: a code to type into the page, and no field to paste into", async () => {
     render(<AgentLoginDialog open onOpenChange={() => {}} target={target("codex")} />);
     (await socket()).emit({ type: "prompt", url: "https://auth.openai.com/codex/device", userCode: "KRXE-WAQOM", input: "none" });

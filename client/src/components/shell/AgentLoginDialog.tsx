@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, Copy, ExternalLink } from "lucide-react";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
-import { handleExternalLinkClick } from "@/lib/platform/externalLink";
 import type { Profile } from "@/lib/profiles/profiles";
 import { openAgentLogin, type AgentLoginErrorReason, type AgentLoginFrame } from "@/lib/relay/relayClient";
 import { trackError, trackFeature } from "@/lib/telemetry/instrument";
@@ -61,6 +61,15 @@ export function reduceAgentLogin(state: AgentLoginState, frame: AgentLoginFrame)
 /** A device code the link already carries is there to compare, not type. */
 export function codeIsInLink(prompt: Prompt): boolean {
   return prompt.userCode !== undefined && prompt.url.includes(prompt.userCode);
+}
+
+/** Opens the sign-in page in the system browser. Where the opener plugin
+ * isn't there (the app served to a plain browser) the browser opens it. */
+function openSignInPage(event: MouseEvent<HTMLAnchorElement>, url: string): void {
+  event.preventDefault();
+  openUrl(url).catch(() => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  });
 }
 
 const INITIAL: AgentLoginState = { step: "connecting", output: "", showOutput: false };
@@ -191,7 +200,7 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-2">
                 <Button asChild size="sm">
-                  <a href={state.prompt.url} target="_blank" rel="noreferrer" onClick={(event) => handleExternalLinkClick(event, state.prompt.url)}>
+                  <a href={state.prompt.url} target="_blank" rel="noreferrer" onClick={(event) => openSignInPage(event, state.prompt.url)}>
                     <ExternalLink aria-hidden="true" />
                     {copy.openPage}
                   </a>
