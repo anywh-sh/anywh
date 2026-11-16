@@ -268,15 +268,55 @@ const RAW_BUTTON_BASELINE: Record<string, number> = {
   "components/shell/WindowControls.tsx": 1,
 };
 
-function rawButtonCounts(): Record<string, number> {
+/**
+ * Hand-rolled loading indicators (`animate-spin` on a `Loader2` icon or on a
+ * bordered span), per file, frozen when `Spinner` became the one indicator.
+ * Same ratchet as the button baseline above.
+ */
+const RAW_SPINNER_BASELINE: Record<string, number> = {
+  "components/chat/activity/ToolCallRow.tsx": 1,
+  "components/chat/BackgroundJobIndicator.tsx": 1,
+  "components/chat/Composer.tsx": 2,
+  "components/chat/LaunchedInBackground.tsx": 1,
+  "components/chat/MessageLog.tsx": 1,
+  "components/chat/thinker/Thinker.tsx": 1,
+  "components/chat/toolcall/ToolCard.tsx": 1,
+  "components/files/DownloadToasts.tsx": 1,
+  "components/sala/RoomTabIndicator.tsx": 1,
+  "components/shell/SessionListItem.tsx": 1,
+  "components/shell/StatusBar.tsx": 2,
+  "components/shell/TabGroupStrip.tsx": 1,
+  "components/shell/usageNote.tsx": 1,
+  "components/shell/UsageRefreshButton.tsx": 1,
+};
+
+/** Occurrences of `pattern` per component file outside `components/ui/`. */
+function countsOutsidePrimitives(pattern: RegExp): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const file of COMPONENTS) {
     if (file.path.startsWith("components/ui/") || file.path.includes(".stories.")) continue;
-    const count = file.text.match(/<button(?=[\s>])/g)?.length ?? 0;
+    const count = file.text.match(pattern)?.length ?? 0;
     if (count > 0) counts[file.path] = count;
   }
   return counts;
 }
+
+/** Files above their baseline (the rule was broken) and files below it (the
+ * baseline went slack and must be lowered). */
+function ratchet(actual: Record<string, number>, baseline: Record<string, number>) {
+  const describe = (path: string, count: number, base: number) => `${path}: ${String(count)} (baseline ${String(base)})`;
+  return {
+    grew: Object.entries(actual)
+      .filter(([path, count]) => count > (baseline[path] ?? 0))
+      .map(([path, count]) => describe(path, count, baseline[path] ?? 0)),
+    stale: Object.entries(baseline)
+      .filter(([path, count]) => (actual[path] ?? 0) < count)
+      .map(([path, count]) => describe(path, actual[path] ?? 0, count)),
+  };
+}
+
+const rawButtons = () => ratchet(countsOutsidePrimitives(/<button(?=[\s>])/g), RAW_BUTTON_BASELINE);
+const rawSpinners = () => ratchet(countsOutsidePrimitives(/\banimate-spin\b/g), RAW_SPINNER_BASELINE);
 
 describe("primitives", () => {
   it("builds controls from components/ui instead of a hand-styled <button>", () => {
@@ -284,20 +324,23 @@ describe("primitives", () => {
     // to `Button` — which is how the app ended up with buttons that drift.
     // Use `Button` (add a variant if none fits), or give the pattern its own
     // primitive in `components/ui/` with a story.
-    const actual = rawButtonCounts();
-    const grew = Object.entries(actual)
-      .filter(([path, count]) => count > (RAW_BUTTON_BASELINE[path] ?? 0))
-      .map(([path, count]) => `${path}: ${String(count)} (baseline ${String(RAW_BUTTON_BASELINE[path] ?? 0)})`);
-    expect(grew).toEqual([]);
+    expect(rawButtons().grew).toEqual([]);
   });
 
   it("keeps the raw <button> baseline tight", () => {
     // A migrated file lowers its entry (or drops it) in the same change, so
     // the slack it freed can't be spent by the next hand-styled button.
-    const actual = rawButtonCounts();
-    const stale = Object.entries(RAW_BUTTON_BASELINE)
-      .filter(([path, count]) => (actual[path] ?? 0) < count)
-      .map(([path, count]) => `${path}: ${String(actual[path] ?? 0)} (baseline ${String(count)})`);
-    expect(stale).toEqual([]);
+    expect(rawButtons().stale).toEqual([]);
+  });
+
+  it("shows loading with Spinner instead of a hand-rolled animate-spin", () => {
+    // Before Spinner there were two drawings (a Loader2 icon and a bordered
+    // ring) in five sizes and three border widths. `Spinner` has the sizes
+    // and tones; `Button` has `loading`.
+    expect(rawSpinners().grew).toEqual([]);
+  });
+
+  it("keeps the raw spinner baseline tight", () => {
+    expect(rawSpinners().stale).toEqual([]);
   });
 });
