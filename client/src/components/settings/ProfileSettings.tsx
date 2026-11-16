@@ -1,3 +1,4 @@
+import { AccountsSection } from "@/components/settings/AccountsSection";
 import { useEffect, useState } from "react";
 import { Folder, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -476,6 +477,8 @@ export function ProfileSettings({
       </SettingsRow>
 
       <RelayDriftRow profile={profile} />
+
+      <AccountsSection profile={profile} />
 
       <SettingsSectionHeading>{dict.settings.profile.sections.personalization}</SettingsSectionHeading>
 

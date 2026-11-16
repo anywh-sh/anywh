@@ -796,7 +796,20 @@ export const ptBr: Dictionary = {
     profile: {
       sections: {
         general: "geral",
+        accounts: "contas",
         personalization: "personalização",
+      },
+      accounts: {
+        description: "Cada agente entra na própria conta na máquina deste perfil.",
+        signedInAs: "Conectado como {account}",
+        signedIn: "Conectado",
+        signedOut: "Não conectado",
+        unknown: "Não foi possível verificar",
+        connect: "Conectar",
+        switchAccount: "Trocar conta",
+        loading: "Verificando contas…",
+        unreachable: "Não foi possível alcançar a máquina deste perfil.",
+        none: "Nenhum agente instalado nesta máquina.",
       },
       home: {
         title: "Pasta inicial",

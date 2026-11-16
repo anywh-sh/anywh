@@ -20,6 +20,9 @@ function agent(over: Partial<AgentInfo> & { id: string }): AgentInfo {
     installed: true,
     version: "1.0.0",
     loggedIn: true,
+    account: null,
+    plan: null,
+    signIn: true,
     loginCommand: null,
     installUrl: null,
     docsUrl: null,
@@ -92,7 +95,9 @@ describe("fetchAgentsCatalog", () => {
               installed: true,
               version: "2.1.0",
               loggedIn: true,
-              loginCommand: "claude auth login",
+              account: "me@example.com",
+              plan: "max",
+              signIn: true,
               installUrl: "https://x",
             },
             {
@@ -117,6 +122,10 @@ describe("fetchAgentsCatalog", () => {
       ["codex", "missing"],
     ]);
     expect(catalog.agents.map((a) => a.docsUrl)).toEqual([null, "https://z"]);
+    expect(catalog.agents.map((a) => [a.account, a.plan, a.signIn])).toEqual([
+      ["me@example.com", "max", true],
+      [null, null, false],
+    ]);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:8765/control/agents",
       expect.anything(),
@@ -150,6 +159,9 @@ describe("fetchAgentsCatalog", () => {
           installed: true,
           version: "2.0.1",
           loggedIn: null,
+          account: null,
+          plan: null,
+          signIn: false,
           loginCommand: null,
           installUrl: null,
           docsUrl: null,

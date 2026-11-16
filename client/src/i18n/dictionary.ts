@@ -169,7 +169,23 @@ export interface Dictionary {
     profile: {
       sections: {
         general: string;
+        accounts: string;
         personalization: string;
+      };
+      /** One row per installed agent: which account it is signed in to on
+       * this profile's machine, and the button that signs it in. */
+      accounts: {
+        description: string;
+        signedInAs: string;
+        signedIn: string;
+        signedOut: string;
+        /** An agent whose login state the relay can't read. */
+        unknown: string;
+        connect: string;
+        switchAccount: string;
+        loading: string;
+        unreachable: string;
+        none: string;
       };
       home: {
         title: string;

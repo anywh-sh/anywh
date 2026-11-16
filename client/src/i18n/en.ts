@@ -796,7 +796,20 @@ export const en: Dictionary = {
     profile: {
       sections: {
         general: "general",
+        accounts: "accounts",
         personalization: "personalization",
+      },
+      accounts: {
+        description: "Each agent signs in to its own account on this profile's machine.",
+        signedInAs: "Connected as {account}",
+        signedIn: "Connected",
+        signedOut: "Not connected",
+        unknown: "Couldn't check",
+        connect: "Connect",
+        switchAccount: "Switch account",
+        loading: "Checking accounts…",
+        unreachable: "Couldn't reach this profile's machine.",
+        none: "No agents installed on this machine.",
       },
       home: {
         title: "Starting folder",
