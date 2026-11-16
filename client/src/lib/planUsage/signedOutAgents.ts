@@ -31,6 +31,12 @@ export function isAgentSignedOut(state: Readonly<Record<string, ProfilePlanUsage
   return entry?.runtimes?.some((usage) => usage.runtime === agentId && usage.status === "signed_out") ?? false;
 }
 
+/** One profile's plan usage as last published (`undefined` until App has
+ * one) — for a view that wants it without the whole state. */
+export function planUsageFor(profileId: string): ProfilePlanUsage | undefined {
+  return byProfile[profileId];
+}
+
 export function agentSignedOutNow(profileId: string, agentId: string): boolean {
   return isAgentSignedOut(byProfile, profileId, agentId);
 }

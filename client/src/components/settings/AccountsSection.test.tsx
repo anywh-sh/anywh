@@ -2,6 +2,7 @@ import { cleanup, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountsSection } from "./AccountsSection";
+import { publishPlanUsage } from "@/lib/planUsage/signedOutAgents";
 import { en } from "@/i18n/en";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -105,9 +106,43 @@ describe("AccountsSection", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(copy.disconnectFailed);
   });
 
+  it("reopened, it shows the accounts it last read at once, and re-reads them in the background", async () => {
+    const home: Profile = { ...profile, id: "cached" };
+    const first = render(<AccountsSection profile={home} />);
+    await body().findByText("Connected as me@example.com · max");
+    first.unmount();
+    // The relay is slow to answer now: what was read before shows meanwhile.
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    render(<AccountsSection profile={home} />);
+    expect(body().getByText("Connected as me@example.com · max")).toBeInTheDocument();
+    expect(body().queryByText(copy.loading)).not.toBeInTheDocument();
+  });
+
+  it("with nothing cached, opens on the logins plan usage already knows", () => {
+    const fresh: Profile = { ...profile, id: "fresh" };
+    publishPlanUsage({
+      fresh: {
+        connection: "live",
+        runtimes: [
+          { runtime: "claude", status: "ok", windows: [], observedAt: 1, plan: { family: "max", label: "Max 5x" } },
+          { runtime: "codex", status: "signed_out", windows: [], observedAt: 1 },
+        ],
+        observedAt: 1,
+        receivedAt: 1,
+        refreshing: false,
+      },
+    });
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    render(<AccountsSection profile={fresh} />);
+    expect(body().getByText("Connected · Max 5x")).toBeInTheDocument();
+    expect(body().getByText(copy.signedOut)).toBeInTheDocument();
+    expect(body().queryByText(copy.loading)).not.toBeInTheDocument();
+    publishPlanUsage({});
+  });
+
   it("says so when the machine can't be reached", async () => {
     fetchMock.mockImplementation(() => Promise.reject(new TypeError("Failed to fetch")));
-    render(<AccountsSection profile={profile} />);
+    render(<AccountsSection profile={{ ...profile, id: "offline" }} />);
     expect(await body().findByText(copy.unreachable)).toBeInTheDocument();
   });
 });
