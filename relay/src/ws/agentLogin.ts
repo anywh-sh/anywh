@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import type { WebSocket } from "ws";
 import { isAgentLoginCodeMessage } from "../protocol/guards.js";
 import { startAgentLogin, type AgentLoginSession } from "../runtimes/login/agentLogin.js";
@@ -15,7 +16,7 @@ export type AgentLoginServerMessage =
   | { readonly type: "done"; readonly account?: string; readonly plan?: string }
   | { readonly type: "error"; readonly reason: AgentLoginErrorReason; readonly detail?: string };
 
-export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "start-failed" | "failed" | "not-signed-in" | "superseded";
+export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "bad-home" | "start-failed" | "failed" | "not-signed-in" | "superseded";
 
 /** What a new login makes stale: idle daemons started under the old one,
  * and plan usage read (or cached as "signed out") under it. Neither waits
@@ -28,20 +29,25 @@ function afterSignIn(runtimeId: string, ctx: RouteContext): void {
   });
 }
 
-/** One login per runtime on this relay — and so per profile, since a relay
- * serves one `$HOME`. A second device opening the same login takes over:
- * the first one's process holds a code nobody else can use. */
+/** One login per runtime and `$HOME`. A second device opening the same
+ * login takes over: the first one's process holds a code nobody else can
+ * use. */
 const active = new Map<string, { readonly login: AgentLoginSession; readonly socket: WebSocket }>();
 
 /**
  * The agent's own account sign-in, run by the relay for the app.
  *
- * The `$HOME` is always this relay's own (`ctx.homeOverride`) — never one
- * the client names. The pasted code goes straight to the CLI's stdin and is
- * never logged. Closing the socket ends the login.
+ * The `$HOME` is this relay's own (`ctx.homeOverride`) unless the client
+ * names another, absolute one: that is a profile being created, whose own
+ * relay doesn't exist yet and whose sign-in is checked before it does (the
+ * same reason `/mcp-login` takes a `home`). Only a sign-in under the
+ * relay's own home touches this relay's sessions and plan usage. The pasted
+ * code goes straight to the CLI's stdin and is never logged. Closing the
+ * socket ends the login.
  */
 export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: RouteContext): void {
   const runtimeId = url.searchParams.get("runtime")?.trim() ?? "";
+  const requestedHome = url.searchParams.get("home")?.trim() || undefined;
   const send = (message: AgentLoginServerMessage): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
   };
@@ -53,10 +59,14 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
   const def = ctx.registry.get(runtimeId);
   if (!def) return fail("unknown-runtime");
   if (!def.auth.login) return fail("unsupported");
+  if (requestedHome !== undefined && !isAbsolute(requestedHome)) return fail("bad-home");
+  const home = requestedHome ?? ctx.homeOverride;
+  const ownHome = requestedHome === undefined || requestedHome === ctx.homeOverride;
+  const key = `${runtimeId}\0${home ?? ""}`;
 
-  const previous = active.get(runtimeId);
+  const previous = active.get(key);
   if (previous) {
-    active.delete(runtimeId);
+    active.delete(key);
     previous.login.cancel();
     if (previous.socket.readyState === previous.socket.OPEN) {
       previous.socket.send(JSON.stringify({ type: "error", reason: "superseded" } satisfies AgentLoginServerMessage));
@@ -66,17 +76,17 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
 
   let login: AgentLoginSession;
   try {
-    login = startAgentLogin(def, { homeOverride: ctx.homeOverride });
+    login = startAgentLogin(def, { homeOverride: home });
   } catch (error) {
     console.error(`[relay] failed to start ${runtimeId} login:`, error);
     return fail("start-failed");
   }
   const entry = { login, socket };
-  active.set(runtimeId, entry);
-  console.log(`[relay] ${runtimeId} login started`);
+  active.set(key, entry);
+  console.log(`[relay] ${runtimeId} login started${ownHome ? "" : " for a new profile's home"}`);
 
   const release = (): void => {
-    if (active.get(runtimeId) === entry) active.delete(runtimeId);
+    if (active.get(key) === entry) active.delete(key);
   };
 
   login.onEvent((event) => {
@@ -108,8 +118,8 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
         return;
       case "succeeded":
         release();
-        afterSignIn(runtimeId, ctx);
-        void probeRuntimeAuth(def, ctx.homeOverride).then(
+        if (ownHome) afterSignIn(runtimeId, ctx);
+        void probeRuntimeAuth(def, home).then(
           (status) => {
             if (!status.loggedIn) return fail("not-signed-in");
             console.log(`[relay] ${runtimeId} login succeeded`);
@@ -139,8 +149,8 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
   });
 
   socket.on("close", () => {
-    if (active.get(runtimeId) !== entry) return;
-    active.delete(runtimeId);
+    if (active.get(key) !== entry) return;
+    active.delete(key);
     login.cancel();
   });
 }

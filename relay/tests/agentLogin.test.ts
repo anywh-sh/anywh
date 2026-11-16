@@ -112,17 +112,30 @@ test("signs a logged-out agent in: prompt out, pasted code in, the account back"
   assert.equal(existsSync(loggedOutFile), false, "the fake CLI is logged in now");
 });
 
-test("runs under the relay's own HOME, ignoring one the client names, with the browser opener disabled", async () => {
+test("runs under the relay's own HOME by default, with the browser opener disabled", async () => {
   rmSync(loginEnvFile, { force: true });
-  const elsewhere = mkdtempSync(join(tmpdir(), "anywh-not-this-home-"));
-  const login = openLogin(`runtime=claude&home=${encodeURIComponent(elsewhere)}`);
+  const login = openLogin("runtime=claude");
   await login.until(has("prompt"));
   const env = JSON.parse(readFileSync(loginEnvFile, "utf8")) as NodeJS.ProcessEnv;
   assert.equal(env.HOME, server.homeDir);
   assert.equal(env.BROWSER, "true");
   login.socket.close();
   await login.closed();
-  rmSync(elsewhere, { recursive: true, force: true });
+});
+
+test("a profile being created signs in under its own absolute HOME; a relative one is refused", async () => {
+  rmSync(loginEnvFile, { force: true });
+  const newHome = mkdtempSync(join(tmpdir(), "anywh-new-profile-home-"));
+  const login = openLogin(`runtime=claude&home=${encodeURIComponent(newHome)}`);
+  await login.until(has("prompt"));
+  assert.equal((JSON.parse(readFileSync(loginEnvFile, "utf8")) as NodeJS.ProcessEnv).HOME, newHome);
+  login.socket.close();
+  await login.closed();
+  rmSync(newHome, { recursive: true, force: true });
+
+  const relative = openLogin("runtime=claude&home=some/dir");
+  await relative.closed();
+  assert.deepEqual(relative.frames, [{ type: "error", reason: "bad-home" }]);
 });
 
 test("a refused code is reported as rejected, and the code itself never reaches the relay's log", async () => {
