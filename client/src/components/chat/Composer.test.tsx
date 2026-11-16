@@ -44,6 +44,7 @@ function Harness({
   onAddFiles = vi.fn(),
   uploadingImage = false,
   sendBlockedReason,
+  onBlockedSend,
 }: {
   agentId?: string;
   modelCatalog?: ModelCatalog | null;
@@ -52,6 +53,7 @@ function Harness({
   onAddFiles?: (files: FileList | File[]) => void | Promise<File[]>;
   uploadingImage?: boolean;
   sendBlockedReason?: string;
+  onBlockedSend?: () => void;
 }) {
   const { setLocale } = useLocale();
   // The app mounts one at the root (`main.tsx`); the held send button needs it.
@@ -68,6 +70,7 @@ function Harness({
         pendingImages={[]}
         uploadingImage={uploadingImage}
         sendBlockedReason={sendBlockedReason}
+        onBlockedSend={onBlockedSend}
         onAddFiles={onAddFiles}
         onRemoveImage={vi.fn()}
         agentId={agentId}
@@ -99,9 +102,10 @@ describe("Composer", () => {
   it("with sending blocked, the text can be typed but not sent, and the button says why", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
+    const onBlockedSend = vi.fn();
     render(
       <LocaleProvider>
-        <Harness onSend={onSend} sendBlockedReason="Connect Claude Code to send messages" />
+        <Harness onSend={onSend} sendBlockedReason="Connect Claude Code to send messages" onBlockedSend={onBlockedSend} />
       </LocaleProvider>,
     );
     const field = screen.getByLabelText(en.chat.composer.placeholder);
@@ -109,6 +113,8 @@ describe("Composer", () => {
     await user.click(field);
     await user.keyboard("hello{Enter}");
     expect(onSend).not.toHaveBeenCalled();
+    // The blocked send is the cue to check the login again.
+    expect(onBlockedSend).toHaveBeenCalledOnce();
     expect(field).toHaveTextContent("hello");
     const send = screen.getByRole("button", { name: "Connect Claude Code to send messages" });
     expect(send).toBeDisabled();

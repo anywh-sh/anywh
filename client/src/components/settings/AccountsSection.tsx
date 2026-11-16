@@ -19,8 +19,8 @@ const lastAccounts = new Map<string, AgentInfo[]>();
 
 /** What the plan usage the app already reads says about each agent's
  * login, for a profile with nothing cached yet. It names no account and
- * can't tell whether the relay signs an agent out; the re-read fills that
- * in. `null` when there is no live reading. */
+ * can't tell whether the relay signs an agent in or out, so no button is
+ * offered until the re-read says so. `null` when there is no live reading. */
 export function accountsFromPlanUsage(usage: ProfilePlanUsage | undefined): AgentInfo[] | null {
   if (profileDataState(usage) !== "live" || !usage?.runtimes) return null;
   return usage.runtimes.map((entry) => ({
@@ -31,7 +31,7 @@ export function accountsFromPlanUsage(usage: ProfilePlanUsage | undefined): Agen
     loggedIn: entry.status === "signed_out" ? false : entry.status === "unknown" ? null : true,
     account: null,
     plan: entry.status === "signed_out" ? null : (entry.plan?.label ?? null),
-    signIn: true,
+    signIn: false,
     signOut: false,
     installUrl: null,
     docsUrl: null,

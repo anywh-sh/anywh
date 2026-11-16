@@ -54,6 +54,9 @@ export interface ComposerProps {
    * profile), shown on the send button. The text can still be typed — and
    * the agent picker used, switching to one that is signed in. */
   sendBlockedReason?: string;
+  /** A send attempted while it is blocked (Enter, or a click on the
+   * button): the reason may be stale, and this is the cue to check. */
+  onBlockedSend?: () => void;
   turnInFlight: boolean;
   /** Epoch ms of the turn's start, for the clock on the stop button. */
   turnStartedAt?: number | null;
@@ -494,6 +497,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onSend,
     disabled,
     sendBlockedReason,
+    onBlockedSend,
     turnInFlight,
     turnStartedAt,
     onStop,
@@ -566,6 +570,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // no-ops on a closed socket) since only the send *button* checked `canSend`.
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled || sendBlockedReason !== undefined;
+  const blockedRef = useRef(false);
+  blockedRef.current = !disabled && sendBlockedReason !== undefined;
+  const onBlockedSendRef = useRef(onBlockedSend);
+  onBlockedSendRef.current = onBlockedSend;
   // Names of the attachments already in the message, for `pastedTextName`.
   const pendingImagesRef = useRef(pendingImages);
   pendingImagesRef.current = pendingImages;
@@ -635,6 +643,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           if (!disabledRef.current) submitRef.current();
+          else if (blockedRef.current) onBlockedSendRef.current?.();
           return true;
         }
         // Empty field with a suggestion shown as a placeholder (see
@@ -955,7 +964,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           ) : sendBlockedReason !== undefined ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <span tabIndex={0} className="inline-flex">
+                {/* The button itself is disabled and takes no clicks; the
+                    wrapper does, as the cue to check the login again. */}
+                <span tabIndex={0} className="inline-flex" onClick={() => onBlockedSend?.()}>
                   <Button
                     type="submit"
                     size="icon"

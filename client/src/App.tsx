@@ -19,7 +19,8 @@ import { UsageIndicator } from "@/components/shell/UsageIndicator";
 import { groupByProfile } from "@/lib/planUsage/derive";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { usePlanUsage } from "@/hooks/relay/usePlanUsage";
-import { publishPlanUsage } from "@/lib/planUsage/signedOutAgents";
+import { publishPlanUsage, publishPlanUsageRefresh } from "@/lib/planUsage/signedOutAgents";
+import type { PlanUsageRuntime } from "@/lib/planUsage/model";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useSessionCompletionTracking } from "@/hooks/useSessionCompletionTracking";
 import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
@@ -513,6 +514,11 @@ function AppShell() {
   const planUsage = usePlanUsage(isIOS() ? NO_PROFILES : profiles, usageProfileId);
   // What a chat panel reads to offer signing its agent back in.
   useEffect(() => publishPlanUsage(planUsage.byProfile), [planUsage.byProfile]);
+  const refreshPlanUsage = planUsage.refresh;
+  useEffect(
+    () => publishPlanUsageRefresh((profileId, runtime) => refreshPlanUsage(profileId, true, runtime as PlanUsageRuntime)),
+    [refreshPlanUsage],
+  );
   const [usageCardOpen, setUsageCardOpen] = useState(false);
   const usageGroups = groupByProfile(
     profiles.map((profile) => profile.id),

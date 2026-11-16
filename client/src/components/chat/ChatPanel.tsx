@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { AgentLoginDialog, type AgentLoginTarget } from "@/components/shell/AgentLoginDialog";
 import { useAgentSignedOut } from "@/hooks/planUsage/useAgentSignedOut";
+import { requestPlanUsageRefresh } from "@/lib/planUsage/signedOutAgents";
 import { Button } from "@/components/ui/button";
 import { trackError, trackFeature, trackPromptSent, trackSessionStarted } from "@/lib/telemetry/instrument";
 import { createPortal } from "react-dom";
@@ -700,6 +701,14 @@ export function ChatPanel({
   // same action on a turn that failed for one. Desktop only for now: iOS
   // reads no plan usage, so it would never know.
   const agentSignedOut = useAgentSignedOut(profile.id, agentId) && !isIOS();
+  // Sending is blocked on this reading, so it has to be current: read the
+  // login again when the strip appears, and on each blocked send.
+  const recheckLogin = useCallback(() => {
+    if (agentId) requestPlanUsageRefresh(profile.id, agentId);
+  }, [profile.id, agentId]);
+  useEffect(() => {
+    if (agentSignedOut) recheckLogin();
+  }, [agentSignedOut, recheckLogin]);
   const [agentLoginOpen, setAgentLoginOpen] = useState(false);
   const agentLoginTarget = useMemo<AgentLoginTarget | null>(() => (agentId ? { profile, runtimeId: agentId } : null), [profile, agentId]);
   const agentDisplayName = agentId ? agentName(dict.chat.composer.agentNames, agentId) : "";
@@ -1136,6 +1145,7 @@ export function ChatPanel({
                 onSend={handleSend}
                 className={showingIdle ? "shadow-lift" : undefined}
                 sendBlockedReason={agentSignedOut ? dict.chat.agentSignedOut.sendBlocked.split("{agent}").join(agentDisplayName) : undefined}
+                onBlockedSend={recheckLogin}
                 placeholder={roomMode ? dict.sala.newSession.placeholderRoom : undefined}
                 infoStart={
                   <WorkingDirectoryButton

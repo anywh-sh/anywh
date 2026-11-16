@@ -17,6 +17,20 @@ export function publishPlanUsage(next: Readonly<Record<string, ProfilePlanUsage>
   for (const listener of listeners) listener();
 }
 
+let refresher: ((profileId: string, runtime: string) => void) | undefined;
+
+/** How `App` re-reads one profile's plan usage, past the cache. */
+export function publishPlanUsageRefresh(refresh: (profileId: string, runtime: string) => void): void {
+  refresher = refresh;
+}
+
+/** Asks for a fresh read of `runtime` on `profileId`: a "signed out" the
+ * chat is acting on may be stale (signed in from a terminal on the host,
+ * say), and a fresh read is what lifts it. */
+export function requestPlanUsageRefresh(profileId: string, runtime: string): void {
+  refresher?.(profileId, runtime);
+}
+
 export function subscribePlanUsage(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

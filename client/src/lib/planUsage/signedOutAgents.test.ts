@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAgentSignedOut } from "@/lib/planUsage/signedOutAgents";
+import { isAgentSignedOut, publishPlanUsageRefresh, requestPlanUsageRefresh } from "@/lib/planUsage/signedOutAgents";
 import type { ProfilePlanUsage } from "@/lib/planUsage/derive";
 import type { RuntimePlanUsage } from "@/lib/planUsage/model";
 
@@ -21,5 +21,15 @@ describe("isAgentSignedOut", () => {
   it("says nothing from stale data: the login may have come back meanwhile", () => {
     expect(isAgentSignedOut({ work: entry("offline", [signedOut]) }, "work", "claude")).toBe(false);
     expect(isAgentSignedOut({ work: entry("live", null) }, "work", "claude")).toBe(false);
+  });
+});
+
+describe("requestPlanUsageRefresh", () => {
+  it("reaches whatever App published, and is a no-op before that", () => {
+    requestPlanUsageRefresh("work", "claude");
+    const calls: string[] = [];
+    publishPlanUsageRefresh((profileId, runtime) => calls.push(`${profileId}:${runtime}`));
+    requestPlanUsageRefresh("work", "claude");
+    expect(calls).toEqual(["work:claude"]);
   });
 });

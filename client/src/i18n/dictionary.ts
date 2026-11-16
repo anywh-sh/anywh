@@ -1480,8 +1480,6 @@ export interface Dictionary {
          * next to the reading's age while every relay would answer from its
          * cache. */
         againIn: string;
-        /** An agent installed but never logged in on this profile (relay's
-         * `everSignedIn: false`). Provisional copy: no design sign-off yet. */
         title: string;
         /** `{count}` profiles in the card's header, plural and singular. */
         profiles: string;
