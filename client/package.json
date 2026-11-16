@@ -25,7 +25,9 @@
     "perf": "vitest run --config vitest.perf.config.ts",
     "build:frontend:e2e": "tsc && vite build --mode e2e",
     "build:e2e": "npm run tauri -- build --debug --no-bundle --features e2e --config src-tauri/tauri.e2e.conf.json",
-    "test:e2e": "wdio run ./wdio.conf.js"
+    "test:e2e": "wdio run ./wdio.conf.js",
+    "storybook": "storybook dev --port 6006 --no-open",
+    "build:storybook": "storybook build"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -72,6 +74,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@storybook/react-vite": "^10.6.7",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
@@ -90,6 +93,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "happy-dom": "^20.14.0",
     "mocha": "^12.0.0",
+    "storybook": "^10.6.7",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.70.0",
