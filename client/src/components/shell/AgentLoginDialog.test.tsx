@@ -87,7 +87,10 @@ describe("AgentLoginDialog", () => {
     await user.type(body().getByLabelText(copy.pasteLabel), "  abc#def  ");
     await user.click(body().getByRole("button", { name: copy.submit }));
     expect(ws.sent).toEqual([JSON.stringify({ type: "code", value: "abc#def" })]);
-    expect(body().getByText(copy.checking)).toBeInTheDocument();
+    // Checking: the button spins and can't be pressed again.
+    const submit = body().getByRole("button", { name: copy.submit });
+    expect(submit).toBeDisabled();
+    expect(submit).toHaveAttribute("aria-busy", "true");
 
     ws.emit({ type: "done", account: "me@example.com", plan: "max" });
     expect(body().getByRole("status")).toHaveTextContent("Connected as me@example.com");

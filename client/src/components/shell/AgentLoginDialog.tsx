@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -180,11 +180,12 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
         </DialogHeader>
 
         <DialogBody>
-          <DialogDescription>{fill(copy.description)}</DialogDescription>
-
           {state.step === "connecting" && (
             <div className="flex flex-col gap-2">
-              <p className="text-xs text-text-faint">{copy.connecting}</p>
+              <p role="status" className="flex items-center gap-2 text-xs text-text-faint">
+                <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                {copy.connecting}
+              </p>
               {state.showOutput && state.output.length > 0 && (
                 <>
                   <p className="text-xs text-muted-foreground">{copy.rawOutput}</p>
@@ -233,11 +234,11 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
                       spellCheck={false}
                       disabled={state.checking}
                     />
-                    <Button type="submit" size="sm" disabled={state.checking || code.trim().length === 0}>
+                    <Button type="submit" size="sm" disabled={state.checking || code.trim().length === 0} aria-busy={state.checking}>
+                      {state.checking && <Loader2 aria-hidden="true" className="animate-spin" />}
                       {copy.submit}
                     </Button>
                   </div>
-                  {state.checking && <p className="text-xs text-text-faint">{copy.checking}</p>}
                 </form>
               ) : (
                 <div className="flex flex-col gap-1.5">
@@ -255,17 +256,24 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
                       </div>
                     </>
                   )}
-                  <p className="text-xs text-text-faint">{copy.waiting}</p>
+                  <p className="flex items-center gap-2 text-xs text-text-faint">
+                    <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                    {copy.waiting}
+                  </p>
                 </div>
               )}
             </div>
           )}
 
           {state.step === "done" && (
-            <p role="status" className="flex items-center gap-2 text-sm text-foreground">
-              <Check aria-hidden="true" className="size-4 text-diff-add" />
-              {state.account ? copy.signedInAs.replace("{account}", state.account) : copy.signedIn}
-            </p>
+            <div role="status" className="flex items-center gap-3 border border-border bg-bg-chrome px-3 py-3">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-diff-add/15">
+                <Check aria-hidden="true" className="size-4 text-diff-add" />
+              </span>
+              <span className="text-sm font-medium text-foreground">
+                {state.account ? copy.signedInAs.replace("{account}", state.account) : copy.signedIn}
+              </span>
+            </div>
           )}
 
           {state.step === "rejected" && (

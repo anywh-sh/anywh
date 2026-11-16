@@ -676,6 +676,8 @@ export interface Dictionary {
      * profile, and on a turn that failed for one. `{agent}` is its name. */
     agentSignedOut: {
       message: string;
+      /** The composer's hint while it is locked for want of a login. */
+      composerPlaceholder: string;
       connect: string;
       reconnect: string;
     };
@@ -1244,7 +1246,6 @@ export interface Dictionary {
        * the agent's display name, `{account}` the account it reports. */
       agentLogin: {
         title: string;
-        description: string;
         connecting: string;
         openPage: string;
         copyLink: string;
@@ -1258,7 +1259,6 @@ export interface Dictionary {
         checkCode: string;
         copyCode: string;
         waiting: string;
-        checking: string;
         signedIn: string;
         signedInAs: string;
         rejected: string;

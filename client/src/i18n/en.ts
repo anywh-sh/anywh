@@ -158,6 +158,7 @@ export const en: Dictionary = {
       message: "{agent} isn't signed in on this profile.",
       connect: "Connect",
       reconnect: "Sign {agent} back in",
+      composerPlaceholder: "Connect {agent} to send a message",
     },
     log: {
       loading: "Loading conversation…",
@@ -518,7 +519,6 @@ export const en: Dictionary = {
       },
       agentLogin: {
         title: "Sign in to {agent}",
-        description: "You sign in on {agent}'s own page. The account stays on this profile's machine.",
         connecting: "Starting the sign-in…",
         openPage: "Open sign-in page",
         copyLink: "Copy link",
@@ -530,7 +530,6 @@ export const en: Dictionary = {
         checkCode: "Then approve on the page. It should show this code",
         copyCode: "Copy code",
         waiting: "Waiting for you to finish on the page…",
-        checking: "Checking the code…",
         signedIn: "Connected",
         signedInAs: "Connected as {account}",
         rejected: "That code wasn't accepted. A code works once and expires quickly, so start over to get a new one.",

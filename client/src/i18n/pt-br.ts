@@ -158,6 +158,7 @@ export const ptBr: Dictionary = {
       message: "O {agent} não está conectado neste perfil.",
       connect: "Conectar",
       reconnect: "Conectar o {agent} de novo",
+      composerPlaceholder: "Conecte o {agent} para enviar uma mensagem",
     },
     log: {
       loading: "Carregando conversa…",
@@ -518,7 +519,6 @@ export const ptBr: Dictionary = {
       },
       agentLogin: {
         title: "Entrar no {agent}",
-        description: "Você entra na página do próprio {agent}. A conta fica na máquina deste perfil.",
         connecting: "Iniciando o login…",
         openPage: "Abrir página de login",
         copyLink: "Copiar link",
@@ -530,7 +530,6 @@ export const ptBr: Dictionary = {
         checkCode: "Depois aprove na página. Ela deve mostrar este código",
         copyCode: "Copiar código",
         waiting: "Aguardando você terminar na página…",
-        checking: "Conferindo o código…",
         signedIn: "Conectado",
         signedInAs: "Conectado como {account}",
         rejected: "O código não foi aceito. Um código vale uma vez e expira rápido, então recomece para receber outro.",
