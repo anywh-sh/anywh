@@ -1135,7 +1135,14 @@ export function ChatPanel({
                 onChangeDraft={setDraft}
                 onSend={handleSend}
                 className={showingIdle ? "shadow-lift" : undefined}
-                placeholder={roomMode ? dict.sala.newSession.placeholderRoom : undefined}
+                inputLocked={agentSignedOut}
+                placeholder={
+                  agentSignedOut
+                    ? dict.chat.agentSignedOut.composerPlaceholder.split("{agent}").join(agentDisplayName)
+                    : roomMode
+                      ? dict.sala.newSession.placeholderRoom
+                      : undefined
+                }
                 infoStart={
                   <WorkingDirectoryButton
                     profile={profile}

@@ -50,6 +50,10 @@ export interface ComposerProps {
   profile: Profile;
   onSend: (text: string, images: PendingAttachment[]) => void;
   disabled?: boolean;
+  /** The text can't be typed or sent (the agent has no login on this
+   * profile), while the agent picker stays usable — switching to an agent
+   * that is signed in is a way out. */
+  inputLocked?: boolean;
   turnInFlight: boolean;
   /** Epoch ms of the turn's start, for the clock on the stop button. */
   turnStartedAt?: number | null;
@@ -489,6 +493,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     profile,
     onSend,
     disabled,
+    inputLocked = false,
     turnInFlight,
     turnStartedAt,
     onStop,
@@ -560,7 +565,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // relay disconnected), silently dropping the message (`RelayClient.sendMessage`
   // no-ops on a closed socket) since only the send *button* checked `canSend`.
   const disabledRef = useRef(disabled);
-  disabledRef.current = disabled;
+  disabledRef.current = disabled || inputLocked;
   // Names of the attachments already in the message, for `pastedTextName`.
   const pendingImagesRef = useRef(pendingImages);
   pendingImagesRef.current = pendingImages;
@@ -703,6 +708,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       },
     },
   });
+  // Locked while the agent has no login: nothing typed could be sent.
+  useEffect(() => {
+    editor?.setEditable(!inputLocked);
+  }, [editor, inputLocked]);
+
 
   // The editor is created once and never recreated, so neither its ARIA
   // label (set in `editorProps` above) nor the placeholder follow a language
@@ -781,7 +791,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const typoQuestion = copy.typo.question.split("{command}");
   const isRecording = voice.state === "recording";
   const isTranscribing = voice.state === "transcribing";
-  const canSend = !disabled && !uploadingImage && (!isEmpty || pendingImages.length > 0);
+  const canSend = !disabled && !inputLocked && !uploadingImage && (!isEmpty || pendingImages.length > 0);
 
   return (
     <form

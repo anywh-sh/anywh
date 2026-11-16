@@ -43,6 +43,7 @@ function Harness({
   onSend = vi.fn(),
   onAddFiles = vi.fn(),
   uploadingImage = false,
+  inputLocked = false,
 }: {
   agentId?: string;
   modelCatalog?: ModelCatalog | null;
@@ -50,6 +51,7 @@ function Harness({
   onSend?: (text: string, images: PendingAttachment[]) => void;
   onAddFiles?: (files: FileList | File[]) => void | Promise<File[]>;
   uploadingImage?: boolean;
+  inputLocked?: boolean;
 }) {
   const { setLocale } = useLocale();
   // The app mounts one at the root (`main.tsx`); the held send button needs it.
@@ -65,6 +67,7 @@ function Harness({
         onStop={vi.fn()}
         pendingImages={[]}
         uploadingImage={uploadingImage}
+        inputLocked={inputLocked}
         onAddFiles={onAddFiles}
         onRemoveImage={vi.fn()}
         agentId={agentId}
@@ -93,6 +96,23 @@ function Harness({
 }
 
 describe("Composer", () => {
+  it("locked for want of a login: nothing can be typed or sent, and the agent picker stays usable", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <LocaleProvider>
+        <Harness onSend={onSend} inputLocked />
+      </LocaleProvider>,
+    );
+    const field = screen.getByLabelText(en.chat.composer.placeholder);
+    expect(field).toHaveAttribute("contenteditable", "false");
+    await user.click(field);
+    await user.keyboard("hello{Enter}");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: en.common.send })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Sonnet 5\.5/ })).toBeEnabled();
+  });
+
   it("holds the send while an attachment is still uploading, then lets it through", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
