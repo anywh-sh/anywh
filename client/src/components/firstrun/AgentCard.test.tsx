@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentCard, type AgentCardModel } from "@/components/firstrun/AgentCard";
 import { en } from "@/i18n/en";
 
@@ -10,13 +11,13 @@ afterEach(() => {
 const copy = en.firstRun.agents;
 
 function card(over: Partial<AgentCardModel>): AgentCardModel {
-  return { id: "codex", bin: "codex", state: "ready", version: "0.154.0", loginCommand: "codex login", installUrl: "https://install.example", docsUrl: null, ...over };
+  return { id: "codex", bin: "codex", state: "ready", version: "0.154.0", signIn: true, installUrl: "https://install.example", docsUrl: null, ...over };
 }
 
-function renderCard(agent: AgentCardModel) {
+function renderCard(agent: AgentCardModel, onSignIn?: () => void) {
   render(
     <ul>
-      <AgentCard agent={agent} />
+      <AgentCard agent={agent} onSignIn={onSignIn} />
     </ul>,
   );
 }
@@ -26,14 +27,22 @@ describe("AgentCard", () => {
     renderCard(card({}));
     expect(screen.getByText(copy.state.ready)).toBeInTheDocument();
     expect(screen.getByText(/codex · v0\.154\.0/)).toBeInTheDocument();
-    expect(screen.queryByText("codex login")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("a signed-out agent shows the command to copy, never a button that runs it", () => {
-    renderCard(card({ state: "noLogin" }));
+  it("a signed-out agent offers to sign in from the card, and never prints a command", async () => {
+    const onSignIn = vi.fn();
+    renderCard(card({ state: "noLogin" }), onSignIn);
     expect(screen.getByText(copy.state.noLogin)).toBeInTheDocument();
     expect(screen.getByText(copy.noLoginHint)).toBeInTheDocument();
-    expect(screen.getByText("codex login")).toBeInTheDocument();
+    expect(screen.queryByText("codex login")).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: copy.connect.replace("{agent}", en.chat.composer.agentNames.codex) }));
+    expect(onSignIn).toHaveBeenCalledOnce();
+  });
+
+  it("an agent the relay can't sign in offers no button", () => {
+    renderCard(card({ state: "noLogin", signIn: false }), () => {});
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("a missing agent links to its install page, and to the fuller guide when the relay has one", () => {

@@ -295,6 +295,17 @@ describe("useMessageLog", () => {
     expect(stripVolatile(result.current.entries)).toEqual([{ kind: "error", message: "boom" }]);
   });
 
+  it("an error event keeps the agent's failure class, so a lost login can be offered a way back in", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "error", message: "Not logged in · Please run /login", failureClass: "auth" }));
+    act(() => result.current.handleEvent({ type: "error", message: "Overloaded" }));
+
+    expect(stripVolatile(result.current.entries)).toEqual([
+      { kind: "error", message: "Not logged in · Please run /login", failureClass: "auth" },
+      { kind: "error", message: "Overloaded" },
+    ]);
+  });
+
   it("context_attribution updates attributionByToolUseId, never entries — it isn't a message", () => {
     const { result } = renderHook(() => useMessageLog());
     act(() => result.current.handleEvent({ type: "context_attribution", toolUseIds: ["t1"], tokens: 13_472, estimated: false }));

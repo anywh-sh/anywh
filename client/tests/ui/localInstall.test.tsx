@@ -164,7 +164,7 @@ let relay: FakeRelay;
 /** Ports whose relay never answers — a profile on disk with nothing up. */
 let silent: number[] = [];
 
-const CLAUDE: FakeAgent = { id: "claude", installed: true, version: "2.1.3", loggedIn: true, loginCommand: "claude auth login", installUrl: null };
+const CLAUDE: FakeAgent = { id: "claude", installed: true, version: "2.1.3", loggedIn: true, signIn: true, installUrl: null };
 
 beforeEach(() => {
   silent = [];

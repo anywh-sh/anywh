@@ -19,6 +19,7 @@ import { UsageIndicator } from "@/components/shell/UsageIndicator";
 import { groupByProfile } from "@/lib/planUsage/derive";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { usePlanUsage } from "@/hooks/relay/usePlanUsage";
+import { publishPlanUsage } from "@/lib/planUsage/signedOutAgents";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useSessionCompletionTracking } from "@/hooks/useSessionCompletionTracking";
 import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
@@ -510,6 +511,8 @@ function AppShell() {
   // active profile. iOS has no status bar, so it opens no sockets at all.
   const usageProfileId = activeTab?.profileId ?? activeProfile.id;
   const planUsage = usePlanUsage(isIOS() ? NO_PROFILES : profiles, usageProfileId);
+  // What a chat panel reads to offer signing its agent back in.
+  useEffect(() => publishPlanUsage(planUsage.byProfile), [planUsage.byProfile]);
   const [usageCardOpen, setUsageCardOpen] = useState(false);
   const usageGroups = groupByProfile(
     profiles.map((profile) => profile.id),

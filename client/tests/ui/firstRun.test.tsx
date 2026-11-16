@@ -72,7 +72,7 @@ const CLAUDE: FakeAgent = {
   installed: true,
   version: "2.1.3",
   loggedIn: true,
-  loginCommand: "claude auth login",
+  signIn: true,
   installUrl: "https://claude.example/setup",
 };
 

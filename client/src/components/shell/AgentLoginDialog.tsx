@@ -14,6 +14,9 @@ export interface AgentLoginTarget {
   /** The profile whose machine — and so whose account — the sign-in is for. */
   profile: Profile;
   runtimeId: string;
+  /** A profile being created: its home, signed in through `profile`'s relay
+   * before the new profile's own relay exists. */
+  home?: string;
 }
 
 interface AgentLoginDialogProps {
@@ -98,7 +101,7 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
       setState((previous) => (previous.step === "connecting" ? { ...previous, showOutput: true } : previous));
     }, RAW_OUTPUT_AFTER_MS);
 
-    openAgentLogin(target.profile, target.runtimeId).then(
+    openAgentLogin(target.profile, target.runtimeId, target.home).then(
       (opened) => {
         if (cancelled) {
           opened.close();
@@ -290,6 +293,7 @@ function errorText(reason: AgentLoginErrorReason | "unreachable", copy: ReturnTy
       return copy.unreachable;
     case "unknown-runtime":
     case "unsupported":
+    case "bad-home":
     case "start-failed":
       return copy.startFailed;
   }

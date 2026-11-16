@@ -430,6 +430,8 @@ export interface Dictionary {
       state: { ready: string; noLogin: string; missing: string; checking: string };
       meta: { notOnPath: string; searching: string };
       noLoginHint: string;
+      /** Signs the agent in from the card. `{agent}` is its name. */
+      connect: string;
       howToInstall: string;
       /** Beside `howToInstall`, when the CLI has a fuller install reference. */
       installDocs: string;
@@ -669,6 +671,13 @@ export interface Dictionary {
       /** `{reason}` — Codex's own explanation for why it's asking, appended
        * to whichever question text is in play above. */
       reasonSuffix: string;
+    };
+    /** Above the composer while the session's agent has no login on its
+     * profile, and on a turn that failed for one. `{agent}` is its name. */
+    agentSignedOut: {
+      message: string;
+      connect: string;
+      reconnect: string;
     };
     log: {
       loading: string;
@@ -1201,10 +1210,10 @@ export interface Dictionary {
         verify: string;
         verifying: string;
         creating: string;
-        /** `{path}` — the config path the command needs; `{agent}` — the
-         * CLI that owns the login, since which one it is now depends on
-         * the agent picked above. */
+        /** `{agent}` — the agent picked above, whose login was checked. */
         notLoggedIn: string;
+        /** Opens the agent sign-in for that folder, from the line above. */
+        connect: string;
         /** `{profile}` — the profile already using that path. */
         collides: string;
         confirmed: string;

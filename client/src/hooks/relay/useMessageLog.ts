@@ -1,6 +1,6 @@
 import { useMemo, useReducer } from "react";
 import type { AgentEvent, HistoryMessage, HistoryPageMessage, PlanTodo, ToolInput, ToolKind, ToolOutcome, ToolSubject } from "@/lib/relay/relay-types";
-import type { RoomCard, SubagentStatus } from "@/lib/relay/agent-event";
+import type { RoomCard, SubagentStatus, TurnFailureClass } from "@/lib/relay/agent-event";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 
 export type LogEntry =
@@ -11,7 +11,9 @@ export type LogEntry =
    * often empty (some models don't expose it); the block still matters for
    * its timing. */
   | { kind: "thinking"; id: string; text: string; running: boolean; pending?: boolean; startedAt?: number; endedAt?: number }
-  | { kind: "error"; id: string; message: string }
+  /** `failureClass` is the agent's reading of why (`"auth"`: a lost
+   * login, which the log offers to fix). */
+  | { kind: "error"; id: string; message: string; failureClass?: TurnFailureClass }
   | { kind: "stopped"; id: string }
   /** Automatic follow-up turn from an `anywh-bg` job that finished —
    * the synthetic prompt itself never becomes a
@@ -424,7 +426,10 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
     case "error":
       return {
         ...state,
-        entries: [...dropPending(state.entries), { kind: "error", id: newId(), message: event.message }],
+        entries: [
+          ...dropPending(state.entries),
+          event.failureClass ? { kind: "error", id: newId(), message: event.message, failureClass: event.failureClass } : { kind: "error", id: newId(), message: event.message },
+        ],
         streamingText: [],
       };
 

@@ -133,7 +133,7 @@ export interface FakeAgent {
   installed: boolean;
   version?: string | null;
   loggedIn?: boolean | null;
-  loginCommand?: string | null;
+  signIn?: boolean;
   installUrl?: string | null;
 }
 
@@ -326,7 +326,7 @@ export function installFakeRelay(
           installed: a.installed,
           version: a.version ?? (a.installed ? "1.0.0" : null),
           loggedIn: a.loggedIn ?? (a.installed ? true : null),
-          loginCommand: a.loginCommand ?? null,
+          signIn: a.signIn ?? true,
           installUrl: a.installUrl ?? null,
         })),
       });

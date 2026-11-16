@@ -28,8 +28,6 @@ export interface AgentInfo {
   plan: string | null;
   /** Whether the relay can sign this agent in (`/agent-login`). */
   signIn: boolean;
-  /** Shown, never run: the app does not sign anyone in. */
-  loginCommand: string | null;
   installUrl: string | null;
   /** A fuller install reference, for a CLI whose setup page leaves out the
    * commands; `null` from a relay that doesn't send it. */
@@ -83,8 +81,6 @@ function normalize(raw: AgentInfo): AgentInfo {
     account: typeof raw.account === "string" ? raw.account : null,
     plan: typeof raw.plan === "string" ? raw.plan : null,
     signIn: raw.signIn === true,
-    loginCommand:
-      typeof raw.loginCommand === "string" ? raw.loginCommand : null,
     installUrl: typeof raw.installUrl === "string" ? raw.installUrl : null,
     docsUrl: typeof raw.docsUrl === "string" ? raw.docsUrl : null,
   };
@@ -156,7 +152,6 @@ async function fromHostInfo(profile: Profile): Promise<AgentsCatalog> {
     account: null,
     plan: null,
     signIn: false,
-    loginCommand: null,
     installUrl: null,
     docsUrl: null,
   }));

@@ -81,6 +81,9 @@ interface MessageLogProps {
    * caller memoizes it: a fresh element on every render would defeat this
    * component's `memo`. */
   trailing?: ReactNode;
+  /** Signs the session's agent back in, on a turn that failed for a lost
+   * login. The caller memoizes it, like `trailing`. */
+  reconnect?: { label: string; onClick: () => void };
 }
 
 export interface MessageLogHandle {
@@ -107,6 +110,9 @@ interface UserActionHandlers {
   onCopy: (text: string) => void;
   onOpenPath?: (path: string) => void;
   cwd: string | null;
+  /** Signs the session's agent back in, for a turn that failed for a lost
+   * login. Absent where the app can't offer it. */
+  reconnect?: { label: string; onClick: () => void };
 }
 
 function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions: UserActionHandlers, attributionByToolUseId: Record<string, AttributionState>, dict: Dictionary) {
@@ -176,7 +182,7 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
     case "error":
       return (
         <LogEntryRow key={entry.id}>
-          <ErrorMessage message={entry.message} />
+          <ErrorMessage message={entry.message} reconnect={entry.failureClass === "auth" ? userActions.reconnect : undefined} />
         </LogEntryRow>
       );
     case "stopped":
@@ -241,10 +247,11 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   cwd,
   isActiveTab,
   trailing,
+  reconnect,
 }: MessageLogProps, ref) {
   const parentRef = useRef<HTMLDivElement>(null);
   const dict = useDict();
-  const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, onCopy, onOpenPath, cwd };
+  const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, onCopy, onOpenPath, cwd, reconnect };
 
   // Which rows are expanded, for this tab — held here, above the virtualized
   // list, so a row that scrolls out of view keeps its state.

@@ -250,16 +250,19 @@ export type AgentLoginFrame =
   | { type: "done"; account?: string; plan?: string }
   | { type: "error"; reason: AgentLoginErrorReason; detail?: string };
 
-export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "start-failed" | "failed" | "not-signed-in" | "superseded";
+export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "bad-home" | "start-failed" | "failed" | "not-signed-in" | "superseded";
 
 /** Opens the socket that signs `runtimeId` in on `profile`'s machine — the
  * agent's own sign-in, run by that profile's relay under its own `$HOME`.
  * The one frame in is `{type:"code", value}`, the code the person pasted.
  * Resolved through `resolveConnection`, like every socket that has to work
- * over a tailnet. Closing the socket ends the login. */
-export async function openAgentLogin(profile: Profile, runtimeId: string): Promise<WebSocket> {
+ * over a tailnet. Closing the socket ends the login. `home` is only for a
+ * profile being created, whose own relay doesn't exist yet: the sign-in
+ * then runs on `profile`'s relay, under the new profile's home. */
+export async function openAgentLogin(profile: Profile, runtimeId: string, home?: string): Promise<WebSocket> {
   const { host, port, token } = await resolveConnection(profile);
   const params = new URLSearchParams({ runtime: runtimeId });
+  if (home) params.set("home", home);
   if (token) params.set("token", token);
   return new WebSocket(`ws://${host}:${String(port)}/agent-login?${params.toString()}`);
 }
