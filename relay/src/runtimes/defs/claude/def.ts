@@ -12,7 +12,7 @@
 // something real to probe, ahead of an engine depending on it.
 import { AGENT_BIN, BILLED_CREDENTIAL_VARS } from "../../executables.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
-import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
+import { CLAUDE_API_KEY_PATTERN, CLAUDE_SIGNED_OUT_PATTERN, parseClaudeAuthStatus } from "../../probes/authStatus.js";
 import { parseClaudeModelCatalog } from "./modelCatalog.js";
 import type { AgentRuntimeDef, FailureClass, LoginPrompt, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
 import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
@@ -70,6 +70,8 @@ function classifyFailure(failure: RuntimeFailure): FailureClass {
   // Exact wording captured from a real 5-hour/weekly limit hit — see
   // session.test.ts's isSessionInvalidError coverage for the same string.
   if (/usage limit reached/i.test(failure.text)) return "usage-limit";
+  // After the limit: a spent plan is not a lost login.
+  if (CLAUDE_SIGNED_OUT_PATTERN.test(failure.text) || CLAUDE_API_KEY_PATTERN.test(failure.text)) return "auth";
   if (/ENOENT|command not found/i.test(failure.text)) return "not-installed";
   // Everything else (an overloaded API, a network hiccup, ...) is the safe
   // default: none of it says the session itself is invalid.

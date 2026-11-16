@@ -1886,7 +1886,9 @@ export class SharedSession implements SessionDriverHost {
       turnError = message;
       console.error("[relay] turn failed:", message);
       release();
-      this.broadcast({ type: "agent_event", event: { type: "error", message } });
+      const code = (error as { code?: unknown } | null)?.code;
+      const failureClass = this.def.classifyFailure?.({ text: message, ...(typeof code === "number" ? { code } : {}) });
+      this.broadcast({ type: "agent_event", event: failureClass ? { type: "error", message, failureClass } : { type: "error", message } });
       this.notify(turnFailedDraft(this.title));
     } finally {
       this.turnGrants = [];

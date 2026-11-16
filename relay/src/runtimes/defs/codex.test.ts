@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertCoherent } from "../registry.js";
-import { codexRuntimeDef, parseCodexLoginCompleted, parseCodexLoginStart, parseCodexModelList } from "./codex.js";
+import { classifyCodexFailure, codexRuntimeDef, parseCodexLoginCompleted, parseCodexLoginStart, parseCodexModelList } from "./codex.js";
 import type { TurnContext } from "../types.js";
 
 function turnContext(overrides: Partial<TurnContext> = {}): TurnContext {
@@ -460,4 +460,14 @@ test("login: the app-server's device flow, in the shapes a live 0.154.0 answered
     error: "Login was not completed",
   });
   assert.deepEqual(parseCodexLoginCompleted({ loginId: null, success: true, error: null, onboardingEntrypoint: null }), { loginId: null, success: true });
+});
+
+test("classifyFailure: a lost login is auth, a spent plan stays a limit, the rest is transient", () => {
+  assert.equal(codexRuntimeDef.classifyFailure, classifyCodexFailure);
+  assert.equal(classifyCodexFailure({ text: "codex account authentication required to read rate limits", code: -32600 }), "auth");
+  assert.equal(classifyCodexFailure({ text: "unexpected status 401 Unauthorized" }), "auth");
+  assert.equal(classifyCodexFailure({ text: "Your access token could not be refreshed because your refresh token was already used" }), "auth");
+  assert.equal(classifyCodexFailure({ text: "You've hit your usage limit." }), "usage-limit");
+  assert.equal(classifyCodexFailure({ text: "thread not found: thr-1" }), "session-invalid");
+  assert.equal(classifyCodexFailure({ text: "stream disconnected before completion" }), "transient");
 });

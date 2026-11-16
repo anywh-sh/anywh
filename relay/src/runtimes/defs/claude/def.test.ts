@@ -63,9 +63,11 @@ test("permissions.modesFor: same four modes on every platform, default survives"
   assert.deepEqual(claudeRuntimeDef.permissions.modesFor("win32").map((mode) => mode.id), modes);
 });
 
-test("classifyFailure: session-invalid, usage-limit, not-installed, and a transient fallback", () => {
+test("classifyFailure: session-invalid, usage-limit, auth, not-installed, and a transient fallback", () => {
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "No conversation found to continue" }), "session-invalid");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Claude AI usage limit reached|1735689600" }), "usage-limit");
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Not logged in · Please run /login" }), "auth");
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}' }), "auth");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "spawn claude ENOENT" }), "not-installed");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Overloaded" }), "transient");
 });

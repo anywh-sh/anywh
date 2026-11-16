@@ -44,7 +44,7 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, EffortOption, LoginPrompt, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
+import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, FailureClass, JsonRpcRequestSpec, EffortOption, LoginPrompt, RuntimeFailure, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 
 /** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
@@ -179,6 +179,20 @@ function settingsFor(id: string, cwd: string, extraWritableRoots: readonly strin
  * `InitializeCapabilities`, unrelated to approvals — no attestation flow
  * exists anywhere in this relay to opt into.
  */
+/** A failed Codex turn, by what it says about the login. The app-server's
+ * own JSON-RPC error for a missing login is `-32600 "codex account
+ * authentication required…"` (measured on `account/rateLimits/read`, 0.154.0);
+ * a failed turn carries the backend's words instead, so the API's 401 and
+ * an expired or revoked token count too. */
+export function classifyCodexFailure(failure: RuntimeFailure): FailureClass {
+  const text = failure.text.toLowerCase();
+  if (/thread not found/.test(text)) return "session-invalid";
+  if (/usage limit|rate limit reached|you've hit your/.test(text)) return "usage-limit";
+  if (/authentication required|not logged in|unauthorized|\b401\b|token (has )?expired|refresh token|please (log|sign) in/.test(text)) return "auth";
+  if (/enoent|command not found/.test(text)) return "not-installed";
+  return "transient";
+}
+
 /** `account/login/start {type:"chatgptDeviceCode"}`'s result, per the
  * 0.154.0 bindings (`v2/LoginAccountResponse.ts`) and a live call:
  * `{type:"chatgptDeviceCode", loginId, verificationUrl, userCode}`. The
@@ -683,6 +697,7 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
       return method ? { loggedIn: true, plan: method } : { loggedIn: true };
     },
   },
+  classifyFailure: classifyCodexFailure,
   permissions: {
     defaultModeId: "workspace-write",
     modesFor: (platform) => {

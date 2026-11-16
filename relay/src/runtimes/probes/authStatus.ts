@@ -16,3 +16,11 @@ export interface ClaudeAuthStatus {
 export function parseClaudeAuthStatus(stdout: string): ClaudeAuthStatus {
   return JSON.parse(stdout) as ClaudeAuthStatus;
 }
+
+/** The CLI's own words for "this login can't make the turn" ("Not logged in
+ * · Please run /login", "Invalid API key"), plus the API's
+ * `authentication_error`/401 for an expired or revoked token. One
+ * definition for a chat turn's failure class (`defs/claude/def.ts`) and for
+ * the plan usage probe, which reads the same failures off its own turn. */
+export const CLAUDE_SIGNED_OUT_PATTERN = /not logged in|\/login|authentication_error|oauth token|token (has )?expired|\b401\b/i;
+export const CLAUDE_API_KEY_PATTERN = /invalid api key|x-api-key/i;
