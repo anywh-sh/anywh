@@ -36,6 +36,10 @@
 // empty `premium` bucket for `free`); FAKE_CODEX_RATE_LIMITS_HANG=1 never
 // answers `account/rateLimits/read`. A turn whose text has [[rate-limits]]
 // pushes the same update before it completes, like a real turn does.
+// The device-code sign-in (`account/login/start {type:"chatgptDeviceCode"}`,
+// `account/login/cancel`, `account/login/completed`, 0.154.0 shapes, measured
+// live) ends the way FAKE_CODEX_LOGIN says: `approve` (default; completes
+// 50 ms after the start reply), `deny`, or `hang` (only a cancel ends it).
 // FAKE_CODEX_INIT_HANG=1 never answers `initialize` (the handshake that hung
 // in a CODEX_HOME without a login); FAKE_CODEX_PID_FILE gets this process's
 // pid, so a test can check it was stopped.
@@ -209,6 +213,26 @@ process.stdin.on("data", (chunk) => {
         if (PLAN_USAGE.limits.error) send({ id: message.id, error: PLAN_USAGE.limits.error });
         else send({ id: message.id, result: PLAN_USAGE.limits.result });
         if (process.env.FAKE_CODEX_PUSH_AFTER_READ === "1") pushRateLimits();
+        break;
+      case "account/login/start": {
+        if (message.params?.type !== "chatgptDeviceCode") {
+          send({ id: message.id, error: { code: -32602, message: "fake: only chatgptDeviceCode" } });
+          break;
+        }
+        const loginId = `login-${Date.now()}`;
+        send({ id: message.id, result: { type: "chatgptDeviceCode", loginId, verificationUrl: "https://auth.openai.com/codex/device", userCode: "FAKE-CODEX" } });
+        const outcome = process.env.FAKE_CODEX_LOGIN || "approve";
+        if (outcome !== "hang") {
+          setTimeout(() => {
+            const success = outcome === "approve";
+            send({ method: "account/login/completed", params: { loginId, success, error: success ? null : "access_denied", onboardingEntrypoint: null } });
+          }, 50);
+        }
+        break;
+      }
+      case "account/login/cancel":
+        send({ id: message.id, result: { status: "canceled" } });
+        send({ method: "account/login/completed", params: { loginId: message.params?.loginId ?? null, success: false, error: "Login was not completed", onboardingEntrypoint: null } });
         break;
       case "turn/interrupt": {
         const { threadId, turnId } = message.params;

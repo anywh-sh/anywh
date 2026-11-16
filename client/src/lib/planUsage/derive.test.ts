@@ -5,8 +5,7 @@ import {
   latestReadingAt,
   refreshCooldown,
   relayToLocal,
-  neverSignedIn,
-  statusBarRuntimes,
+  signedInRuntimes,
   READING_TIMEOUT_MS,
   isReading,
   profileReading,
@@ -225,7 +224,6 @@ describe("reading / runtimeNote", () => {
   it("names why there is nothing, a read in progress first", () => {
     expect(runtimeNote(unknown, NOW, true)).toBe("reading");
     expect(runtimeNote(unknown, NOW, false)).toBe("notRead");
-    expect(runtimeNote({ ...unknown, status: "signed_out" }, NOW, false)).toBe("signedOut");
     expect(runtimeNote({ ...unknown, status: "no_subscription" }, NOW, false)).toBe("apiKey");
     expect(runtimeNote({ ...unknown, status: "error", error: { kind: "network" } }, NOW, false)).toBe("errorNetwork");
     expect(runtimeNote({ ...unknown, status: "error", error: { kind: "auth" } }, NOW, false)).toBe("errorAuth");
@@ -235,25 +233,14 @@ describe("reading / runtimeNote", () => {
   });
 });
 
-describe("neverSignedIn / statusBarRuntimes", () => {
+describe("signedInRuntimes", () => {
   const out = (everSignedIn?: boolean): RuntimePlanUsage => ({ runtime: "codex", status: "signed_out", windows: [], observedAt: null, ...(everSignedIn === undefined ? {} : { everSignedIn }) });
 
-  it("tells a login never made on this profile from one that was lost", () => {
-    expect(neverSignedIn(out(false))).toBe(true);
-    expect(neverSignedIn(out(true))).toBe(false);
-    // A relay that predates the field: every signed_out is a lost login.
-    expect(neverSignedIn(out())).toBe(false);
-    expect(neverSignedIn({ ...runtime({ runtime: "claude" }), everSignedIn: false })).toBe(false);
-  });
-
-  it("keeps a never-used agent out of the status bar only", () => {
+  it("leaves out every agent with no login, lost or never made, from the card's groups and its count", () => {
     const claude = runtime({ runtime: "claude" });
-    expect(statusBarRuntimes([claude, out(false)])).toEqual([claude]);
-    expect(statusBarRuntimes([claude, out(true)])).toHaveLength(2);
-    expect(statusBarRuntimes([claude, out()])).toHaveLength(2);
-    // The card's groups and the account count don't change.
-    const groups = groupByProfile(["a"], { a: live([claude, out(false)]) }, "a");
-    expect(groups[0].accounts.map((entry) => entry.runtime)).toEqual(["claude", "codex"]);
+    expect(signedInRuntimes([claude, out(false), out(true), out()])).toEqual([claude]);
+    const groups = groupByProfile(["a"], { a: live([claude, out(true)]) }, "a");
+    expect(groups[0].accounts.map((entry) => entry.runtime)).toEqual(["claude"]);
     expect(countAccounts(groups)).toBe(1);
   });
 });

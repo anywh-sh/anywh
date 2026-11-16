@@ -40,7 +40,7 @@ const CLAUDE: FakeAgent = {
   installed: true,
   version: "2.1.3",
   loggedIn: true,
-  loginCommand: "claude auth login",
+  signIn: true,
   installUrl: "https://claude.example/setup",
 };
 const CODEX_NO_LOGIN: FakeAgent = {
@@ -48,7 +48,7 @@ const CODEX_NO_LOGIN: FakeAgent = {
   installed: true,
   version: "0.154.0",
   loggedIn: false,
-  loginCommand: "codex login",
+  signIn: true,
   installUrl: "https://codex.example/cli",
 };
 const CODEX_MISSING: FakeAgent = {
@@ -56,7 +56,7 @@ const CODEX_MISSING: FakeAgent = {
   installed: false,
   version: null,
   loggedIn: null,
-  loginCommand: "codex login",
+  signIn: true,
   installUrl: "https://codex.example/cli",
 };
 const CLAUDE_MISSING: FakeAgent = {
@@ -147,12 +147,13 @@ describe("Your agents", () => {
     expect(screen.queryByText("CX")).not.toBeInTheDocument();
   });
 
-  it("lets Codex without a login be chosen, shows its command, and does not block Start", async () => {
+  it("lets Codex without a login be chosen, offers to sign it in, and does not block Start", async () => {
     setup([CLAUDE, CODEX_NO_LOGIN]);
     mount();
     const codex = await screen.findByRole("radio", { name: "Codex" });
     expect(screen.getByText(copy.state.noLogin)).toBeInTheDocument();
-    expect(screen.getByText("codex login")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.connect.replace("{agent}", "Codex") })).toBeInTheDocument();
+    expect(screen.queryByText("codex login")).not.toBeInTheDocument();
     await userEvent.setup().click(codex);
     expect(codex).toBeChecked();
     expect(

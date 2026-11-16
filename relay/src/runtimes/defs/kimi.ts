@@ -5,7 +5,7 @@
 // Kimi. Every fact below was measured against Kimi Code CLI 2.6.0, logged
 // in through its own device-code flow, unless a comment says it was read
 // off the binary instead.
-import type { AgentRuntimeDef, ApprovalRequest, AuthProbeOutput, AuthStatus, FailureClass, JsonRpcRequestSpec, RuntimeFailure, TurnContext, TurnHost } from "../types.js";
+import type { AgentRuntimeDef, ApprovalRequest, AuthProbeOutput, AuthStatus, FailureClass, LoginPrompt, JsonRpcRequestSpec, RuntimeFailure, TurnContext, TurnHost } from "../types.js";
 import {
   ACP_HISTORY_METHOD,
   acpInitialize,
@@ -140,6 +140,20 @@ function configureSession(ctx: TurnContext, sessionId: string): readonly JsonRpc
   ];
 }
 
+/** `kimi login`'s prompt, as Kimi Code CLI 2.6.0 prints it:
+ * `Opening browser for Kimi device login: <url carrying user_code>`, then
+ * `If the browser did not open, paste the URL above and enter code: <code>`
+ * and `Code expires in <n>s.`. The URL already carries the code, so opening
+ * it is all the person does; the code is shown so they can check it. Waits
+ * for the code line, which is what ends the URL's. */
+export function parseKimiLoginPrompt(output: string): LoginPrompt | undefined {
+  const url = /device login:\s*(https:\/\/\S+)/.exec(output)?.[1];
+  const userCode = /enter code:\s*([A-Z0-9-]+)\s*\n/.exec(output)?.[1];
+  if (!url || !userCode) return undefined;
+  const expires = /expires in (\d+)s/.exec(output)?.[1];
+  return expires ? { url, userCode, expiresInSec: Number(expires) } : { url, userCode };
+}
+
 /**
  * `kimi provider list`: a line per configured provider when logged in
  * (`managed:kimi-code  type=kimi  models=6  source=oauth`), `No providers
@@ -205,7 +219,7 @@ export const kimiRuntimeDef: AgentRuntimeDef<undefined> = {
   // Models the subscription doesn't include are listed too — the picker
   // does the same, and a turn on one fails with a usage-limit error.
   models: { kind: "session-rpc" },
-  auth: { kind: "cli-probe", args: ["provider", "list"], parse: parseKimiProviderList, loginCommand: ["login"] },
+  auth: { kind: "cli-probe", args: ["provider", "list"], parse: parseKimiProviderList, login: { kind: "cli-device", args: ["login"], parsePrompt: parseKimiLoginPrompt } },
   permissions: {
     defaultModeId: "default",
     // Kimi's own four modes, ids verbatim (`session/new`'s `modes`), the

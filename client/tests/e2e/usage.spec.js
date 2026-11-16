@@ -5,7 +5,7 @@ import { startPlanUsageMachine } from "./fixtures/planUsageRelay.mjs";
 // Plan usage in the real Tauri window, against two real relays (one per
 // profile) with the fake `claude`: the status bar's indicator, its card, the
 // refresh that forces a probe, the other profile shown only in the card, the
-// compact form and an agent with no login. The numbers come from the fake's
+// compact form, and an agent with no login left out of both. The numbers come from the fake's
 // `rate_limit_event`, read by the relay's own probe — nothing in the app is
 // stubbed.
 //
@@ -97,14 +97,16 @@ describe("plan usage", () => {
     await machine?.stop();
   });
 
-  it("shows the active profile's agents in the status bar, Codex with no login", async () => {
+  it("shows the active profile's signed-in agents in the status bar, leaving Codex (no login) out", async () => {
     await indicator().waitForExist({ timeout: 30000 });
     // Nothing probed Claude yet (the relay never probes on its own without a
-    // known active window); Codex is installed with its login lost.
-    await browser.waitUntil(async () => /Codex not signed in/.test(await label(indicator())), {
+    // known active window); Codex is installed with its login lost, and an
+    // agent with no login is not part of the usage views.
+    await browser.waitUntil(async () => /^Usage: Claude Code/.test(await label(indicator())), {
       timeout: 20000,
-      timeoutMsg: "the indicator never said Codex has no login",
+      timeoutMsg: "the indicator never showed Claude",
     });
+    if (/Codex/.test(await label(indicator()))) throw new Error(`the indicator shows Codex, which has no login: ${await label(indicator())}`);
     const button = await indicator();
     if ((await button.getAttribute("aria-haspopup")) !== "dialog") throw new Error("the indicator must announce a dialog");
     if ((await button.getAttribute("aria-expanded")) !== "false") throw new Error("the indicator must start collapsed");
@@ -128,28 +130,28 @@ describe("plan usage", () => {
     });
 
     // The probes' readings arrive by push: 58% here, 91% on the other profile.
-    await browser.waitUntil(async () => /^Usage: Claude Code 58% 5h; Codex not signed in$/.test(await label(indicator())), {
+    await browser.waitUntil(async () => /^Usage: Claude Code 58% 5h$/.test(await label(indicator())), {
       timeout: 20000,
       timeoutMsg: "the indicator never showed the probed reading",
     });
     // Read in one pass inside the webview: the card's meters, its profile
-    // order and the login commands it offers.
+    // order, and that it offers no login command.
     const seen = await browser.execute(() => {
       const root = document.querySelector("[data-usage-card]");
       const all = (selector, read) => Array.from(root?.querySelectorAll(selector) ?? []).map(read);
       return {
         meters: all('[role="meter"]', (meter) => meter.getAttribute("aria-valuenow")).join(","),
         order: all("[data-usage-profile]", (section) => section.getAttribute("data-usage-profile")).join(","),
-        lost: all("[data-usage-profile] [data-usage-signed-out] code", (code) => code.closest("[data-usage-profile]").getAttribute("data-usage-profile") + ":" + code.textContent).join(","),
-        notUsed: all("[data-usage-not-used] code", (code) => code.closest("[data-usage-profile]").getAttribute("data-usage-profile") + ":" + code.textContent).join(","),
+        codex: all('[data-usage-account="codex"]', () => "codex").length,
+        commands: all("code", (code) => code.textContent).join(","),
       };
     });
     if (seen.meters !== "58,41,91,64") throw new Error(`card meters: expected 58,41,91,64, got ${seen.meters}`);
     if (seen.order !== "e2e-pessoal,e2e-trabalho") throw new Error(`profiles out of order: ${seen.order}`);
-    // A lost login gets the orange strip; an agent never used on the
-    // profile, one quiet line — both with the command.
-    if (seen.lost !== "e2e-pessoal:codex login") throw new Error(`lost-login strips: ${seen.lost}`);
-    if (seen.notUsed !== "e2e-trabalho:codex login") throw new Error(`never-used lines: ${seen.notUsed}`);
+    // Codex has no login on either profile (lost on one, never made on the
+    // other): neither shows, and nothing offers a command.
+    if (seen.codex !== 0) throw new Error(`the card shows Codex ${String(seen.codex)} time(s)`);
+    if (seen.commands !== "") throw new Error(`the card offers commands: ${seen.commands}`);
     // On the left: flush with the window's left edge, above the indicator,
     // its border on the top and right only. Measured once the popover has
     // re-placed itself for the content that just arrived (and the 140ms

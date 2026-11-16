@@ -46,6 +46,38 @@ if (process.argv.includes("--version")) {
   console.log("2.6.0");
   process.exit(0);
 }
+// FAKE_ACP_PIDS, if set, gets one line per ACP process started (its pid),
+// so a test can tell whether a session's daemon is still running.
+if (process.env.FAKE_ACP_PIDS && process.argv[2] === "acp") fs.appendFileSync(process.env.FAKE_ACP_PIDS, `${process.pid}\n`);
+// `kimi provider list`, the auth probe: logged in, as 2.6.0 prints it.
+if (process.argv[2] === "provider" && process.argv[3] === "list") {
+  process.stdout.write("managed:kimi-code  type=kimi  models=6  source=oauth\n\nDefault model: kimi-code/kimi-for-coding\n");
+  process.exit(0);
+}
+// `kimi login`, the device flow, as 2.6.0 prints it. FAKE_ACP_LOGIN picks
+// the outcome: `approve` (default; exits 0 after 50 ms, as if the person
+// approved), `deny` (exits 1) or `hang` (waits until killed).
+// FAKE_ACP_LOGIN_PID_FILE gets this process's pid.
+if (process.argv[2] === "login") {
+  if (process.env.FAKE_ACP_LOGIN_PID_FILE) fs.writeFileSync(process.env.FAKE_ACP_LOGIN_PID_FILE, String(process.pid));
+  process.stdout.write(
+    "Opening browser for Kimi device login: https://www.kimi.ai/code/authorize_device?user_code=FAKE-CODE\n" +
+      "If the browser did not open, paste the URL above and enter code: FAKE-CODE\n" +
+      "Code expires in 1800s.\n" +
+      "Waiting for authorization to complete…\n",
+  );
+  const outcome = process.env.FAKE_ACP_LOGIN ?? "approve";
+  if (outcome === "hang") setInterval(() => {}, 1000);
+  else
+    setTimeout(() => {
+      if (outcome === "deny") {
+        process.stderr.write("Error: authorization was denied\n");
+        process.exit(1);
+      }
+      process.stdout.write("Logged in.\n");
+      process.exit(0);
+    }, 50);
+}
 
 const STATE = process.env.FAKE_ACP_STATE;
 const LOG = process.env.FAKE_ACP_LOG;
@@ -328,13 +360,16 @@ function handle(message) {
   }
 }
 
-const rl = readline.createInterface({ input: process.stdin });
-rl.on("line", (line) => {
-  if (!line.trim()) return;
-  try {
-    handle(JSON.parse(line));
-  } catch (err) {
-    process.stderr.write(`fake-acp-agent: ${err}\n`);
-  }
-});
-rl.on("close", () => process.exit(0));
+// `kimi login` above speaks no ACP, and must not exit on stdin closing.
+if (process.argv[2] !== "login" && process.argv[2] !== "provider") {
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.on("line", (line) => {
+    if (!line.trim()) return;
+    try {
+      handle(JSON.parse(line));
+    } catch (err) {
+      process.stderr.write(`fake-acp-agent: ${err}\n`);
+    }
+  });
+  rl.on("close", () => process.exit(0));
+}

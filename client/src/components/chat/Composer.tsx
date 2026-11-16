@@ -50,6 +50,13 @@ export interface ComposerProps {
   profile: Profile;
   onSend: (text: string, images: PendingAttachment[]) => void;
   disabled?: boolean;
+  /** Why nothing can be sent right now (the agent has no login on this
+   * profile), shown on the send button. The text can still be typed — and
+   * the agent picker used, switching to one that is signed in. */
+  sendBlockedReason?: string;
+  /** A send attempted while it is blocked (Enter, or a click on the
+   * button): the reason may be stale, and this is the cue to check. */
+  onBlockedSend?: () => void;
   turnInFlight: boolean;
   /** Epoch ms of the turn's start, for the clock on the stop button. */
   turnStartedAt?: number | null;
@@ -489,6 +496,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     profile,
     onSend,
     disabled,
+    sendBlockedReason,
+    onBlockedSend,
     turnInFlight,
     turnStartedAt,
     onStop,
@@ -560,7 +569,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // relay disconnected), silently dropping the message (`RelayClient.sendMessage`
   // no-ops on a closed socket) since only the send *button* checked `canSend`.
   const disabledRef = useRef(disabled);
-  disabledRef.current = disabled;
+  disabledRef.current = disabled || sendBlockedReason !== undefined;
+  const blockedRef = useRef(false);
+  blockedRef.current = !disabled && sendBlockedReason !== undefined;
+  const onBlockedSendRef = useRef(onBlockedSend);
+  onBlockedSendRef.current = onBlockedSend;
   // Names of the attachments already in the message, for `pastedTextName`.
   const pendingImagesRef = useRef(pendingImages);
   pendingImagesRef.current = pendingImages;
@@ -630,6 +643,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           if (!disabledRef.current) submitRef.current();
+          else if (blockedRef.current) onBlockedSendRef.current?.();
           return true;
         }
         // Empty field with a suggestion shown as a placeholder (see
@@ -781,7 +795,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const typoQuestion = copy.typo.question.split("{command}");
   const isRecording = voice.state === "recording";
   const isTranscribing = voice.state === "transcribing";
-  const canSend = !disabled && !uploadingImage && (!isEmpty || pendingImages.length > 0);
+  const canSend = !disabled && sendBlockedReason === undefined && !uploadingImage && (!isEmpty || pendingImages.length > 0);
 
   return (
     <form
@@ -946,6 +960,25 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top">{copy.sendWaitingForUpload}</TooltipContent>
+            </Tooltip>
+          ) : sendBlockedReason !== undefined ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* The button itself is disabled and takes no clicks; the
+                    wrapper does, as the cue to check the login again. */}
+                <span tabIndex={0} className="inline-flex" onClick={() => onBlockedSend?.()}>
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled
+                    aria-label={sendBlockedReason}
+                    className="ml-1.5 size-[30px] disabled:border-transparent disabled:bg-surface-hover disabled:text-text-faint disabled:opacity-100"
+                  >
+                    <ArrowUp className="size-4" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">{sendBlockedReason}</TooltipContent>
             </Tooltip>
           ) : (
             <Button

@@ -1,9 +1,9 @@
 import { useId } from "react";
 import { ArrowUpRight, Check } from "lucide-react";
 import { AgentLogo } from "@/components/chat/AgentLogo";
-import { CommandLine } from "@/components/firstrun/CommandLine";
 import { QuietLink } from "@/components/firstrun/QuietLink";
 import { Spinner } from "@/components/firstrun/Spinner";
+import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";
 import type { AgentCardState, AgentInfo } from "@/lib/install/agentsCatalog";
@@ -15,7 +15,8 @@ export interface AgentCardModel {
   bin: string;
   state: AgentCardState;
   version: string | null;
-  loginCommand: string | null;
+  /** The relay can sign this agent in from the app (`/agent-login`). */
+  signIn: boolean;
   installUrl: string | null;
   docsUrl: string | null;
 }
@@ -26,7 +27,7 @@ export function cardModelFromInfo(info: AgentInfo, state: AgentCardState): Agent
     bin: info.bin,
     state,
     version: info.version,
-    loginCommand: info.loginCommand,
+    signIn: info.signIn,
     installUrl: info.installUrl,
     docsUrl: info.docsUrl,
   };
@@ -35,14 +36,22 @@ export function cardModelFromInfo(info: AgentInfo, state: AgentCardState): Agent
 /**
  * One agent, as the "Your agents" screen shows it: a mark, the name, what the
  * relay found (`bin · vX.Y.Z`) and one of four states. Ready is green
- * (`--diff-add`); No login keeps the accent dot and shows the command to
- * copy, never runs it; Not found is a hollow card with the way to install.
+ * (`--diff-add`); No login keeps the accent dot and offers to sign in from
+ * here (`onSignIn`); Not found is a hollow card with the way to install.
  *
  * `choice` makes the card a radio of the group named `name`; without it the
  * card is just a row. The radio is a real input hidden behind the card, so
  * the group has native keyboard handling and the card carries the focus ring.
  */
-export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: { name: string; checked: boolean; onSelect: () => void } }) {
+export function AgentCard({
+  agent,
+  choice,
+  onSignIn,
+}: {
+  agent: AgentCardModel;
+  choice?: { name: string; checked: boolean; onSelect: () => void };
+  onSignIn?: () => void;
+}) {
   const dict = useDict();
   const copy = dict.firstRun.agents;
   const agentName = dict.chat.composer.agentNames[agent.id as KnownAgentId] ?? agent.id;
@@ -108,7 +117,13 @@ export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: {
       {agent.state === "noLogin" && (
         <div className="flex flex-col gap-2.5 sm:pl-12">
           <p className="max-w-[60ch] text-[length:calc(13px*var(--font-scale-ratio))] leading-[1.6] text-pretty text-muted-foreground">{copy.noLoginHint}</p>
-          {agent.loginCommand && <CommandLine command={agent.loginCommand} />}
+          {agent.signIn && onSignIn && (
+            <div>
+              <Button type="button" size="sm" variant="outline" onClick={onSignIn}>
+                {copy.connect.replace("{agent}", agentName)}
+              </Button>
+            </div>
+          )}
         </div>
       )}
       {missing && (agent.installUrl || agent.docsUrl) && (

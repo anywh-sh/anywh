@@ -312,5 +312,12 @@ export type AgentEvent =
   | { type: "context_attribution"; toolUseIds: string[]; tokens: number; estimated: boolean }
   /** Synthesized by the session — replaces `turn_error`. A turn-ending
    * failure (spawn error, the CLI exiting non-zero, an unrecoverable `result`
-   * error) — never a tool-level error, which is `tool_ended.isError`. */
-  | { type: "error"; message: string };
+   * error) — never a tool-level error, which is `tool_ended.isError`.
+   * `failureClass` is the agent's own reading of the failure, when its def
+   * classifies one: `"auth"` is what lets the client offer to sign the agent
+   * back in. Absent from a relay older than the field, and for an agent
+   * whose def doesn't classify. */
+  | { type: "error"; message: string; failureClass?: TurnFailureClass };
+
+/** Why a turn failed, as far as the agent's own message says. */
+export type TurnFailureClass = "session-invalid" | "auth" | "transient" | "usage-limit" | "not-installed";

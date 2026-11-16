@@ -113,8 +113,23 @@ describe("AddProfileDialog", () => {
     expect(JSON.parse(validateCall?.[1].body ?? "{}")).toMatchObject({ runtimeId: "codex" });
   });
 
-  it("names the picked agent in the not-logged-in instruction, instead of always saying claude", async () => {
+  it("offers to sign the picked agent in under the typed folder, through the active relay", async () => {
     relay.loggedIn = false;
+    const opened: string[] = [];
+    vi.stubGlobal(
+      "WebSocket",
+      class {
+        readonly OPEN = 1;
+        readyState = 1;
+        onmessage = null;
+        onclose = null;
+        constructor(url: string) {
+          opened.push(url);
+        }
+        send() {}
+        close() {}
+      },
+    );
     const user = userEvent.setup();
     render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);
 
@@ -123,7 +138,11 @@ describe("AddProfileDialog", () => {
     await user.type(body().getByLabelText(copy.homeLabel), "/home/user/.anywh-client-x");
     await user.click(body().getByRole("button", { name: copy.verify }));
 
-    expect(await screen.findByText(/HOME=\/home\/user\/\.anywh-client-x codex login/)).toBeInTheDocument();
+    expect(await screen.findByText(copy.notLoggedIn.replace("{agent}", "Codex"))).toBeInTheDocument();
+    expect(screen.queryByText(/codex login/)).not.toBeInTheDocument();
+    await user.click(body().getByRole("button", { name: copy.connect }));
+    await waitFor(() => expect(opened).toHaveLength(1));
+    expect(opened[0]).toBe(`ws://127.0.0.1:8788/agent-login?runtime=codex&home=${encodeURIComponent("/home/user/.anywh-client-x")}`);
   });
 
   it("offers the copy only once a separate config path exists to copy into", async () => {

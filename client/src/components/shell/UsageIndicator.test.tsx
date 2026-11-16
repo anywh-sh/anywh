@@ -134,7 +134,7 @@ describe("UsageIndicator", () => {
     expect(button()).toHaveAccessibleName("Usage: Claude Code limit reached, back in 58m");
   });
 
-  it("shows a missing login with the accent dot, and an API key as a chip", () => {
+  it("shows an API key as a chip, and leaves out an agent with no login", () => {
     renderIndicator({
       pessoal: live([
         { runtime: "claude", status: "no_subscription", windows: [], observedAt: NOW },
@@ -142,35 +142,25 @@ describe("UsageIndicator", () => {
       ]),
     });
     expect(agent("claude")).toHaveTextContent("API key");
-    expect(agent("codex")).toHaveTextContent("not signed in");
-    expect(agent("codex").querySelector(".bg-primary")).not.toBeNull();
-    expect(button()).toHaveAccessibleName("Usage: Claude Code API key; Codex not signed in");
+    expect(agent("codex")).toBeNull();
+    expect(button()).toHaveAccessibleName("Usage: Claude Code API key");
   });
 
-  it("leaves out an agent never signed in on this profile, and keeps a lost login orange", () => {
-    const { rerender } = renderIndicator({
-      pessoal: live([claude(58), { runtime: "codex", status: "signed_out", windows: [], observedAt: null, everSignedIn: false }]),
+  it("leaves out a lost login and one never made alike", () => {
+    renderIndicator({
+      pessoal: live([
+        claude(58),
+        { runtime: "codex", status: "signed_out", windows: [], observedAt: null, everSignedIn: true },
+        { runtime: "kimi", status: "signed_out", windows: [], observedAt: null, everSignedIn: false },
+      ]),
     });
     expect(agent("codex")).toBeNull();
-    expect(button().querySelector(".bg-primary")).toBeNull();
+    expect(agent("kimi")).toBeNull();
     expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h");
-
-    rerender(
-      <LocaleProvider>
-        <UsageIndicator
-          profileId="pessoal"
-          byProfile={{ pessoal: live([claude(58), { runtime: "codex", status: "signed_out", windows: [], observedAt: null, everSignedIn: true }]) }}
-          now={NOW}
-          expanded={false}
-        />
-      </LocaleProvider>,
-    );
-    expect(agent("codex").querySelector(".bg-primary")).not.toBeNull();
-    expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h; Codex not signed in");
   });
 
-  it("renders nothing when the only agent was never signed in here", () => {
-    const { container } = renderIndicator({ pessoal: live([{ runtime: "codex", status: "signed_out", windows: [], observedAt: null, everSignedIn: false }]) });
+  it("renders nothing when no agent is signed in here", () => {
+    const { container } = renderIndicator({ pessoal: live([{ runtime: "codex", status: "signed_out", windows: [], observedAt: null, everSignedIn: true }]) });
     expect(container).toBeEmptyDOMElement();
   });
 

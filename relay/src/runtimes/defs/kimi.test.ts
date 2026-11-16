@@ -8,7 +8,7 @@ import { BILLED_CREDENTIAL_VARS } from "../executables.js";
 import type { ApprovalRequest } from "../types.js";
 import type { AcpPermissionParams } from "./acp.js";
 import { acpApprovalRequest } from "./acp.js";
-import { classifyKimiFailure, kimiApprovalParams, kimiDeferrable, parseKimiTurnFailure, kimiQuestion, kimiRuntimeDef, parseKimiProviderList } from "./kimi.js";
+import { classifyKimiFailure, kimiApprovalParams, kimiDeferrable, parseKimiTurnFailure, kimiQuestion, kimiRuntimeDef, parseKimiLoginPrompt, parseKimiProviderList } from "./kimi.js";
 
 // Shapes recorded from Kimi Code CLI 2.6.0 (`kimi acp`, `kimi provider list`).
 const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../tests/fixtures/kimi-acp-2.6.0-updates.json"), "utf8")) as { questionTurn: unknown[] };
@@ -37,7 +37,6 @@ test("auth: `kimi provider list` names a provider when logged in and none when n
   const loggedOut = { stdout: "No providers configured.\n", stderr: "", exitCode: 0 };
   assert.deepEqual(parseKimiProviderList(loggedIn), { loggedIn: true });
   assert.deepEqual(parseKimiProviderList(loggedOut), { loggedIn: false });
-  assert.deepEqual(kimiRuntimeDef.auth.loginCommand, ["login"]);
 });
 
 test("the turn's picks become Kimi's own settings, mode first and the level after the model", () => {
@@ -154,4 +153,25 @@ test("a turn Kimi recorded as failed is read off its session log, with Kimi's ow
   assert.equal(parseKimiTurnFailure(lines, TURN_ENDED.failed.time + 1), undefined);
   assert.equal(parseKimiTurnFailure([JSON.stringify(TURN_ENDED.completed)], TURN_ENDED.completed.time - 1000), undefined);
   assert.equal(parseKimiTurnFailure([], 0), undefined);
+});
+
+// `kimi login`'s output on 2.6.0, verbatim (fresh $HOME, no terminal).
+const KIMI_LOGIN_OUTPUT =
+  "Opening browser for Kimi device login: https://www.kimi.ai/code/authorize_device?user_code=KBD0-XD2T\n" +
+  "If the browser did not open, paste the URL above and enter code: KBD0-XD2T\n" +
+  "Code expires in 1800s.\n" +
+  "Waiting for authorization to complete…\n";
+
+test("login: `kimi login` is a device flow whose URL already carries the code", () => {
+  assert.equal(kimiRuntimeDef.auth.login?.kind, "cli-device");
+  assert.deepEqual(parseKimiLoginPrompt(KIMI_LOGIN_OUTPUT), {
+    url: "https://www.kimi.ai/code/authorize_device?user_code=KBD0-XD2T",
+    userCode: "KBD0-XD2T",
+    expiresInSec: 1800,
+  });
+});
+
+test("login: the prompt waits until the code's line has ended", () => {
+  assert.equal(parseKimiLoginPrompt(KIMI_LOGIN_OUTPUT.slice(0, 90)), undefined);
+  assert.equal(parseKimiLoginPrompt(KIMI_LOGIN_OUTPUT.split("\n").slice(0, 1).join("\n") + "\nIf the browser did not open, paste the URL above and enter code: KBD0"), undefined);
 });

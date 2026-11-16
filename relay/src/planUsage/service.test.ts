@@ -823,3 +823,40 @@ test("kimi: not reported, nor read, while it isn't installed", async () => {
   assert.equal(t.calls.kimiRead, 0);
   assert.equal(t.kimi(), undefined);
 });
+
+test("accountChanged: a cached signed-out state and its refresh floor are dropped, and the runtime is read again at once", async () => {
+  const t = harness({ installed: ["claude", "codex"] });
+  t.h.codex = () => Promise.resolve({ kind: "auth", status: "signed_out" });
+  t.service.connectClient();
+  await settle();
+  await t.service.refresh({ force: true, runtime: "codex" });
+  assert.equal(t.codex()?.status, "signed_out");
+  const readsBefore = t.calls.codexRead;
+  // Inside the force floor: the button alone would answer from the cache.
+  await t.service.refresh({ force: true, runtime: "codex" });
+  assert.equal(t.calls.codexRead, readsBefore);
+
+  t.h.codex = () =>
+    Promise.resolve({
+      kind: "reading",
+      reading: { status: "ok", windows: [{ durationMins: 300, usedPercent: 5, resetsAt: t.h.now + 60 * MIN, limitId: "codex" }], observedAt: t.h.now, source: "app_server_read" },
+      identity: null,
+    });
+  const closesBefore = t.calls.codexClose;
+  await t.service.accountChanged("codex");
+  assert.equal(t.calls.codexClose, closesBefore + 1, "the reader holding the old login is stopped");
+  assert.equal(t.calls.codexRead, readsBefore + 1);
+  assert.equal(t.codex()?.status, "ok");
+  assert.equal(t.codex()?.everSignedIn, true);
+});
+
+test("accountChanged: Claude is re-read past its floor, and an unknown runtime is ignored", async () => {
+  const t = harness();
+  t.service.connectClient();
+  await settle();
+  await t.service.refresh({ force: true, runtime: "claude" });
+  const probesBefore = t.calls.probe;
+  await t.service.accountChanged("claude");
+  assert.equal(t.calls.probe, probesBefore + 1);
+  await t.service.accountChanged("not-an-agent");
+});

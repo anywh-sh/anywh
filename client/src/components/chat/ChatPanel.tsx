@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { agentName } from "@/components/chat/AgentModelEffortButton";
+import { AgentLoginDialog, type AgentLoginTarget } from "@/components/shell/AgentLoginDialog";
+import { useAgentSignedOut } from "@/hooks/planUsage/useAgentSignedOut";
+import { requestPlanUsageRefresh } from "@/lib/planUsage/signedOutAgents";
+import { Button } from "@/components/ui/button";
 import { trackError, trackFeature, trackPromptSent, trackSessionStarted } from "@/lib/telemetry/instrument";
 import { createPortal } from "react-dom";
 import { ImagePlus } from "lucide-react";
@@ -691,6 +696,30 @@ export function ChatPanel({
   // composer — so it reads as the tail of the conversation and scrolls with
   // it. Memoized because `MessageLog` is `memo`'d and this would otherwise be
   // a new element on every `ChatPanel` render.
+  // Signing the session's agent back in, from the chat that needs it: a
+  // strip above the composer while the profile's agent has no login, and the
+  // same action on a turn that failed for one. Desktop only for now: iOS
+  // reads no plan usage, so it would never know.
+  const agentSignedOut = useAgentSignedOut(profile.id, agentId) && !isIOS();
+  // Sending is blocked on this reading, so it has to be current: read the
+  // login again when the strip appears, and on each blocked send.
+  const recheckLogin = useCallback(() => {
+    if (agentId) requestPlanUsageRefresh(profile.id, agentId);
+  }, [profile.id, agentId]);
+  useEffect(() => {
+    if (agentSignedOut) recheckLogin();
+  }, [agentSignedOut, recheckLogin]);
+  const [agentLoginOpen, setAgentLoginOpen] = useState(false);
+  const agentLoginTarget = useMemo<AgentLoginTarget | null>(() => (agentId ? { profile, runtimeId: agentId } : null), [profile, agentId]);
+  const agentDisplayName = agentId ? agentName(dict.chat.composer.agentNames, agentId) : "";
+  const reconnect = useMemo(
+    () =>
+      isIOS() || !agentId
+        ? undefined
+        : { label: dict.chat.agentSignedOut.reconnect.split("{agent}").join(agentDisplayName), onClick: () => setAgentLoginOpen(true) },
+    [agentId, agentDisplayName, dict],
+  );
+
   const hasLaunchedInBackground = backgroundJobs.length > 0 || subagents.length > 0;
   const logTrailing = useMemo(
     () =>
@@ -978,6 +1007,7 @@ export function ChatPanel({
           cwd={cwd}
           isActiveTab={isActiveTab}
           trailing={logTrailing}
+          reconnect={reconnect}
         />
       ) : (
         <MessageLogSkeleton />
@@ -1021,6 +1051,16 @@ export function ChatPanel({
          * cap anyway) is untouched. */}
         <div className={cn(isIOS() ? "contents" : "w-full px-4")}>
           <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-[728px] flex-col")}>
+            {agentSignedOut && (
+              <div data-agent-signed-out className="mb-2 flex items-center gap-2.5 border border-border bg-bg-sidebar py-1.5 pr-1.5 pl-3">
+                <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span className="min-w-0 flex-1 text-xs text-foreground">{dict.chat.agentSignedOut.message.split("{agent}").join(agentDisplayName)}</span>
+                <Button type="button" size="sm" variant="outline" onClick={() => setAgentLoginOpen(true)}>
+                  {dict.chat.agentSignedOut.connect}
+                </Button>
+              </div>
+            )}
+
             {choicePrompt && (
               <ChoiceCard
                 promptId={choicePrompt.promptId}
@@ -1104,6 +1144,8 @@ export function ChatPanel({
                 onChangeDraft={setDraft}
                 onSend={handleSend}
                 className={showingIdle ? "shadow-lift" : undefined}
+                sendBlockedReason={agentSignedOut ? dict.chat.agentSignedOut.sendBlocked.split("{agent}").join(agentDisplayName) : undefined}
+                onBlockedSend={recheckLogin}
                 placeholder={roomMode ? dict.sala.newSession.placeholderRoom : undefined}
                 infoStart={
                   <WorkingDirectoryButton
@@ -1129,6 +1171,8 @@ export function ChatPanel({
        * (terminalSession.ts) and there's nothing for the file tree to list
        * without one — same gate the keyboard shortcuts don't have (they
        * already no-op on a group with no active tab, which subsumes this). */}
+      <AgentLoginDialog open={agentLoginOpen} onOpenChange={setAgentLoginOpen} target={agentLoginTarget} />
+
       {panelTogglesSlot && files && terminal
         ? createPortal(
             <>

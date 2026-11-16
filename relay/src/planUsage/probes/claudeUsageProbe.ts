@@ -26,6 +26,7 @@ import { dirname, join, sep } from "node:path";
 import { sessionsRoot } from "../../agentHost/paths.js";
 import { buildChildEnv } from "../../host/childEnv.js";
 import { claudeRuntimeDef } from "../../runtimes/defs/claude/index.js";
+import { CLAUDE_API_KEY_PATTERN, CLAUDE_SIGNED_OUT_PATTERN } from "../../runtimes/probes/authStatus.js";
 import { EXTRA_PATH_DIRS, resolveAgentBin, stripBilledCredentials } from "../../runtimes/executables.js";
 import { claudeReadingStatus, parseClaudeRateLimitEvent, type ClaudeRateLimitStatus } from "../claudeEvent.js";
 import type { PlanUsageReading } from "../ingest.js";
@@ -123,11 +124,11 @@ export function claudeUsageAuthGate(auth: ClaudeUsageAuth): "probe" | "signed_ou
   return auth.authMethod === "claude.ai" ? "probe" : "no_subscription";
 }
 
-// The CLI's own words for "this login can't make the turn", seen in
-// journal/99 §1.5 ("Not logged in · Please run /login", "Invalid API key")
-// plus the API's `authentication_error`/401 for an expired or revoked token.
-const SIGNED_OUT_PATTERN = /not logged in|\/login|authentication_error|oauth token|token (has )?expired|\b401\b/i;
-const API_KEY_PATTERN = /invalid api key|x-api-key/i;
+// The CLI's own words for "this login can't make the turn"
+// (`CLAUDE_SIGNED_OUT_PATTERN`): one definition for the probe here and for a
+// chat turn's failure class.
+const SIGNED_OUT_PATTERN = CLAUDE_SIGNED_OUT_PATTERN;
+const API_KEY_PATTERN = CLAUDE_API_KEY_PATTERN;
 
 function parseLine(line: string): unknown {
   try {

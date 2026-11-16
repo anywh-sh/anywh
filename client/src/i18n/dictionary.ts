@@ -169,7 +169,28 @@ export interface Dictionary {
     profile: {
       sections: {
         general: string;
+        accounts: string;
         personalization: string;
+      };
+      /** One row per installed agent: which account it is signed in to on
+       * this profile's machine, and the button that signs it in. */
+      accounts: {
+        description: string;
+        signedInAs: string;
+        signedIn: string;
+        signedOut: string;
+        /** An agent whose login state the relay can't read. */
+        unknown: string;
+        connect: string;
+        switchAccount: string;
+        disconnect: string;
+        /** The confirmation before signing an agent out. `{agent}`. */
+        disconnectTitle: string;
+        disconnectBody: string;
+        disconnectFailed: string;
+        loading: string;
+        unreachable: string;
+        none: string;
       };
       home: {
         title: string;
@@ -414,6 +435,8 @@ export interface Dictionary {
       state: { ready: string; noLogin: string; missing: string; checking: string };
       meta: { notOnPath: string; searching: string };
       noLoginHint: string;
+      /** Signs the agent in from the card. `{agent}` is its name. */
+      connect: string;
       howToInstall: string;
       /** Beside `howToInstall`, when the CLI has a fuller install reference. */
       installDocs: string;
@@ -653,6 +676,15 @@ export interface Dictionary {
       /** `{reason}` — Codex's own explanation for why it's asking, appended
        * to whichever question text is in play above. */
       reasonSuffix: string;
+    };
+    /** Above the composer while the session's agent has no login on its
+     * profile, and on a turn that failed for one. `{agent}` is its name. */
+    agentSignedOut: {
+      message: string;
+      /** On the send button while the agent has no login. */
+      sendBlocked: string;
+      connect: string;
+      reconnect: string;
     };
     log: {
       loading: string;
@@ -1185,10 +1217,10 @@ export interface Dictionary {
         verify: string;
         verifying: string;
         creating: string;
-        /** `{path}` — the config path the command needs; `{agent}` — the
-         * CLI that owns the login, since which one it is now depends on
-         * the agent picked above. */
+        /** `{agent}` — the agent picked above, whose login was checked. */
         notLoggedIn: string;
+        /** Opens the agent sign-in for that folder, from the line above. */
+        connect: string;
         /** `{profile}` — the profile already using that path. */
         collides: string;
         confirmed: string;
@@ -1215,6 +1247,39 @@ export interface Dictionary {
       };
       /** Signing in to the MCP servers a carried setup brought along —
        * they travel declared, never authenticated. */
+      /** The agent account sign-in dialog (`AgentLoginDialog`). `{agent}` is
+       * the agent's display name, `{account}` the account it reports. */
+      agentLogin: {
+        title: string;
+        connecting: string;
+        openPage: string;
+        copyLink: string;
+        copied: string;
+        pasteLabel: string;
+        pastePlaceholder: string;
+        submit: string;
+        /** A device code the person types into the page. */
+        enterCode: string;
+        /** A device code already carried by the link: shown to compare. */
+        checkCode: string;
+        copyCode: string;
+        waiting: string;
+        signedIn: string;
+        signedInAs: string;
+        /** A code the CLI found malformed; the same login takes another. */
+        invalidCode: string;
+        rejected: string;
+        tryAgain: string;
+        superseded: string;
+        failed: string;
+        notSignedIn: string;
+        startFailed: string;
+        unreachable: string;
+        /** Above the CLI's own output, when no prompt could be read off it. */
+        rawOutput: string;
+        close: string;
+        done: string;
+      };
       mcpSignIn: {
         title: string;
         description: string;
@@ -1411,15 +1476,10 @@ export interface Dictionary {
       outdatedSummary: string;
       /** The details card (`UsageCard`). */
       card: {
-        /** Accessible name of a Copy button: "Copy codex login". */
-        copyCommand: string;
         /** When the refresh button can read again: "again in 48s". Shown
          * next to the reading's age while every relay would answer from its
          * cache. */
         againIn: string;
-        /** An agent installed but never logged in on this profile (relay's
-         * `everSignedIn: false`). Provisional copy: no design sign-off yet. */
-        notUsed: string;
         title: string;
         /** `{count}` profiles in the card's header, plural and singular. */
         profiles: string;
@@ -1437,11 +1497,10 @@ export interface Dictionary {
          * is `updatedAgo`. */
         staleSince: string;
         unsupported: string;
-        noAgents: string;
+        noAccounts: string;
         /** Repeated account: "same account as {profile}" — `{profile}` is
          * drawn as the profile's square and name. */
         sameAccount: string;
-        signedOut: string;
         /** The last read failed; the rows are the reading before it. */
         readErrorKept: string;
         /** Card line of an agent never read: the refresh button reads it. */
@@ -1461,12 +1520,10 @@ export interface Dictionary {
       /** One spent agent: "Claude Code limit reached, back in 58m". `{reset}`
        * is `resetsIn`/`resetsOn`, or empty when the reset time is unknown. */
       summaryLimited: string;
-      /** `{agent}` + one of the state words below: "Codex not signed in". */
+      /** `{agent}` + one of the state words below: "Codex API key". */
       summaryState: string;
       /** A window at 100%, with no reset time to say instead. */
       limited: string;
-      /** The CLI is installed but has no login. */
-      signedOut: string;
       /** Logged in with an API key or another non-plan login: no windows. */
       apiKey: string;
       /** Nothing read yet, and no read in progress. */

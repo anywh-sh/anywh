@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
 import type { InstallDoneEvent, LocalRelayProbe } from "@/lib/install/localRelay";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -65,7 +65,14 @@ function renderProfile(profile: Profile) {
   );
 }
 
+// No relay answers in this file: refused at once, rather than a real
+// request (and its timeout) outliving the test.
+beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+});
+
 afterEach(() => {
+  vi.unstubAllGlobals();
   cleanup();
   localInstallPossibleMock.mockReset().mockReturnValue(true);
   probeLocalRelayMock.mockReset().mockResolvedValue(probe());

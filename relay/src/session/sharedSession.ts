@@ -438,6 +438,8 @@ export class SharedSession implements SessionDriverHost {
    * doesn't go into `history`: a client connecting (or reconnecting) picks
    * up the current value via `addClient`, same as `sendCwdState`. */
   private turnStartedAt: number | null = null;
+  /** Set when the agent's account changed mid-turn (`recycleAgentProcess`). */
+  private recycleAfterTurn = false;
   /** `anywh-bg` jobs currently watched in this session.
    * Same as `contextUsage`/`suggestion`: in-memory only (doesn't persist
    * across a relay restart), it's `BackgroundJobTracker` itself that
@@ -532,6 +534,23 @@ export class SharedSession implements SessionDriverHost {
     // left for the active agent (cleared, lost, never created) answering it
     // would start a turn with no context, so drop it (and its stored copy).
     if (!this.driver.getSessionId()) this.choiceMachine.dropRehydrated();
+  }
+
+  /** `agentId` was just signed in or out, and a daemon this session still
+   * runs holds the credentials it started with. Stops it: the next turn
+   * starts a fresh process and resumes the same thread, the path the
+   * driver's own idle reaper already takes. A turn in flight is not cut
+   * short — its daemon is let go once it ends. Another agent, or a session
+   * run by the agent host, is left alone. Returns whether a process was let
+   * go now. */
+  recycleAgentProcess(agentId: string): boolean {
+    if (this.def.identity.id !== agentId || this.runsOutsideRelay()) return false;
+    if (this.turnStartedAt !== null) {
+      this.recycleAfterTurn = true;
+      return false;
+    }
+    this.driver.dispose();
+    return true;
   }
 
   /** Tears down anything the driver holds open beyond a single turn (a
@@ -1874,7 +1893,9 @@ export class SharedSession implements SessionDriverHost {
       turnError = message;
       console.error("[relay] turn failed:", message);
       release();
-      this.broadcast({ type: "agent_event", event: { type: "error", message } });
+      const code = (error as { code?: unknown } | null)?.code;
+      const failureClass = this.def.classifyFailure?.({ text: message, ...(typeof code === "number" ? { code } : {}) });
+      this.broadcast({ type: "agent_event", event: failureClass ? { type: "error", message, failureClass } : { type: "error", message } });
       this.notify(turnFailedDraft(this.title));
     } finally {
       this.turnGrants = [];
@@ -1897,6 +1918,12 @@ export class SharedSession implements SessionDriverHost {
       // end already has the failure tray the turn's outcome decided.
       synthetic?.onSettled?.(silenced);
       this.turnStartedAt = null;
+      // A sign-in or sign-out landed during the turn: its daemon still holds
+      // the old credentials.
+      if (this.recycleAfterTurn) {
+        this.recycleAfterTurn = false;
+        this.driver.dispose();
+      }
       this.broadcastTurnState();
     }
     if (turnError === undefined && !turnStopped) roomNote?.commit();

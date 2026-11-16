@@ -10,8 +10,6 @@ export function noteText(note: RuntimeNote, strings: UsageStrings): string {
   switch (note) {
     case "reading":
       return strings.reading;
-    case "signedOut":
-      return strings.signedOut;
     case "apiKey":
       return strings.apiKey;
     case "errorNetwork":

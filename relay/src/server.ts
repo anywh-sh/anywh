@@ -50,6 +50,7 @@ import { PLAN_USAGE_WATCH_PATH, handlePlanUsageConnection, handlePlanUsageRoutes
 import { dispatchChatMessage } from "./ws/chat.js";
 import { handleFilesConnection } from "./ws/files.js";
 import { handleMcpLoginConnection } from "./ws/mcpLogin.js";
+import { handleAgentLoginConnection } from "./ws/agentLogin.js";
 import { handleTerminalConnection } from "./ws/terminal.js";
 
 // Config via env — allows running one instance per profile (systemd,
@@ -597,6 +598,11 @@ wss.on("connection", (socket: WebSocket, request) => {
 
   if (url.pathname === "/mcp-login") {
     handleMcpLoginConnection(socket, url, routeContext);
+    return;
+  }
+
+  if (url.pathname === "/agent-login") {
+    handleAgentLoginConnection(socket, url, routeContext);
     return;
   }
 

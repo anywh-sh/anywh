@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";
+import { AgentLoginDialog } from "@/components/shell/AgentLoginDialog";
 import type { McpSignInTarget } from "@/components/shell/McpSignInDialog";
 import { addProfile, type Profile } from "@/lib/profiles/profiles";
 import { getHostInfo } from "@/lib/relay/filesClient";
@@ -80,6 +81,10 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
   const [copyConfig, setCopyConfig] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [collidesWith, setCollidesWith] = useState<string | null>(null);
+  // The chosen agent has no login under the typed folder: offered to sign
+  // it in from here, through the active profile's relay.
+  const [signedOut, setSignedOut] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
   const [creating, setCreating] = useState(false);
   const [applying, setApplying] = useState(false);
 
@@ -125,6 +130,7 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
     setValidation(null);
     setError(null);
     setCollidesWith(null);
+    setSignedOut(false);
   }, [homePath, runtimeId]);
 
   // What this host has for the chosen agent. Only meaningful with a config
@@ -156,6 +162,7 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
     setError(null);
     setCollidesWith(null);
     setValidation(null);
+    setSignedOut(false);
     try {
       const result = await validateProfile(activeProfile.host, activeProfile.relayPort, homePath.trim() || undefined, runtimeId);
       if (result.collidesWith) {
@@ -163,8 +170,7 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
         return;
       }
       if (!result.loggedIn) {
-        const homeForCommand = homePath.trim() || "<path>";
-        setError(copy.notLoggedIn.replace("{path}", homeForCommand).replace("{agent}", runtimeId));
+        setSignedOut(true);
         return;
       }
       setValidation({ account: result.account, plan: result.plan });
@@ -299,6 +305,14 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
           )}
 
           {error && <p className="text-sm text-destructive">{error}</p>}
+          {signedOut && (
+            <div data-add-profile-signed-out className="flex items-center gap-3">
+              <p className="min-w-0 flex-1 text-sm text-foreground">{copy.notLoggedIn.split("{agent}").join(agentNames[runtimeId as KnownAgentId] ?? runtimeId)}</p>
+              <Button type="button" size="sm" onClick={() => setSigningIn(true)}>
+                {copy.connect}
+              </Button>
+            </div>
+          )}
           {collidesWith && (
             <p className="text-sm text-destructive">{copy.collides.replace("{profile}", collidesWith)}</p>
           )}
@@ -326,6 +340,15 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
           </Button>
         </DialogFooter>
       </DialogContent>
+      <AgentLoginDialog
+        open={signingIn}
+        onOpenChange={setSigningIn}
+        target={signingIn ? { profile: activeProfile, runtimeId, ...(homePath.trim() ? { home: homePath.trim() } : {}) } : null}
+        onSignedIn={() => {
+          setSignedOut(false);
+          void handleVerify();
+        }}
+      />
     </Dialog>
   );
 }

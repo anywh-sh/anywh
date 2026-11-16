@@ -1,3 +1,4 @@
+import { AgentLoginDialog } from "@/components/shell/AgentLoginDialog";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, RefreshCw } from "lucide-react";
 import { AgentCard, cardModelFromInfo, type AgentCardModel } from "@/components/firstrun/AgentCard";
@@ -59,6 +60,7 @@ export function AgentsScreen({
   const [load, setLoad] = useState<Load>({ phase: "checking" });
   const [selected, setSelected] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [signingIn, setSigningIn] = useState<string | null>(null);
   const request = useRef(0);
   const profileRef = useRef(profile);
   profileRef.current = profile;
@@ -112,7 +114,7 @@ export function AgentsScreen({
         bin: id,
         state: "checking",
         version: null,
-        loginCommand: null,
+        signIn: false,
         installUrl: null,
         docsUrl: null,
       }))
@@ -207,6 +209,7 @@ export function AgentsScreen({
                         }
                       : undefined
                   }
+                  onSignIn={() => setSigningIn(card.id)}
                 />
               ))}
             </ul>
@@ -231,6 +234,14 @@ export function AgentsScreen({
           {checking && <QuietLink onClick={onOtherMachine}>{copy.otherMachine}</QuietLink>}
         </section>
       )}
+      <AgentLoginDialog
+        open={signingIn !== null}
+        onOpenChange={(next) => {
+          if (!next) setSigningIn(null);
+        }}
+        target={signingIn ? { profile, runtimeId: signingIn } : null}
+        onSignedIn={() => check()}
+      />
     </OnboardingFrame>
   );
 }

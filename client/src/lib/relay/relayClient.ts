@@ -28,7 +28,8 @@ import type {
 } from "@/lib/relay/relay-types";
 import type { Theme, ThemeValidationError } from "@/lib/theme/theme";
 import { catalogsFromLegacyDefaultModelState, recordModelCatalogs } from "@/lib/composer/modelCatalog";
-import { authHeaders } from "@/lib/profiles/connectionResolver";
+import { authHeaders, resolveConnection } from "@/lib/profiles/connectionResolver";
+import type { Profile } from "@/lib/profiles/profiles";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { WS_PROTOCOL_VERSION } from "@/lib/relay/protocolVersion";
 
@@ -239,6 +240,32 @@ export function openMcpLogin(host: string, port: number, runtimeId: string, serv
   const params = new URLSearchParams({ runtime: runtimeId, server: serverName });
   if (home) params.set("home", home);
   return new WebSocket(`ws://${host}:${port}/mcp-login?${params.toString()}`);
+}
+
+/** What `/agent-login` sends (relay `ws/agentLogin.ts`). */
+export type AgentLoginFrame =
+  | { type: "output"; data: string }
+  | { type: "prompt"; url: string; userCode?: string; expiresAt?: number; input: "code" | "none" }
+  | { type: "invalid-code"; detail: string }
+  | { type: "rejected"; detail?: string }
+  | { type: "done"; account?: string; plan?: string }
+  | { type: "error"; reason: AgentLoginErrorReason; detail?: string };
+
+export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "bad-home" | "start-failed" | "failed" | "not-signed-in" | "superseded";
+
+/** Opens the socket that signs `runtimeId` in on `profile`'s machine — the
+ * agent's own sign-in, run by that profile's relay under its own `$HOME`.
+ * The one frame in is `{type:"code", value}`, the code the person pasted.
+ * Resolved through `resolveConnection`, like every socket that has to work
+ * over a tailnet. Closing the socket ends the login. `home` is only for a
+ * profile being created, whose own relay doesn't exist yet: the sign-in
+ * then runs on `profile`'s relay, under the new profile's home. */
+export async function openAgentLogin(profile: Profile, runtimeId: string, home?: string): Promise<WebSocket> {
+  const { host, port, token } = await resolveConnection(profile);
+  const params = new URLSearchParams({ runtime: runtimeId });
+  if (home) params.set("home", home);
+  if (token) params.set("token", token);
+  return new WebSocket(`ws://${host}:${String(port)}/agent-login?${params.toString()}`);
 }
 
 /** What `GET /control/portability/mcp` reports for one config home. */

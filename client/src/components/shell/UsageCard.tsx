@@ -159,7 +159,7 @@ function ProfileSection({
           />
         ))}
         {group.data === "live" && group.accounts.length === 0 && (
-          <p className="px-4 py-2 font-mono text-[11px] text-text-faint">{card.noAgents}</p>
+          <p className="px-4 py-2 font-mono text-[11px] text-text-faint">{card.noAccounts}</p>
         )}
       </div>
     </section>

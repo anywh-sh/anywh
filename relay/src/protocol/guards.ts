@@ -323,3 +323,13 @@ export function isTerminalScrollMessage(value: unknown): value is { type: "scrol
     typeof (value as { lines?: unknown }).lines === "number"
   );
 }
+
+/** `/agent-login`'s one inbound frame: the code the person pasted. */
+export function isAgentLoginCodeMessage(value: unknown): value is { type: "code"; value: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "code" &&
+    typeof (value as { value?: unknown }).value === "string"
+  );
+}

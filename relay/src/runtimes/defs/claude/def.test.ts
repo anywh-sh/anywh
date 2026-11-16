@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertCoherent } from "../../registry.js";
-import { claudeRuntimeDef } from "./def.js";
+import { claudeRuntimeDef, parseClaudeInvalidCode, parseClaudeLoginPrompt } from "./def.js";
 import { CLAUDE_AGENT_ENV_OVERRIDES, CLAUDE_AGENT_WORKER_ENV } from "./session.js";
 import type { TurnContext } from "../../types.js";
 
@@ -63,9 +63,15 @@ test("permissions.modesFor: same four modes on every platform, default survives"
   assert.deepEqual(claudeRuntimeDef.permissions.modesFor("win32").map((mode) => mode.id), modes);
 });
 
-test("classifyFailure: session-invalid, usage-limit, not-installed, and a transient fallback", () => {
+test("classifyFailure: session-invalid, usage-limit, auth, not-installed, and a transient fallback", () => {
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "No conversation found to continue" }), "session-invalid");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Claude AI usage limit reached|1735689600" }), "usage-limit");
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Not logged in · Please run /login" }), "auth");
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}' }), "auth");
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Invalid API key · Please run /login" }), "auth");
+  // A 401 or a /login that isn't about the login stays transient.
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "TypeError: x is undefined\n    at run (cli.js:401:12)" }), "transient");
+  assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "fetch https://example.com/login failed" }), "transient");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "spawn claude ENOENT" }), "not-installed");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Overloaded" }), "transient");
 });
@@ -129,4 +135,22 @@ test("identity.env.set: probes and the terminal never carry the agent-worker opt
     assert.ok(!(name in CLAUDE_AGENT_ENV_OVERRIDES), `terminal env has ${name}`);
   }
   assert.equal(CLAUDE_AGENT_ENV_OVERRIDES.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "0");
+});
+
+// `claude auth login`'s output on 2.1.323 with no terminal (fresh $HOME),
+// URL shortened: everything after `visit: ` up to the newline is the URL.
+const CLAUDE_LOGIN_URL =
+  "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&code_challenge=abc&code_challenge_method=S256&state=xyz";
+const CLAUDE_LOGIN_OUTPUT = `Opening browser to sign in…\nIf the browser didn't open, visit: ${CLAUDE_LOGIN_URL}\nPaste code here if prompted > `;
+
+test("login: `claude auth login` asks for a pasted code, and the URL is read whole", () => {
+  assert.equal(claudeRuntimeDef.auth.login?.kind, "cli-paste");
+  assert.deepEqual(parseClaudeLoginPrompt(CLAUDE_LOGIN_OUTPUT), { url: CLAUDE_LOGIN_URL });
+  // Cut mid-URL: not yet.
+  assert.equal(parseClaudeLoginPrompt(CLAUDE_LOGIN_OUTPUT.slice(0, 120)), undefined);
+});
+
+test("login: a malformed code is told apart from the rest of the output", () => {
+  assert.equal(parseClaudeInvalidCode("Invalid code. Please make sure the full code was copied.\n"), "Invalid code. Please make sure the full code was copied.");
+  assert.equal(parseClaudeInvalidCode("Login failed: That code wasn't accepted.\n"), undefined);
 });

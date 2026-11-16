@@ -166,17 +166,75 @@ export interface AuthProbeOutput {
   readonly exitCode: number | null;
 }
 
+/** What a sign-in asks of the person, read off the CLI: the page to open
+ * and, for a device-code flow, the code that page wants. Never a secret —
+ * the code here is one the person reads *off* our UI and types into the
+ * provider's page, the opposite direction of a credential. */
+export interface LoginPrompt {
+  readonly url: string;
+  readonly userCode?: string;
+  readonly expiresInSec?: number;
+}
+
+/** How this CLI's own account sign-in runs when the relay drives it — so a
+ * person whose login lapsed can sign back in from the app instead of a
+ * terminal on the host. The relay only ever carries text to and from the
+ * CLI's own process: the sign-in itself completes on the provider's page,
+ * and the credential it ends in is written by the CLI into its own store.
+ *
+ * Every variant runs with the browser opener disabled (`BROWSER` pointed
+ * at a no-op): the page opens on the person's device, never on the host.
+ *
+ * - `cli-paste`: `identity.bin` + `args` prints a URL; the page the person
+ *   lands on shows a code they paste back, which goes to the CLI's stdin.
+ *   The CLI exits 0 once it took it. A code the provider refused ends the
+ *   process — the code is bound (PKCE) to the process that printed the URL,
+ *   so a retry is a new process and a new URL. A code the CLI itself sees is
+ *   malformed (`parseInvalidCode`) does not: it waits for another.
+ * - `cli-device`: `identity.bin` + `args` prints a URL (and a code); the
+ *   person approves on the page, nothing travels back, and the CLI exits 0
+ *   once the provider reports the approval.
+ * - `rpc-device`: the same device flow over the def's own JSON-RPC daemon
+ *   (`exec.kind === "jsonRpcDaemon"`, checked by `assertCoherent`), in
+ *   structured shapes instead of text a parser has to find. */
+export type LoginFlow =
+  | {
+      readonly kind: "cli-paste" | "cli-device";
+      readonly args: readonly string[];
+      /** Pure: everything the CLI printed so far (ANSI already stripped) in,
+       * the prompt once it is all there out — `undefined` means "not yet",
+       * and is called again as more output arrives. */
+      readonly parsePrompt: (output: string) => LoginPrompt | undefined;
+      /** Pure: what the CLI printed since a code was sent, to its own words
+       * when it found the code malformed and waits for another; `undefined`
+       * otherwise. Only `cli-paste` uses it. */
+      readonly parseInvalidCode?: (output: string) => string | undefined;
+    }
+  | {
+      readonly kind: "rpc-device";
+      readonly start: JsonRpcRequestSpec;
+      /** The start request's result, to the login's id and its prompt;
+       * `undefined` for a result in a shape this def doesn't know. */
+      readonly parseStart: (result: unknown) => { readonly loginId: string; readonly prompt: LoginPrompt } | undefined;
+      readonly cancel: (loginId: string) => JsonRpcRequestSpec;
+      /** The notification method that reports the outcome. */
+      readonly completedMethod: string;
+      readonly parseCompleted: (params: unknown) => { readonly loginId: string | null; readonly success: boolean; readonly error?: string } | undefined;
+    };
+
 export type AuthSource = (
   | { readonly kind: "cli-probe"; readonly args: readonly string[]; readonly parse: (output: AuthProbeOutput) => AuthStatus }
   | { readonly kind: "session-rpc" }
   | { readonly kind: "none" }
 ) & {
-  /** The args (after `identity.bin`) a person runs in a terminal to log
-   * this CLI in — shown to them, never spawned by the relay, since every
-   * CLI measured so far drives a browser or a TTY prompt the relay can't
-   * answer. Absent when the CLI has no such subcommand; meaningless (and
-   * rejected by `assertCoherent`) on `kind: "none"`. */
-  readonly loginCommand?: readonly string[];
+  /** How the relay signs this CLI in (`LoginFlow`). Absent when the CLI
+   * has no sign-in the relay can drive; meaningless (and rejected by
+   * `assertCoherent`) on `kind: "none"`. */
+  readonly login?: LoginFlow;
+  /** The args (after `identity.bin`) that sign this CLI out, removing the
+   * credentials its own login stored. Absent when the CLI has none — a
+   * hand-rolled file deletion would leave whatever else the CLI keeps. */
+  readonly logout?: readonly string[];
 };
 
 // ---------------------------------------------------------------------------

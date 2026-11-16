@@ -54,8 +54,9 @@ function waitForListen(port, child, output, timeoutMs = 60_000) {
 
 /**
  * Starts one relay per entry of `profiles` (`{ id, label, fiveHour,
- * sevenDay, codexUsedBefore? }`: the fractions its Claude account sits at
- * once probed, and whether Codex was ever logged in there), on one
+ * sevenDay, codexUsedBefore?, claudeSignedOut? }`: the fractions its Claude
+ * account sits at once probed, whether Codex was ever logged in there, and
+ * whether Claude starts logged out), on one
  * shared registry. Each gets its own home, so its own account key. Returns
  * the relays by id plus `stop()`, which ends exactly these processes.
  */
@@ -97,7 +98,7 @@ export async function startPlanUsageMachine(profiles) {
   };
 }
 
-async function startRelay(dir, envDir, port, { id, fiveHour, sevenDay, codexUsedBefore = false }) {
+async function startRelay(dir, envDir, port, { id, fiveHour, sevenDay, codexUsedBefore = false, claudeSignedOut = false }) {
   const home = join(dir, "home");
   const bin = join(dir, "bin");
   mkdirSync(home, { recursive: true });
@@ -124,6 +125,10 @@ async function startRelay(dir, envDir, port, { id, fiveHour, sevenDay, codexUsed
     }),
   );
   const invocations = join(dir, "claude-invocations.jsonl");
+  // Claude logged out: the fake's `auth status` says so while this file
+  // exists, and its `auth login` deletes it on the code `good-code`.
+  const loggedOutFile = join(dir, "claude-logged-out");
+  if (claudeSignedOut) writeFileSync(loggedOutFile, "");
   // A real `codex` on this machine must not be the one detected.
   const path = [bin, ...(process.env.PATH ?? "").split(delimiter).filter((entry) => entry && !existsSync(join(entry, "codex")))].join(delimiter);
 
@@ -148,6 +153,7 @@ async function startRelay(dir, envDir, port, { id, fiveHour, sevenDay, codexUsed
       ANYWH_SESSIONS_ROOT: join(dir, "sessions-root"),
       FAKE_CLAUDE_RATE_LIMIT_FILE: rateLimitFile,
       FAKE_CLAUDE_INVOCATIONS_FILE: invocations,
+      FAKE_CLAUDE_LOGGED_OUT_FILE: loggedOutFile,
     },
   });
   child.stdout.on("data", (chunk) => output.push(chunk.toString()));
