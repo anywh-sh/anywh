@@ -7,8 +7,6 @@
   --room-card-wait: var(--primary-ink);
   --room-card-fail: var(--destructive);
   --room-card-label: var(--text-faint);
-  --room-card-cta-bg: var(--foreground);
-  --room-card-cta-fg: var(--background);
 }
 
 /* On a pale page border-soft all but vanishes; the full border step is the

@@ -834,7 +834,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   size="icon-xs"
                   onClick={() => onRemoveImage(image.path)}
                   aria-label={copy.removeAttachment}
-                  className="absolute -top-1.5 -right-1.5 size-4 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-bg-elevated hover:text-destructive focus-visible:opacity-100"
+                  className="absolute -top-1.5 -right-1.5 size-4 text-muted-foreground opacity-0 transition-[color,opacity] group-hover:opacity-100 hover:bg-bg-elevated hover:text-destructive focus-visible:opacity-100"
                 >
                   <X className="size-2.5" />
                 </Button>

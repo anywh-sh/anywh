@@ -60,6 +60,9 @@ function parentOf(path: string): string {
   return segments.length === 0 ? "/" : `/${segments.join("/")}`;
 }
 
+/** A folder in the list: the dialog's mono, on the list's chrome ground. */
+const FOLDER_ROW = "gap-2.5 px-2 py-1.5 font-mono text-xs hover:bg-surface-hover";
+
 /**
  * Working directory picker modal — path field + navigable breadcrumb +
  * subfolder listing (never files) via `GET /fs/list` on the relay (the
@@ -69,9 +72,6 @@ function parentOf(path: string): string {
  * `WorkingDirectoryButton`, a sibling of the Composer in `ChatPanel`), so
  * the `stopPropagation` care from there doesn't apply here.
  */
-/** A folder in the list: the dialog's mono, on the list's chrome ground. */
-const FOLDER_ROW = "gap-2.5 px-2 py-1.5 font-mono text-xs hover:bg-surface-hover";
-
 export function FolderPickerDialog({
   open,
   onOpenChange,

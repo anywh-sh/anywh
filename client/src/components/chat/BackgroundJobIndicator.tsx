@@ -84,7 +84,7 @@ export function BackgroundJobIndicator({ jobs, onCancel }: BackgroundJobIndicato
             variant="secondary"
             size="sm"
             aria-label={strings.indicator.replace("{count}", String(jobs.length))}
-            className="px-2 font-normal"
+            className="px-2 text-xs font-normal hover:bg-border"
           >
             <Spinner size="md" />
             <span className="max-w-40 truncate">{label}</span>
@@ -125,7 +125,7 @@ export function BackgroundJobIndicator({ jobs, onCancel }: BackgroundJobIndicato
                       event.preventDefault();
                       setConfirmTarget(job);
                     }}
-                    className="size-4 hover:text-destructive"
+                    className="size-4 text-muted-foreground hover:bg-border hover:text-destructive"
                   >
                     <X className="size-3" />
                   </Button>
