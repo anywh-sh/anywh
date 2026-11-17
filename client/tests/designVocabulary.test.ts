@@ -304,7 +304,20 @@ function ratchet(actual: Record<string, number>, baseline: Record<string, number
   };
 }
 
+/**
+ * Elements made clickable with `role="button"`, the other way to hand-roll a
+ * button: it dodges the `<button>` count above, and carries a hand-written
+ * keyboard handler besides. Same ratchet. Usually the reason was a control
+ * nested inside (a tab and its ×); the way out is the trigger and the control
+ * as siblings, as `TabTrigger` does.
+ */
+const ROLE_BUTTON_BASELINE: Record<string, number> = {
+  "components/chat/activity/ToolCallRow.tsx": 1,
+  "components/files/FileTree.tsx": 1,
+};
+
 const rawButtons = () => ratchet(countsOutsidePrimitives(/<button(?=[\s>])/g), RAW_BUTTON_BASELINE);
+const roleButtons = () => ratchet(countsOutsidePrimitives(/role="button"/g), ROLE_BUTTON_BASELINE);
 const rawSpinners = () => ratchet(countsOutsidePrimitives(/\banimate-spin\b/g), RAW_SPINNER_BASELINE);
 
 describe("primitives", () => {
@@ -320,6 +333,14 @@ describe("primitives", () => {
     // A migrated file lowers its entry (or drops it) in the same change, so
     // the slack it freed can't be spent by the next hand-styled button.
     expect(rawButtons().stale).toEqual([]);
+  });
+
+  it("never fakes a button with role=\"button\"", () => {
+    expect(roleButtons().grew).toEqual([]);
+  });
+
+  it("keeps the role=\"button\" baseline tight", () => {
+    expect(roleButtons().stale).toEqual([]);
   });
 
   it("shows loading with Spinner instead of a hand-rolled animate-spin", () => {
