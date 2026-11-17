@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { AccountsSection } from "@/components/settings/AccountsSection";
 import { useEffect, useState } from "react";
 import { Folder, X } from "lucide-react";
@@ -57,21 +58,20 @@ function ChoiceButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="outline"
+      size="xs"
       onClick={onClick}
       title={title}
       disabled={disabled}
       aria-pressed={selected}
       className={cn(
-        "cursor-pointer border px-2.5 py-1 font-mono text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-        selected
-          ? "border-primary bg-primary-soft text-primary-ink"
-          : "border-border text-muted-foreground hover:border-text-faint hover:bg-surface-hover hover:text-foreground",
+        "h-auto px-2.5 py-1 text-[11.5px] font-normal hover:bg-surface-hover",
+        selected && "border-primary bg-primary-soft text-primary-ink hover:border-primary hover:bg-primary-soft hover:text-primary-ink",
       )}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -326,13 +326,13 @@ function IdentityRows({ profile, effectiveColorIndex }: { profile: Profile; effe
       <SettingsRow title={dict.settings.profile.color.title} description={dict.settings.profile.color.description}>
         <div className="flex items-center gap-1.5">
           {Array.from({ length: PROFILE_COLOR_COUNT }, (_, index) => (
-            <button
+            <TextButton
               key={index}
-              type="button"
+              tone="none"
               aria-label={dict.settings.profile.color.swatch.replace("{number}", String(index + 1))}
               onClick={() => void applyPatch({ colorIndex: index })}
               className={cn(
-                "size-5 shrink-0 cursor-pointer outline outline-offset-2",
+                "size-5 shrink-0 outline outline-offset-2",
                 profileColorClassForIndex(index),
                 effectiveColorIndex === index ? "outline-foreground" : "outline-transparent",
               )}

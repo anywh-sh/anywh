@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { ThemeSection } from "@/components/settings/ThemeSection";
 import {
@@ -39,13 +40,9 @@ function FontSizeControl() {
           {size}
         </span>
         {size !== DEFAULT_FONT_SIZE && (
-          <button
-            type="button"
-            onClick={() => setSize(DEFAULT_FONT_SIZE)}
-            className="cursor-pointer font-mono text-[10.5px] text-text-faint transition-colors hover:text-foreground"
-          >
+          <TextButton tone="faint" onClick={() => setSize(DEFAULT_FONT_SIZE)} className="font-mono text-[10.5px]">
             {dict.settings.appearance.fontSize.reset}
-          </button>
+          </TextButton>
         )}
       </div>
     </div>

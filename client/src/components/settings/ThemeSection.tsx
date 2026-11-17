@@ -1,3 +1,5 @@
+import { Button } from "@/components/ui/button";
+import { TextButton } from "@/components/ui/text-button";
 import { useState } from "react";
 import { Check, MoreHorizontal, Plus } from "lucide-react";
 import {
@@ -80,11 +82,7 @@ function ThemeCard({
 
   return (
     <div className={cn("group relative flex flex-col border bg-bg-chrome", selected ? "border-primary" : "border-border")}>
-      <button
-        type="button"
-        onClick={onSelect}
-        className="flex cursor-pointer flex-col text-left transition-colors hover:bg-surface-hover"
-      >
+      <TextButton tone="none" onClick={onSelect} className="flex flex-col hover:bg-surface-hover">
         <ThemePreview theme={theme} />
         <span className="flex items-center gap-2 px-2.5 py-2">
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -100,7 +98,7 @@ function ThemeCard({
             {selected && <Check className="size-2.5" />}
           </span>
         </span>
-      </button>
+      </TextButton>
 
       {/* The design has no per-theme actions at all; the app does (editing,
           exporting, deleting), so they live behind one control that only
@@ -108,13 +106,14 @@ function ThemeCard({
           wanted, invisible while choosing. */}
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             aria-label={copy.options.replace("{name}", theme.name)}
-            className="absolute top-1 right-1 flex size-6 cursor-pointer items-center justify-center border border-transparent bg-bg-chrome text-text-faint opacity-0 transition-colors group-hover:opacity-100 hover:border-border hover:text-foreground focus-visible:opacity-100"
+            className="absolute top-1 right-1 bg-bg-chrome text-text-faint opacity-0 group-hover:opacity-100 hover:bg-bg-chrome focus-visible:opacity-100 aria-expanded:opacity-100"
           >
             <MoreHorizontal className="size-3.5" />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {onEdit && <DropdownMenuItem onSelect={onEdit}>{dict.common.edit}</DropdownMenuItem>}
@@ -243,18 +242,18 @@ export function ThemeSection({ activeProfile }: { activeProfile: Profile }) {
         })}
 
         {supported && (
-          <button
-            type="button"
+          <TextButton
+            tone="faint"
             onClick={() => {
               setImportSeed(undefined);
               setImportIntent("import");
               setImportOpen(true);
             }}
-            className="flex min-h-[5.75rem] cursor-pointer flex-col items-center justify-center gap-1.5 border border-dashed border-border text-text-faint transition-colors hover:border-text-faint hover:bg-surface-hover hover:text-foreground"
+            className="flex min-h-[5.75rem] flex-col items-center justify-center gap-1.5 border border-dashed border-border hover:border-text-faint hover:bg-surface-hover"
           >
             <Plus className="size-4" />
             <span className="font-mono text-[10.5px]">{copy.add}</span>
-          </button>
+          </TextButton>
         )}
       </div>
 
