@@ -69,6 +69,13 @@ test("GET /files/list and /files/read are scoped to the session's own cwd, set v
   assert.equal(read.kind, "text");
   assert.equal(read.content, noteContent);
 
+  // The download progress bar divides by this header, and a cross-origin
+  // fetch only sees it when it's exposed.
+  const raw = await fetch(httpUrl(`/files/raw?session=session-files&path=${encodeURIComponent(join(workDir, "notes.txt"))}`));
+  assert.equal(raw.headers.get("content-length"), String(Buffer.byteLength(noteContent)));
+  assert.match(raw.headers.get("access-control-expose-headers") ?? "", /Content-Length/);
+  assert.equal(await raw.text(), noteContent);
+
   // A path outside the session's cwd is rejected regardless of what the
   // filesystem itself would allow — the actual "root confinement" contract
   // (resolveWithinRoot, fsFiles.ts), exercised here through the real route,

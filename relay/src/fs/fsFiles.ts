@@ -499,7 +499,9 @@ export function resolveChatPath(rawRoot: string, rawPath: string): ChatPathResol
   return { target: isDirectory ? null : join(root, ...segments), isDirectory, existingDirs: [] };
 }
 
-export type RawResult = { ok: true; path: string; mime: string } | { ok: false; error: FilesError };
+/** `size` is what the route sends as `Content-Length`, so the client can
+ * show a download's progress as a fraction instead of only a byte count. */
+export type RawResult = { ok: true; path: string; mime: string; size: number } | { ok: false; error: FilesError };
 
 /** Resolution/validation only — `server.ts` owns the actual byte streaming
  * (`createReadStream`), same split of responsibility as the rest of this
@@ -517,5 +519,5 @@ export function resolveRawFile(rawRoot: string, rawPath: string): RawResult {
   if (!stat.isFile()) return { ok: false, error: "not_found" };
 
   const mime = IMAGE_MIME_BY_EXT[extname(resolved.path).toLowerCase()] ?? "application/octet-stream";
-  return { ok: true, path: resolved.path, mime };
+  return { ok: true, path: resolved.path, mime, size: stat.size };
 }

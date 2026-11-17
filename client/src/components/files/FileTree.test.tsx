@@ -14,7 +14,8 @@ vi.mock("@/lib/relay/filesClient", () => ({
   renameFile: vi.fn(),
   getHostInfo: vi.fn(),
 }));
-vi.mock("@/lib/relay/fileDownload", () => ({
+vi.mock("@/lib/relay/fileDownload", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/relay/fileDownload")>()),
   downloadFile: vi.fn(),
   downloadFolder: vi.fn(),
 }));
@@ -123,7 +124,12 @@ describe("FileTree context menu", () => {
     expect(screen.getByText(en.panels.files.tree.delete)).toBeInTheDocument();
 
     await user.click(screen.getByText(en.panels.files.tree.download));
-    expect(downloadFile).toHaveBeenCalledWith(profile, "session-1", `${root}/notas.txt`, "notas.txt", 1000);
+    expect(downloadFile).toHaveBeenCalledWith(
+      profile,
+      "session-1",
+      expect.objectContaining({ path: `${root}/notas.txt`, name: "notas.txt", mtimeMs: 1000, size: 12 }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) as unknown }),
+    );
   });
 
   it("renames the file and reports the new path to the caller", async () => {
@@ -223,7 +229,29 @@ describe("FileTree context menu", () => {
     await user.pointer({ keys: "[MouseRight]", target: row });
     await user.click(await screen.findByText(en.panels.files.tree.download));
 
-    expect(downloadFolder).toHaveBeenCalledWith(profile, "session-1", `${root}/src`, "src", expect.any(Function));
+    expect(downloadFolder).toHaveBeenCalledWith(
+      profile,
+      "session-1",
+      `${root}/src`,
+      "src",
+      expect.objectContaining({ signal: expect.any(AbortSignal) as unknown, onStart: expect.any(Function) as unknown }),
+    );
+  });
+
+  it("treats a folder download cancelled from its toast as no error", async () => {
+    vi.mocked(downloadFolder).mockRejectedValueOnce(new DOMException("aborted", "AbortError"));
+    const alert = vi.fn();
+    vi.stubGlobal("alert", alert);
+    const user = userEvent.setup();
+    renderTree();
+    const row = await screen.findByText("src");
+
+    await user.pointer({ keys: "[MouseRight]", target: row });
+    await user.click(await screen.findByText(en.panels.files.tree.download));
+
+    await waitFor(() => expect(downloadFolder).toHaveBeenCalled());
+    expect(alert).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });
 
