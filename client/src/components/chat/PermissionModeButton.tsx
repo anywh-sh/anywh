@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { Button } from "@/components/ui/button";
 import { Asterisk, Check, ChevronDown, ClipboardList, SquareCheck, Zap, type LucideIcon } from "lucide-react";
 import {
   DropdownMenu,
@@ -6,7 +7,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { useDict } from "@/i18n";
 import { permissionModeCopy } from "@/lib/composer/permissionModeCopy";
 import type { PermissionMode, PermissionModeOption } from "@/lib/relay/relayClient";
@@ -63,16 +63,11 @@ export function PermissionModeButton({ mode, available, onChange, agentId }: Per
       }}
     >
       <DropdownMenuTrigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          disabled={mode === null}
-          className={cn(toolbarTriggerClass, "gap-[7px] hover:bg-surface-hover data-[state=open]:bg-surface-hover")}
-        >
+        <Button ref={triggerRef} variant="chrome" size="toolbar" disabled={mode === null} className="gap-[7px]">
           {mode !== null && <ModeMark option={available.find((option) => option.id === mode)} />}
           <span className="truncate">{mode !== null ? permissionModeCopy(copy, agentId, mode).label : copy.pending}</span>
           <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
-        </button>
+        </Button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="min-w-59">

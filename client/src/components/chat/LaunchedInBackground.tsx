@@ -1,3 +1,6 @@
+import { Spinner } from "@/components/ui/spinner";
+import { RowButton } from "@/components/ui/row-button";
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { logTailLines, type RunningSubagent } from "@/lib/format/backgroundActivity";
 import type { BackgroundJobSummary } from "@/lib/relay/relayClient";
@@ -50,11 +53,7 @@ function CardShell({
 }) {
   return (
     <div className="border border-border bg-card">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-2.5 px-2.5 py-2 text-left transition-colors hover:bg-bg-elevated"
-      >
+      <RowButton size="auto" onClick={onToggle} className="gap-2.5 px-2.5 py-2 hover:bg-bg-elevated">
         <span className="w-2.5 shrink-0 font-mono text-[10px] text-text-faint">{open ? "▾" : "▸"}</span>
         {glyph}
         <span
@@ -67,7 +66,7 @@ function CardShell({
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-foreground">{name}</span>
         <span className="shrink-0 font-mono text-[10.5px] text-text-faint">{meta}</span>
-      </button>
+      </RowButton>
       {!open && latest && (
         <div title={latest} className="-mt-1 truncate px-2.5 pb-2 pl-8 font-mono text-[10.5px] text-text-faint">
           {latest}
@@ -125,13 +124,9 @@ function ProcCard({
     >
       <CardLines lines={lines} empty={emptyLog} />
       <div className="flex items-center gap-1.5 border-t border-border-soft px-2.5 py-2 pl-8">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="cursor-pointer border border-destructive px-2 py-1 font-mono text-[10.5px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
-        >
+        <Button variant="destructive-outline" size="xs" onClick={onCancel}>
           {strings.stopProcess}
-        </button>
+        </Button>
       </div>
     </CardShell>
   );
@@ -157,7 +152,7 @@ function AgentCard({ agent, open, onToggle, onStop }: { agent: RunningSubagent; 
       open={open}
       onToggle={onToggle}
       glyph={
-        <span className="size-2.5 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary" />
+        <Spinner size="xs" tone="accent" />
       }
       badge={strings.agentBadge}
       badgeClassName="border-primary bg-primary-soft text-primary-ink"
@@ -167,13 +162,9 @@ function AgentCard({ agent, open, onToggle, onStop }: { agent: RunningSubagent; 
     >
       <CardLines lines={agent.toolCalls} empty={strings.agentNoToolCalls} />
       <div className="flex items-center gap-1.5 border-t border-border-soft px-2.5 py-2 pl-8">
-        <button
-          type="button"
-          onClick={onStop}
-          className="cursor-pointer border border-destructive px-2 py-1 font-mono text-[10.5px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
-        >
+        <Button variant="destructive-outline" size="xs" onClick={onStop}>
           {strings.stopAgent}
-        </button>
+        </Button>
       </div>
     </CardShell>
   );

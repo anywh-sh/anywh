@@ -165,7 +165,7 @@ describe("WorkBlock", () => {
       renderBlock([call({ name: "mcp__linear__get", toolKind: "mcp", subject: { kind: "mcp", server: "linear", tool: "get" }, input: { id: "ENG-42" }, content: '{"title":"Fix it"}' }), FOOTER], { onCopy });
       await user.click(header());
       await user.click(screen.getByRole("button", { name: /^Queried/ }));
-      await user.click(screen.getAllByText("linear.get")[1].closest('[role="button"]') as HTMLElement);
+      await user.click(screen.getAllByText("linear.get")[1].closest("button") as HTMLElement);
       expect(screen.getByText("Arguments")).toBeInTheDocument();
       expect(screen.getByText("Result")).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Copy arguments" }));
@@ -178,7 +178,8 @@ describe("WorkBlock", () => {
       await user.click(header());
       expect(screen.getByTitle("Mystery")).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /^Used/ }));
-      await user.click(container.querySelector('[role="button"]') as HTMLElement);
+      // The call's row: the one toggle still closed once the block and the step are open.
+      await user.click(container.querySelector('button[aria-expanded="false"]') as HTMLElement);
       expect(await screen.findByText("raw result")).toBeInTheDocument();
     });
   });

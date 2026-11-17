@@ -199,29 +199,6 @@ describe("onboarding", () => {
  * `components/ui/`, not by staying hand-styled.
  */
 const RAW_BUTTON_BASELINE: Record<string, number> = {
-  "components/chat/activity/CodeBlock.tsx": 1,
-  "components/chat/activity/TargetChips.tsx": 2,
-  "components/chat/activity/ToolCallRow.tsx": 1,
-  "components/chat/activity/WorkBlock.tsx": 1,
-  "components/chat/activity/WorkStepRow.tsx": 2,
-  "components/chat/AgentModelEffortButton.tsx": 1,
-  "components/chat/BackgroundJobIndicator.tsx": 3,
-  "components/chat/ChoiceCard.tsx": 6,
-  "components/chat/CodeLines.tsx": 1,
-  "components/chat/CollapsibleText.tsx": 1,
-  "components/chat/ComposerLinkHoverCard.tsx": 1,
-  "components/chat/Composer.tsx": 2,
-  "components/chat/ContextUsageButton.tsx": 2,
-  "components/chat/ContextUsageRing.tsx": 1,
-  "components/chat/FolderPickerDialog.tsx": 3,
-  "components/chat/LaunchedInBackground.tsx": 3,
-  "components/chat/MarkdownContent.tsx": 2,
-  "components/chat/PermissionModeButton.tsx": 1,
-  "components/chat/RoomCard.tsx": 1,
-  "components/chat/SlashCommandMenu.tsx": 1,
-  "components/chat/ToolCallCard.tsx": 1,
-  "components/chat/VoiceButton.tsx": 1,
-  "components/chat/WorkingDirectoryButton.tsx": 1,
   "components/files/DownloadToasts.tsx": 1,
   "components/firstrun/AdvancedOptions.tsx": 1,
   "components/firstrun/AgentsScreen.tsx": 1,
@@ -252,11 +229,6 @@ const RAW_BUTTON_BASELINE: Record<string, number> = {
  * Same ratchet as the button baseline above.
  */
 const RAW_SPINNER_BASELINE: Record<string, number> = {
-  "components/chat/activity/ToolCallRow.tsx": 1,
-  "components/chat/BackgroundJobIndicator.tsx": 1,
-  "components/chat/Composer.tsx": 2,
-  "components/chat/LaunchedInBackground.tsx": 1,
-  "components/chat/MessageLog.tsx": 1,
   "components/files/DownloadToasts.tsx": 1,
   "components/sala/RoomTabIndicator.tsx": 1,
 };
@@ -312,7 +284,6 @@ function ratchet(actual: Record<string, number>, baseline: Record<string, number
  * as siblings, as `TabTrigger` does.
  */
 const ROLE_BUTTON_BASELINE: Record<string, number> = {
-  "components/chat/activity/ToolCallRow.tsx": 1,
   "components/files/FileTree.tsx": 1,
 };
 

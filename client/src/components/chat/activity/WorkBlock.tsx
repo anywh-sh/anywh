@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { memo } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -37,12 +38,12 @@ export const WorkBlock = memo(function WorkBlock({ item, attributionByToolUseId,
 
   return (
     <section aria-busy={item.running} className="text-sm text-text-faint">
-      <button type="button" onClick={toggle} aria-expanded={open} className="flex cursor-pointer items-center gap-2 py-0.5 text-left transition-colors hover:text-muted-foreground">
+      <TextButton tone="none" onClick={toggle} aria-expanded={open} className="flex items-center gap-2 py-0.5 hover:text-muted-foreground">
         <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", !open && "-rotate-90")} aria-hidden />
         <Shimmer active={item.running}>{label}</Shimmer>
         {item.running && item.startedAt !== undefined && <Elapsed startedAt={item.startedAt} className="font-mono text-xs" />}
         {item.failed > 0 && <span className="whitespace-nowrap font-mono text-xs text-destructive">· {failed}</span>}
-      </button>
+      </TextButton>
 
       {open && (item.steps.length > 0 || finished) && (
         <ol className="mt-1">

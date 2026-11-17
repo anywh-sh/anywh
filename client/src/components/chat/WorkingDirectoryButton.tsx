@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { isIOS } from "@/lib/platform/platform";
 import { Check, Copy, Folder } from "lucide-react";
 import {
@@ -108,17 +109,18 @@ export function WorkingDirectoryButton({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
+              <Button
                 ref={triggerRef}
-                type="button"
+                // On desktop it is a plain item of the composer's info
+                // strip; on iOS it still floats above the composer as a box.
+                variant={isIOS() ? "outline" : "chrome"}
+                size="toolbar"
                 disabled={!isNewConversation && (!cwd || !connected)}
                 className={cn(
-                  "flex max-w-full shrink cursor-pointer items-center gap-2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
-                  // On desktop it is a plain item of the composer's info
-                  // strip; on iOS it still floats above the composer as a box.
+                  "max-w-full shrink gap-2",
                   isIOS()
-                    ? "h-[26px] border border-border bg-bg-sidebar px-2.5 font-mono text-[11.5px] hover:border-text-faint"
-                    : "h-[calc(26px*var(--chrome-scale))] px-2 font-sans text-[length:calc(12.5px*var(--chrome-scale))]",
+                    ? "h-[26px] bg-bg-sidebar px-2.5 font-mono text-[11.5px]"
+                    : "h-[calc(26px*var(--chrome-scale))] text-[length:calc(12.5px*var(--chrome-scale))]",
                 )}
               >
                 {/* On iOS the icon takes the tab's own profile colour — the
@@ -127,7 +129,7 @@ export function WorkingDirectoryButton({
                   * the sidebar and stays out of the composer. */}
                 <Folder className="size-3.5 shrink-0" style={isIOS() ? { color: profileColorVar(profile.id) } : undefined} />
                 <span className="truncate">{cwd ? folderName(cwd) : "…"}</span>
-              </button>
+              </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent side="bottom">

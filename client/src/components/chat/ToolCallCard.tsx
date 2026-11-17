@@ -1,3 +1,4 @@
+import { RowButton } from "@/components/ui/row-button";
 import { memo } from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,11 +27,11 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: ToolCallCardPro
 
   return (
     <div className={cn("border bg-card", call.isError && !call.aborted ? "border-destructive/40" : "border-border")}>
-      <button type="button" onClick={toggle} aria-expanded={open} className="flex w-full cursor-pointer items-center gap-2.5 px-2.5 py-2 text-left text-xs transition-colors hover:bg-surface-hover">
+      <RowButton size="auto" onClick={toggle} aria-expanded={open} className="gap-2.5 px-2.5 py-2 text-xs hover:bg-surface-hover">
         <ChevronRight className={cn("size-3.5 shrink-0 text-text-faint transition-transform", open && "rotate-90")} />
         <Badge variant="secondary">{call.name}</Badge>
         {label !== call.name && <span className="truncate font-mono text-[11.5px] text-muted-foreground">{label}</span>}
-      </button>
+      </RowButton>
       {open && (
         <div className="border-t border-border-soft px-2.5 py-2 text-xs">
           {call.plan ? (

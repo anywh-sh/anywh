@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { TextButton } from "@/components/ui/text-button";
+import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 import { isIOS } from "@/lib/platform/platform";
-import { Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,31 +79,32 @@ export function BackgroundJobIndicator({ jobs, onCancel }: BackgroundJobIndicato
         }}
       >
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
             ref={triggerRef}
-            type="button"
+            variant="secondary"
+            size="sm"
             aria-label={strings.indicator.replace("{count}", String(jobs.length))}
-            className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 border border-border bg-bg-elevated px-2 text-xs text-foreground transition-colors hover:bg-border"
+            className="px-2 font-normal"
           >
-            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-            <span className="max-w-40 truncate font-mono">{label}</span>
-          </button>
+            <Spinner size="md" />
+            <span className="max-w-40 truncate">{label}</span>
+          </Button>
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="start" side={isIOS() ? "top" : undefined} className="w-64">
           <div className="flex items-center justify-between gap-2 py-1 pr-2 pl-2">
             <DropdownMenuLabel className="p-0">{strings.heading}</DropdownMenuLabel>
             {jobs.length > 1 ? (
-              <button
-                type="button"
+              <TextButton
+                tone="destructive"
                 onClick={(event) => {
                   event.preventDefault();
                   setConfirmTarget("all");
                 }}
-                className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:text-destructive hover:underline"
+                className="text-[11px] underline-offset-2 hover:underline"
               >
                 {strings.cancelAll}
-              </button>
+              </TextButton>
             ) : null}
           </div>
           <DropdownMenuSeparator />
@@ -112,18 +116,19 @@ export function BackgroundJobIndicator({ jobs, onCancel }: BackgroundJobIndicato
                 </span>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <ElapsedTime startedAt={job.startedAt} />
-                  <button
-                    type="button"
+                  <Button
+                    variant="quiet"
+                    size="icon-xs"
                     aria-label={strings.cancelJob.replace("{label}", job.label)}
                     title={strings.cancel}
                     onClick={(event) => {
                       event.preventDefault();
                       setConfirmTarget(job);
                     }}
-                    className="cursor-pointer rounded p-0.5 text-muted-foreground transition-colors hover:bg-border hover:text-destructive"
+                    className="size-4 hover:text-destructive"
                   >
                     <X className="size-3" />
-                  </button>
+                  </Button>
                 </div>
               </div>
             ))}

@@ -1,3 +1,5 @@
+import { TextButton } from "@/components/ui/text-button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   forwardRef,
   useEffect,
@@ -8,7 +10,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
-import { ArrowUp, FileText, Loader2, Plus, Video, X } from "lucide-react";
+import { ArrowUp, FileText, Plus, Video, X } from "lucide-react";
 import { Extension, type JSONContent } from "@tiptap/core";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -827,14 +829,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     <Video className="size-2.5" />
                   </div>
                 )}
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="icon-xs"
                   onClick={() => onRemoveImage(image.path)}
                   aria-label={copy.removeAttachment}
-                  className="absolute -top-1.5 -right-1.5 flex size-4 cursor-pointer items-center justify-center border border-border bg-bg-elevated text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                  className="absolute -top-1.5 -right-1.5 size-4 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-bg-elevated hover:text-destructive focus-visible:opacity-100"
                 >
                   <X className="size-2.5" />
-                </button>
+                </Button>
               </div>
             ) : (
               // Nothing to preview (a text/code/PDF file, or a video in a
@@ -847,14 +850,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               >
                 {image.kind === "video" ? <Video className="size-3 text-primary" /> : <FileText className="size-3 text-primary" />}
                 <span className="max-w-40 truncate">{attachmentName(image, copy.unnamedAttachment)}</span>
-                <button
-                  type="button"
-                  onClick={() => onRemoveImage(image.path)}
-                  aria-label={copy.removeAttachment}
-                  className="cursor-pointer text-text-faint transition-colors hover:text-destructive"
-                >
+                <TextButton tone="faint" onClick={() => onRemoveImage(image.path)} aria-label={copy.removeAttachment} className="hover:text-destructive">
                   <X className="size-3" />
-                </button>
+                </TextButton>
               </span>
             ),
           )}
@@ -865,7 +863,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               role="status"
               className="flex h-7 items-center gap-2 border border-dashed border-border bg-bg-sidebar px-2 font-mono text-[10.5px] text-muted-foreground"
             >
-              <Loader2 className="size-3 animate-spin text-primary" />
+              <Spinner size="sm" tone="accent" />
               {copy.attachmentUploading}
             </span>
           )}
@@ -954,8 +952,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <Tooltip>
               <TooltipTrigger asChild>
                 <span tabIndex={0} className="inline-flex">
-                  <Button type="submit" size="icon" disabled aria-label={copy.sendWaitingForUpload} className="ml-1.5 size-[30px]">
-                    <Loader2 className="size-3.5 animate-spin" />
+                  <Button type="submit" size="icon" loading aria-label={copy.sendWaitingForUpload} className="ml-1.5 size-[30px]">
+                    <ArrowUp className="size-4" />
                   </Button>
                 </span>
               </TooltipTrigger>

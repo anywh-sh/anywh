@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { TextButton } from "@/components/ui/text-button";
+import { RowButton } from "@/components/ui/row-button";
 import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -148,7 +150,7 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
   /** Up/down moves focus between option buttons (a roving-focus listbox,
    * clamped rather than wrapping — same edge behavior as the question
    * chevrons above). Selecting still happens on Enter/Space, which a
-   * focused `<button>` already handles natively — this only owns where the
+   * focused button already handles natively — this only owns where the
    * arrow keys send focus next. */
   function handleOptionKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, optionIndex: number): void {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -169,11 +171,11 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
       // sits below the stack with its own strip between them, so the tab just
       // sits at the end of the stack with the stack's normal `gap-2`.
       <div className={cn("relative z-10 flex justify-center", isIOS() ? "shrink-0" : "mx-3 mt-3 -mb-[1px]")}>
-        <button
-          type="button"
+        <RowButton
+          size="auto"
           onClick={() => setCollapsed(false)}
           aria-label={dict.chat.choice.reopen}
-          className="flex w-[72%] items-center gap-2 border-t border-x border-primary bg-bg-elevated px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-hover"
+          className="w-[72%] gap-2 border-x border-t border-primary bg-bg-elevated px-3 py-2 text-sm text-foreground hover:bg-surface-hover"
         >
           <span className="size-1.5 shrink-0 animate-pulse bg-primary" />
           <span className="font-medium">{dict.chat.choice.pending}</span>
@@ -184,7 +186,7 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
           )}
           <span className="flex-1" />
           <ChevronUp className="size-4 shrink-0 text-muted-foreground" />
-        </button>
+        </RowButton>
       </div>
     );
   }
@@ -207,37 +209,24 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
         <div className="flex shrink-0 items-center gap-1">
           {questions.length > 1 && (
             <>
-              <button
-                type="button"
-                onClick={() => goTo(index - 1)}
-                disabled={index === 0}
-                aria-label={dict.chat.choice.previousQuestion}
-                className="cursor-pointer text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-              >
+              <TextButton onClick={() => goTo(index - 1)} disabled={index === 0} aria-label={dict.chat.choice.previousQuestion} className="disabled:opacity-30">
                 <ChevronLeft className="size-4" />
-              </button>
+              </TextButton>
               <span className="px-1 font-mono text-[11px] text-muted-foreground">
                 {dict.chat.choice.questionPosition.replace("{index}", String(index + 1)).replace("{total}", String(questions.length))}
               </span>
-              <button
-                type="button"
-                onClick={() => goTo(index + 1)}
-                disabled={isLast}
-                aria-label={dict.chat.choice.nextQuestion}
-                className="cursor-pointer text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-              >
+              <TextButton onClick={() => goTo(index + 1)} disabled={isLast} aria-label={dict.chat.choice.nextQuestion} className="disabled:opacity-30">
                 <ChevronRight className="size-4" />
-              </button>
+              </TextButton>
             </>
           )}
-          <button
-            type="button"
+          <TextButton
             onClick={() => (kind === "approval" ? finish(new Map(answers).set(index, effectiveSelection)) : setCollapsed(true))}
             aria-label={kind === "approval" ? dict.chat.choice.closeAnswering : dict.chat.choice.collapse}
-            className="ml-1 cursor-pointer text-muted-foreground hover:text-foreground"
+            className="ml-1"
           >
             {kind === "approval" ? <X className="size-4" /> : <ChevronDown className="size-4" />}
-          </button>
+          </TextButton>
         </div>
       </div>
 
@@ -246,15 +235,15 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
           const value = valueOf(option);
           const isSelected = selected.includes(value);
           return (
-            <button
-              type="button"
+            <TextButton
+              tone="none"
               key={value}
               ref={(el) => {
                 optionRefs.current[optionIndex] = el;
               }}
               onClick={() => toggleOption(value)}
               onKeyDown={(event) => handleOptionKeyDown(event, optionIndex)}
-              className="flex cursor-pointer items-center gap-2.5 py-2 text-left"
+              className="flex items-center gap-2.5 py-2"
             >
               <span
                 className={cn(
@@ -268,7 +257,7 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
                 <span className="text-sm text-foreground">{labelOf(option)}</span>
                 {option.description && <span className="text-xs text-muted-foreground">{option.description}</span>}
               </span>
-            </button>
+            </TextButton>
           );
         })}
       </div>

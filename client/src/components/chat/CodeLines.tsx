@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { TextButton } from "@/components/ui/text-button";
 import { cn } from "@/lib/utils";
 import { highlightLines } from "@/lib/format/highlightCode";
 import { useDict } from "@/i18n";
@@ -85,13 +86,9 @@ export function CodeLines({ language, lines, startLine }: CodeLinesProps) {
         ),
       )}
       {hiddenCount > 0 && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="w-full cursor-pointer border-t border-border-soft px-2 py-1 text-left text-muted-foreground transition-colors hover:text-foreground"
-        >
+        <TextButton onClick={() => setExpanded(true)} className="w-full border-t border-border-soft px-2 py-1">
           {dict.chat.code.showMoreLines.replace("{count}", String(hiddenCount))}
-        </button>
+        </TextButton>
       )}
     </div>
   );

@@ -58,13 +58,9 @@ export function VoiceButton({ voice }: { voice: UseVoiceRecordingResult }) {
         {voice.devices.length > 1 && !isRecording && !isTranscribing && (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={copy.selectMicrophone}
-                className="flex h-[30px] w-5 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
-              >
+              <Button variant="chrome" size="icon" aria-label={copy.selectMicrophone} className="h-[30px] w-5">
                 <ChevronDown className="size-3 opacity-70" />
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[calc(240px*var(--chrome-scale))]">
               <DropdownMenuLabel>{copy.microphone}</DropdownMenuLabel>
