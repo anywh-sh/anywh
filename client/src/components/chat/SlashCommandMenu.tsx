@@ -37,7 +37,7 @@ export function SlashCommandMenu({ items, selectedIndex, onHover, onPick }: Slas
                 onClick={() => onPick(entry)}
                 className={cn(
                   "block truncate px-2 py-1.5 font-mono text-[11.5px]",
-                  index === selectedIndex ? "bg-accent text-accent-foreground hover:text-accent-foreground" : "hover:bg-surface-hover",
+                  index === selectedIndex ? "bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground" : "hover:bg-surface-hover",
                 )}
               >
                 {entry.command}
