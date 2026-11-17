@@ -43,11 +43,31 @@ import { parseSlashCommand } from "@/lib/composer/slashCommands";
 import { activeModelLabel, catalogHasModel } from "@/lib/composer/modelCatalog";
 import { effortChoicesFor, modelAcceptsEffort } from "@/lib/composer/effortCatalog";
 import type { Profile } from "@/lib/profiles/profiles";
+import type { HistoryPageMessage } from "@/lib/relay/relay-types";
 import { useDict } from "@/i18n";
 import { createRoom } from "@/lib/relay/roomClient";
 import { SessionTypeSelector, type SessionType } from "@/components/sala/SessionTypeSelector";
 
 /** See `ChatPanelProps.onBackgroundActionsReady`. */
+/** Most older pages a resync reloads to rebuild what was on screen before the
+ * drop; whatever is further back comes again on demand, by scrolling. */
+const MAX_RESYNC_OLDER_PAGES = 5;
+
+/** A reconnection's log being rebuilt off screen (`resyncRef`). */
+interface Resync {
+  /** `historyCursor` of the oldest page the screen had before the drop;
+   * `null` if it had none. */
+  target: number | null;
+  /** The relay's fresh tail; `null` until it arrives. */
+  tail: HistoryPageMessage | null;
+  /** Older pages fetched to reach `target`, in arrival order (newest first). */
+  older: HistoryPageMessage[];
+  /** Live events that arrived meanwhile, applied after the swap. */
+  queue: Array<() => void>;
+  /** The swap is done; `queue` is waiting for the render that shows it. */
+  draining: boolean;
+}
+
 export interface BackgroundJobActions {
   cancelBackgroundJob: (id: string) => void;
   dismissFailedBackgroundJob: (id: string) => void;
@@ -250,6 +270,34 @@ export function ChatPanel({
   // this doesn't walk the log once per token.
   const logRef = useRef(log);
   logRef.current = log;
+  // A reconnection keeps the conversation on screen and rebuilds it behind the
+  // scenes. The relay resends the whole tail (`history_page`) on every
+  // connection, so the new log is assembled off screen — the tail plus the
+  // older pages that were loaded before the drop (up to
+  // `MAX_RESYNC_OLDER_PAGES`) — and swapped in with one `replace`. `null` when
+  // no resync is running; while it is, everything live waits in `queue` and is
+  // applied, in order, right after the swap.
+  const resyncRef = useRef<Resync | null>(null);
+  const hydratedRef = useRef(false);
+  const loadOlderRef = useRef<(beforeCursor: number) => void>(() => {});
+  const whenResynced = (apply: () => void): void => {
+    if (resyncRef.current) resyncRef.current.queue.push(apply);
+    else apply();
+  };
+  const continueResync = (resync: Resync, latest: HistoryPageMessage): void => {
+    const tail = resync.tail;
+    if (!tail) return;
+    const reachedOldest = resync.target === null || !latest.hasMore || latest.cursor <= resync.target;
+    if (!reachedOldest && resync.older.length < MAX_RESYNC_OLDER_PAGES) {
+      loadOlderRef.current(latest.cursor);
+      return;
+    }
+    // Older pages arrive newest first.
+    const older = [...resync.older].reverse();
+    logRef.current.replace({ messages: [...older.flatMap((page) => page.messages), ...tail.messages], cursor: latest.cursor, hasMore: latest.hasMore });
+    resync.draining = true;
+    setResyncing(false);
+  };
   // Same pattern as `logRef`: the drop handler and the copy callback are
   // deliberately built once (empty dep arrays), so they can't close over a
   // dictionary that changes when the language does.
@@ -281,12 +329,18 @@ export function ChatPanel({
   // becomes `true` after the `caught_up` marker, which the relay sends right
   // after the replay — from then on events are truly live.
   const caughtUpRef = useRef(false);
-  // Same signal, but in state — triggers the re-render that swaps the
-  // skeleton for the real log. Goes back to `false` on a real reconnection
-  // (`onReconnecting`) — the replay will arrive again from
-  // scratch, so the skeleton briefly reappears instead of showing the
-  // emptied log with no indication at all.
-  const [ready, setReady] = useState(false);
+  // The first `caught_up` of this tab has arrived: from then on the log is on
+  // screen for good. Never goes back to `false` — a reconnection keeps the
+  // conversation visible (the skeleton is only for the first load) and
+  // resyncs it behind the scenes (`resyncRef`). It also stands in for "the
+  // relay has told us its state at least once" (`cwd`, agent, model).
+  const [hydrated, setHydrated] = useState(false);
+  // `caught_up` of the CURRENT connection: false from the moment a reconnect
+  // starts until the relay finishes its burst of state.
+  const [caughtUp, setCaughtUp] = useState(false);
+  // A resync is rebuilding the log (see `resyncRef`): the screen still shows
+  // the old one, and anything that would go to the relay has to wait.
+  const [resyncing, setResyncing] = useState(false);
 
   const images = useImageUpload(profile, (message) => window.alert(message));
   // Either composer answers to the same handle; only the native one can close
@@ -459,51 +513,80 @@ export function ChatPanel({
     choicePrompt,
     answerChoice,
   } = useRelayClient(profile, sessionId, {
-    onEvent: (event) => logRef.current.handleEvent(event),
+    onEvent: (event) => whenResynced(() => logRef.current.handleEvent(event)),
     onReconnecting: () => {
-      logRef.current.reset();
       caughtUpRef.current = false;
-      setReady(false);
+      setCaughtUp(false);
+      if (!hydratedRef.current) {
+        // Still on the first load: nothing worth keeping on screen, and the
+        // tail may already have been hydrated by the attempt that dropped.
+        logRef.current.reset();
+        return;
+      }
+      // Whatever a resync interrupted by this drop had collected is stale.
+      resyncRef.current = { target: null, tail: null, older: [], queue: [], draining: false };
+      setResyncing(true);
     },
-    // `/clear` — same log clearing a real reconnection already
-    // does, just without going through `ready`/skeleton (the conversation
-    // stays "ready", it just became empty).
-    onConversationReset: () => logRef.current.reset(),
-    // Initial history tail — arrives before
-    // `onCaughtUp`, hydrates the log with a single dispatch instead of the
-    // old event-by-event replay.
-    onHistoryPage: (page) => logRef.current.hydrate(page),
-    // Older turns requested via scrolling up.
-    onOlderHistory: (page) => logRef.current.prependHistory(page),
+    // `/clear` — the conversation stays on screen, it just became empty.
+    onConversationReset: () => whenResynced(() => logRef.current.reset()),
+    // Initial history tail — arrives before `onCaughtUp`. The first one
+    // hydrates the log with a single dispatch; one that comes with a
+    // reconnection starts a resync instead (see `resyncRef`).
+    onHistoryPage: (page) => {
+      const resync = resyncRef.current;
+      if (!resync) {
+        logRef.current.hydrate(page);
+        return;
+      }
+      resync.target = logRef.current.historyCursor;
+      resync.tail = page;
+      continueResync(resync, page);
+    },
+    // Older turns: requested by scrolling up, or by a resync rebuilding the
+    // pages that were loaded before the drop.
+    onOlderHistory: (page) => {
+      const resync = resyncRef.current;
+      if (!resync) {
+        logRef.current.prependHistory(page);
+        return;
+      }
+      if (!resync.tail) return;
+      resync.older.push(page);
+      continueResync(resync, page);
+    },
     // Message edited on ANOTHER device connected to this session — the log
     // is swapped for the truncated history in one dispatch, without touching
-    // `ready`/`caughtUpRef`: this device is already caught up, it's not a real
+    // `caughtUpRef`: this device is already caught up, it's not a real
     // reconnection.
-    onHistoryTruncated: (page) => logRef.current.replace(page),
+    onHistoryTruncated: (page) => whenResynced(() => logRef.current.replace(page)),
     onEditMessageError: (code) => window.alert(dict.errors.editMessage[code]),
     onChoiceAnswerError: (code) => window.alert(dict.errors.answerChoice[code]),
     onCaughtUp: () => {
       caughtUpRef.current = true;
-      setReady(true);
+      hydratedRef.current = true;
+      setCaughtUp(true);
+      setHydrated(true);
     },
-    onTurnComplete: (stopped, durationMs) => {
-      logRef.current.handleTurnComplete(stopped, durationMs);
-      setTurnStartedAt(null);
-      if (!caughtUpRef.current) return;
-      const entries = [...logRef.current.entries].reverse();
-      // A room card's text is the relay's prompt, not something the person said.
-      const lastUserEntry = entries.find((entry) => entry.kind === "user");
-      const lastTextEntry = entries.find((entry) => entry.kind === "text");
-      onTurnComplete?.({
-        stopped,
-        lastUserText: lastUserEntry?.kind === "user" && !lastUserEntry.room ? lastUserEntry.text : null,
-        lastAssistantText: lastTextEntry?.kind === "text" ? lastTextEntry.text : null,
-      });
-    },
-    onTurnError: (message) => {
-      logRef.current.handleTurnError(message);
-      setTurnStartedAt(null);
-    },
+    onTurnComplete: (stopped, durationMs) =>
+      whenResynced(() => {
+        logRef.current.handleTurnComplete(stopped, durationMs);
+        setTurnStartedAt(null);
+        if (!caughtUpRef.current) return;
+        const entries = [...logRef.current.entries].reverse();
+        // A room card's text is the relay's prompt, not something the person said.
+        const lastUserEntry = entries.find((entry) => entry.kind === "user");
+        const lastTextEntry = entries.find((entry) => entry.kind === "text");
+        onTurnComplete?.({
+          stopped,
+          lastUserText: lastUserEntry?.kind === "user" && !lastUserEntry.room ? lastUserEntry.text : null,
+          lastAssistantText: lastTextEntry?.kind === "text" ? lastTextEntry.text : null,
+        });
+      }),
+    onTurnError: (message) =>
+      whenResynced(() => {
+        logRef.current.handleTurnError(message);
+        setTurnStartedAt(null);
+      }),
     // A turn in progress is SESSION state, not sender state — without this,
     // a device that didn't start the turn (or that connects mid-turn) would
     // never see the "thinking" indicator/timer (a real finding from testing
@@ -511,7 +594,7 @@ export function ChatPanel({
     // start; the send's optimistic `setTurnStartedAt(Date.now())`
     // (Composer.onSend) already covers the instant between the click and
     // this event coming back.
-    onTurnState: (state) => setTurnStartedAt(state.active ? (state.startedAt ?? Date.now()) : null),
+    onTurnState: (state) => whenResynced(() => setTurnStartedAt(state.active ? (state.startedAt ?? Date.now()) : null)),
     onSetCwdError: (code) => {
       if (suppressNextCwdErrorRef.current) {
         suppressNextCwdErrorRef.current = false;
@@ -574,10 +657,10 @@ export function ChatPanel({
 
   // Applies the profile's model preference (Settings) on a new conversation
   // — same reasoning as the default-folder effect above, but triggered on
-  // `ready` (post `caught_up`) instead of `cwd !== null`: the relay's
+  // `hydrated` (post `caught_up`) instead of `cwd !== null`: the relay's
   // initial `model_state` can genuinely arrive as `null` (session never had
   // `/model`), which would make it indistinguishable from "hasn't arrived
-  // yet" — `ready` already guarantees that first `model_state` (always sent
+  // yet" — `hydrated` already guarantees that first `model_state` (always sent
   // before `caught_up`, see `SharedSession.addClient`) has been processed.
   //
   // Also waits on the session's agent's catalog, and only applies a
@@ -592,7 +675,7 @@ export function ChatPanel({
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const appliedAgentPreferenceRef = useRef(false);
   useEffect(() => {
-    if (!isNewConversation || appliedAgentPreferenceRef.current || !ready || !agentId) return;
+    if (!isNewConversation || appliedAgentPreferenceRef.current || !hydrated || !agentId) return;
     appliedAgentPreferenceRef.current = true;
     getHostInfo(profile)
       .then((info) => {
@@ -606,7 +689,7 @@ export function ChatPanel({
         setSwitchingTo(target);
       })
       .catch(() => setAgentSettled(true));
-  }, [isNewConversation, ready, agentId, profile, setAgent]);
+  }, [isNewConversation, hydrated, agentId, profile, setAgent]);
   useEffect(() => {
     if (switchingTo === null) return;
     if (agentId === switchingTo) {
@@ -620,7 +703,7 @@ export function ChatPanel({
 
   const appliedModelPreferenceRef = useRef(false);
   useEffect(() => {
-    if (!isNewConversation || appliedModelPreferenceRef.current || !ready || !agentId || !modelCatalog || !agentPreferenceDone) return;
+    if (!isNewConversation || appliedModelPreferenceRef.current || !hydrated || !agentId || !modelCatalog || !agentPreferenceDone) return;
     appliedModelPreferenceRef.current = true;
     const preferredModel = getPreferredModel(profile.id, agentId);
     const applyModel = preferredModel !== null && preferredModel !== model && catalogHasModel(modelCatalog, preferredModel);
@@ -631,7 +714,7 @@ export function ChatPanel({
     const lastEffort = getLastEffort(profile.id, agentId);
     const targetModel = applyModel ? preferredModel : model;
     if (lastEffort !== null && lastEffort !== effort && modelAcceptsEffort(modelCatalog, targetModel, lastEffort)) setEffort(lastEffort);
-  }, [isNewConversation, ready, agentId, modelCatalog, agentPreferenceDone, model, effort, profile.id, setModel, setEffort]);
+  }, [isNewConversation, hydrated, agentId, modelCatalog, agentPreferenceDone, model, effort, profile.id, setModel, setEffort]);
 
   // Records the model in use as the profile's "last used" whenever
   // it changes to a concrete value — covers manual switching (`ModelButton`,
@@ -821,16 +904,32 @@ export function ChatPanel({
     });
   }, []);
 
+  // The relay will take what we send: socket open, its burst of state
+  // received, and no resync swapping the log. The gate for everything that
+  // goes to the relay; typing stays allowed.
+  const live = connected && caughtUp && !resyncing;
+  loadOlderRef.current = loadOlderHistory;
+  // The screen already shows the swapped log (`setResyncing(false)` rendered):
+  // now the events that arrived during the resync can be applied, in order.
+  // `resyncRef` is only cleared here, so one that lands in between still
+  // queues behind them.
+  useEffect(() => {
+    const resync = resyncRef.current;
+    if (resyncing || !resync?.draining) return;
+    while (resync.queue.length > 0) resync.queue.shift()?.();
+    resyncRef.current = null;
+  }, [resyncing]);
+
   // Fired by `MessageLog` when scrolling near the top —
   // the guard lives here (not just in `MessageLog`) because `logRef` is the
   // most up-to-date source of truth for pagination state, without depending
   // on a re-render.
   const handleLoadOlderHistory = useCallback(() => {
     const current = logRef.current;
-    if (current.loadingOlderHistory || !current.hasMoreHistory || current.historyCursor === null) return;
+    if (!live || current.loadingOlderHistory || !current.hasMoreHistory || current.historyCursor === null) return;
     current.beginLoadingOlderHistory();
     loadOlderHistory(current.historyCursor);
-  }, [loadOlderHistory]);
+  }, [live, loadOlderHistory]);
 
   // Focuses the composer as soon as a new conversation's tab mounts — lets
   // you type right away without clicking the field (e.g. Ctrl/Cmd+N and
@@ -841,7 +940,7 @@ export function ChatPanel({
   }, []);
 
   // The message log itself is on screen (not the idle state or the skeleton).
-  const showingIdle = (isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0;
+  const showingIdle = (isNewConversation || hydrated) && log.entries.length === 0 && log.streamingEntries.length === 0;
   // The new-session screen's type choice: a room is opened from the same
   // composer, whose agent/model/effort become its principal.
   const [sessionType, setSessionType] = useState<SessionType>("conversation");
@@ -850,7 +949,7 @@ export function ChatPanel({
   const canChooseType = Boolean(isNewConversation) && showingIdle && !isIOS() && !cwdLocked;
   const roomMode = canChooseType && sessionType === "room";
   const openingRoomRef = useRef(false);
-  const showingLog = ready && !showingIdle;
+  const showingLog = hydrated && !showingIdle;
   useEffect(() => {
     if (!showingLog) setScrollToEndVisible(false);
   }, [showingLog]);
@@ -968,14 +1067,14 @@ export function ChatPanel({
 
       {showingIdle ? (
         // `isNewConversation` covers the freshly opened tab (shows idle right
-        // away, without waiting for `ready` — there's really nothing to load
-        // anyway). `ready` covers an existing session that genuinely became
+        // away, without waiting for `hydrated` — there's really nothing to load
+        // anyway). `hydrated` covers an existing session that genuinely became
         // empty — after a `/clear`, for example — without this
         // second condition the screen would just be blank (neither idle nor
         // skeleton) until the next turn, because `isNewConversation` had
         // already been `false` for a long time.
         <ChatIdleState selector={canChooseType ? <SessionTypeSelector value={sessionType} onChange={setSessionType} /> : undefined} />
-      ) : ready ? (
+      ) : hydrated ? (
         <MessageLog
           ref={messageLogRef}
           entries={log.entries}

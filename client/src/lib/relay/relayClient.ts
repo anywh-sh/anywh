@@ -441,9 +441,10 @@ export interface RelayClientCallbacks {
   onSessionDeleted?: () => void;
   /** Fired right before reopening the connection (automatic backoff or
    * `forceReconnect`) — never on the first connection. The relay resends the
-   * entire history on every new connection (`SharedSession.addClient`), so
-   * whoever consumes this should reset the message log here, otherwise the replay
-   * duplicates everything on top of what was already on screen. */
+   * whole history tail on every new connection (`SharedSession.addClient`),
+   * so whoever consumes this must not append that replay to what it already
+   * shows: it can keep showing the old log and swap it for the new tail when
+   * `onHistoryPage` delivers it. Fires again on every retry of a long outage. */
   onReconnecting?: () => void;
   /** The broker told us this device's own identity was deliberately revoked
    * — a terminal state, not a connectivity blip. Fired once
