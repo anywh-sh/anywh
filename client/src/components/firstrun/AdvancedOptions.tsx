@@ -53,7 +53,7 @@ function AddressOption({
       tabIndex={selected ? 0 : -1}
       onClick={onSelect}
       className={cn(
-        "flex min-h-[42px] w-full items-center gap-2.5 border px-3 py-2 focus-visible:border-text-faint focus-visible:ring-0",
+        "flex min-h-[42px] w-full items-center gap-2.5 border px-3 py-2 outline-hidden focus-visible:border-text-faint focus-visible:ring-0",
         selected ? "border-text-faint bg-surface-hover" : "border-border-soft hover:border-border",
       )}
     >

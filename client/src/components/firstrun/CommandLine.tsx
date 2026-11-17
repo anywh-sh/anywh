@@ -39,7 +39,7 @@ export function CommandLine({ command, className }: { command: string; className
         size="sm"
         onClick={() => void handleCopy()}
         aria-describedby={codeId}
-        className="px-2.5 text-[length:calc(11px*var(--font-scale-ratio))] font-normal text-text-faint hover:bg-transparent"
+        className="px-2.5 text-[length:calc(11px*var(--font-scale-ratio))] font-normal text-text-faint hover:border-border hover:bg-transparent"
       >
         <span aria-live="polite">{state === "idle" ? copy.copy : state === "copied" ? copy.copied : copy.failed}</span>
       </Button>
