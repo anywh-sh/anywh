@@ -60,8 +60,10 @@ const buttonVariants = cva(
         sm: "h-7 gap-1.5 px-3 text-[11.5px]",
         lg: "h-9 px-5 text-[13px]",
         // Sized by the text around it (the status bar's 11.5px mono, a
-        // banner's sans): takes that size and weight instead of a control's.
-        inline: "gap-1.5 px-1.5 py-0.5 text-[length:inherit] font-normal [&_svg:not([class*='size-'])]:size-3",
+        // banner's sans): takes that size and weight instead of a control's,
+        // and no border, so it is as wide as the text it replaces. A caller
+        // that wants the hover outline passes `border` back.
+        inline: "gap-1.5 border-0 px-1.5 py-0.5 text-[length:inherit] font-normal [&_svg:not([class*='size-'])]:size-3",
         icon: "size-8",
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-7",

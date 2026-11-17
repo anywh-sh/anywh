@@ -381,7 +381,7 @@ export function StatusBar({
           variant="ghost"
           size="inline"
           onClick={onOpenUpdateModal}
-          className="gap-1 text-primary hover:bg-transparent hover:text-primary"
+          className="gap-1 border text-primary hover:bg-transparent hover:text-primary"
           title={dict.shell.statusBar.updateReady.replace("{version}", ready.update.version)}
         >
           <ArrowUpCircle className="size-3" strokeWidth={1.5} />
@@ -392,7 +392,7 @@ export function StatusBar({
           variant="ghost"
           size="inline"
           onClick={onOpenUpdateModal}
-          className="gap-1 text-primary hover:bg-transparent hover:text-primary"
+          className="gap-1 border text-primary hover:bg-transparent hover:text-primary"
           title={dict.shell.statusBar.updateAvailable.replace("{version}", update.version)}
         >
           <ArrowUpCircle className="size-3" strokeWidth={1.5} />
