@@ -312,6 +312,11 @@ describe("primitives", () => {
     expect(rawButtons().stale).toEqual([]);
   });
 
+  it("keeps the canvas's declared buttons apart from the pending ones", () => {
+    // Merged into one baseline below, so a file in both would lose a count.
+    expect(Object.keys(CANVAS_PLANE_BUTTONS).filter((path) => path in RAW_BUTTON_BASELINE)).toEqual([]);
+  });
+
   it("never fakes a button with role=\"button\"", () => {
     expect(roleButtons().grew).toEqual([]);
   });
