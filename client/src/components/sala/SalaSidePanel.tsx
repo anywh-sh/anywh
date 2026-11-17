@@ -49,7 +49,7 @@ export function SalaSidePanel({ onClose, ...pane }: SalaSidePanelProps) {
         onClose={onClose}
         headerActions={
           <Button variant="chrome" size="icon" className="size-[26px] text-text-faint" onClick={onClose} aria-label={dict.close} title={dict.close}>
-            <CloseIcon size={12} />
+            <CloseIcon size={12} className="size-[12px]" />
           </Button>
         }
       />

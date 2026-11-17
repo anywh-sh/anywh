@@ -22,7 +22,7 @@ export function SalaMultiBar({ count, canStop, onGroup, onStop, onRemove, onClea
       <span className="sala-mbar-n">{dict.count.replace("{count}", String(count))}</span>
       <span className="sala-mbar-h">{dict.hint.replace("{shift}", shiftKeyLabel()).replace("{mod}", modifierKeyLabel())}</span>
       <Button variant="chrome" size="bar" onClick={onGroup}>
-        <AreaIcon size={13} />
+        <AreaIcon size={13} className="size-[13px]" />
         <span>{dict.group}</span>
       </Button>
       {canStop && (
@@ -32,12 +32,12 @@ export function SalaMultiBar({ count, canStop, onGroup, onStop, onRemove, onClea
         </Button>
       )}
       <Button variant="chrome" size="bar" className="hover:text-destructive" onClick={onRemove}>
-        <TrashIcon size={13} />
+        <TrashIcon size={13} className="size-[13px]" />
         <span>{dict.remove}</span>
       </Button>
       <span className="sala-sep" aria-hidden="true" />
       <Button variant="chrome" size="icon" className="size-[26px]" onClick={onClear} aria-label={dict.clear} title={dict.clear}>
-        <CloseIcon size={11} />
+        <CloseIcon size={11} className="size-[11px]" />
       </Button>
     </div>
   );

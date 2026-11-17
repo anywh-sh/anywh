@@ -88,7 +88,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
   const footer = (
     <>
       <Button variant="chrome" size="bar" className="h-7" onClick={() => onOpenInTab(agent.agentId)}>
-        <Layers size={13} aria-hidden="true" />
+        <Layers size={13} className="size-[13px]" aria-hidden="true" />
         <span>{text.openInTab}</span>
       </Button>
       <Button variant="chrome" size="bar" className="h-7" onClick={() => onDelegate(agent.agentId)}>
@@ -109,7 +109,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
         )
       )}
       <Button variant="chrome" size="bar" className="h-7" onClick={() => onRemove(agent.agentId)}>
-        <TrashIcon size={13} />
+        <TrashIcon size={13} className="size-[13px]" />
         <span>{text.remove}</span>
       </Button>
     </>
@@ -282,7 +282,7 @@ function WorkerComposer({ session, text }: { session: EmbeddedComposerSession; t
         {sendFailed ? <span className="sala-side-err">{text.sendFailed}</span> : contextFigure !== null && <span className="sala-side-clock trunc">{contextFigure}</span>}
         <VoiceButton voice={voice} />
         <Button variant="chrome" size="icon" className={SEND} onClick={send} disabled={message.trim() === "" || !session.connected} aria-label={text.send} title={text.send}>
-          <ArrowUp size={14} aria-hidden="true" />
+          <ArrowUp size={14} className="size-3.5" aria-hidden="true" />
         </Button>
       </div>
     </div>

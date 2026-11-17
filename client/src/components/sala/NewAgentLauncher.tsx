@@ -112,7 +112,7 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
             <Button variant="chrome" size="bar" className="h-7 min-w-0 shrink gap-[7px] text-[13px]" aria-label={text.pickParent}>
               {parent ? <AgentLogo agentId={parent.runtime} className="sala-logo" /> : <span aria-hidden="true">—</span>}
               <span className="trunc">{text.delegatedBy.replace("{title}", parent?.role === "principal" ? dict.sala.orchestrator : (parent?.title ?? dict.sala.card.untitled))}</span>
-              <ChevronDown size={12} aria-hidden="true" />
+              <ChevronDown size={12} className="size-[12px]" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="min-w-56">
@@ -126,7 +126,7 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
         </DropdownMenu>
         <span className="grow" />
         <Button variant="chrome" size="icon" className={SEND} onClick={() => void submit()} disabled={task.trim() === "" || busy} aria-label={text.send} title={text.send}>
-          <ArrowUp size={14} aria-hidden="true" />
+          <ArrowUp size={14} className="size-3.5" aria-hidden="true" />
         </Button>
       </div>
       <div className="sala-launcher-foot">
