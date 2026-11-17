@@ -4,7 +4,9 @@
 // is still worth proving under the real webview, because it is what jsdom
 // cannot answer: the toolbar mounts, the editor takes focus on its own when
 // a conversation opens, and the send button starts out refusing an empty
-// message.
+// message. With no relay the conversation is never live, so that button
+// carries the reason it cannot send as its name (the same words as its
+// tooltip) instead of "Send".
 //
 // **The driver cannot type into ProseMirror, and it is not an app bug.**
 // With the editor verifiably focused (`document.activeElement` is the
@@ -24,6 +26,8 @@
 // command it never is, run after run. Something between two driver commands
 // takes it away, so an autofocus assertion in this tier would be testing the
 // harness, not the app.
+const SEND_BLOCKED = "Waiting for the connection to send";
+
 describe("anywh composer", () => {
   before(async () => {
     const newConversation = await $('[aria-label="New session"]');
@@ -32,15 +36,15 @@ describe("anywh composer", () => {
   });
 
   it("renders the toolbar the conversation is driven from", async () => {
-    for (const label of ["Attach a file", "Record audio", "Send"]) {
+    for (const label of ["Attach a file", "Record audio", SEND_BLOCKED]) {
       const control = await $(`[aria-label="${label}"]`);
       await control.waitForExist({ timeout: 15000 });
       await expect(control).toBeExisting();
     }
   });
 
-  it("keeps Send disabled until there is something to send", async () => {
-    const send = await $('[aria-label="Send"]');
+  it("keeps Send disabled while there is no relay to send to", async () => {
+    const send = await $(`[aria-label="${SEND_BLOCKED}"]`);
     await send.waitForExist({ timeout: 15000 });
     await expect(await send.isEnabled()).toBe(false);
   });
