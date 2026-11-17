@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 import { ArrowUpCircle } from "lucide-react";
 
 import {
@@ -122,7 +124,7 @@ function ActivityRow({
       />
       {item.status === "run" ? (
         item.kind === "agent" ? (
-          <span className="mt-0.5 size-3 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary" />
+          <Spinner size="sm" tone="accent" className="mt-0.5" />
         ) : (
           <span className="mt-1 size-2.5 shrink-0 bg-diff-add" />
         )
@@ -160,29 +162,17 @@ function ActivityRow({
           </span>
           <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             {failed ? (
-              <button
-                type="button"
-                onClick={onDismiss}
-                className="cursor-pointer px-1.5 py-px font-sans text-[12px] text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
-              >
+              <Button variant="chrome" size="inline" onClick={onDismiss} className="py-px text-[12px] hover:bg-bg-hover">
                 {strings.dismiss}
-              </button>
+              </Button>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={onOpen}
-                  className="cursor-pointer px-1.5 py-px font-sans text-[12px] text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
-                >
+                <Button variant="chrome" size="inline" onClick={onOpen} className="py-px text-[12px] hover:bg-bg-hover">
                   {strings.open}
-                </button>
-                <button
-                  type="button"
-                  onClick={onStop}
-                  className="cursor-pointer px-1.5 py-px font-sans text-[12px] text-destructive transition-colors hover:bg-destructive/10"
-                >
+                </Button>
+                <Button variant="chrome" size="inline" onClick={onStop} className="py-px text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive">
                   {strings.stop}
-                </button>
+                </Button>
               </>
             )}
           </div>
@@ -300,20 +290,18 @@ export function StatusBar({
         }}
       >
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
             ref={activityTriggerRef}
-            type="button"
+            variant="chrome"
+            size="inline"
             title={activityStrings.chipTitle}
             // Same wash as `LanguageControl` on the other end of this bar and
             // as the composer's menu triggers: no outline, only a fill that
             // appears on hover and while the menu is open.
-            className={cn(
-              "flex shrink-0 cursor-pointer items-center gap-1.5 px-1.5 py-0.5 outline-hidden transition-colors hover:bg-surface-hover hover:text-foreground",
-              activityOpen ? "bg-surface-hover text-foreground" : "text-text-faint",
-            )}
+            className={cn(!activityOpen && "text-text-faint")}
           >
             {runCount > 0 ? (
-              <span className="size-2.5 shrink-0 animate-spin rounded-full border border-border border-t-primary" />
+              <Spinner size="xs" tone="accent" />
             ) : (
               <span className="size-2 shrink-0 rounded-full border border-text-faint" />
             )}
@@ -331,7 +319,7 @@ export function StatusBar({
               </>
             )}
             <span className="text-[8px] dark:opacity-60">{activityOpen ? "▾" : "▴"}</span>
-          </button>
+          </Button>
         </DropdownMenuTrigger>
 
         <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-[416px]">
@@ -389,25 +377,27 @@ export function StatusBar({
         </span>
       )}
       {ready ? (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="inline"
           onClick={onOpenUpdateModal}
-          className="flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
+          className="gap-1 border text-primary hover:bg-transparent hover:text-primary"
           title={dict.shell.statusBar.updateReady.replace("{version}", ready.update.version)}
         >
           <ArrowUpCircle className="size-3" strokeWidth={1.5} />
           {dict.shell.statusBar.updateReady.replace("{version}", ready.update.version)}
-        </button>
+        </Button>
       ) : update ? (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="inline"
           onClick={onOpenUpdateModal}
-          className="flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
+          className="gap-1 border text-primary hover:bg-transparent hover:text-primary"
           title={dict.shell.statusBar.updateAvailable.replace("{version}", update.version)}
         >
           <ArrowUpCircle className="size-3" strokeWidth={1.5} />
           {dict.shell.statusBar.updateAvailable.replace("{version}", update.version)}
-        </button>
+        </Button>
       ) : (
         <span className="shrink-0" title={dict.shell.statusBar.appVersion.replace("{version}", APP_VERSION)}>
           v{APP_VERSION}

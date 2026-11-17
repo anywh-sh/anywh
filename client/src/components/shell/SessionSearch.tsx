@@ -1,4 +1,5 @@
 import { Dialog, DialogOverlay, DialogPortal } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { useMergedSessions, useSessionListCache } from "@/hooks/tabs/useMergedSessions";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
@@ -200,17 +201,18 @@ function SearchPalette({
           className="h-full min-w-0 flex-1 bg-transparent text-[length:calc(15px*var(--chrome-scale))] text-foreground outline-none placeholder:text-text-faint"
         />
         {query !== "" ? (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size="icon-xs"
+            className="hover:text-muted-foreground"
             aria-label={dict.clear}
             onClick={() => {
               setQuery("");
               setActive(0);
             }}
-            className="flex size-6 items-center justify-center text-text-faint transition-colors hover:text-muted-foreground"
           >
             <XIcon className="size-3" aria-hidden />
-          </button>
+          </Button>
         ) : null}
       </div>
       <div ref={scrollRef} className="overflow-y-auto p-1.5" style={{ maxHeight: LIST_MAX_HEIGHT }}>

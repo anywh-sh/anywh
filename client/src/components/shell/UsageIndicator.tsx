@@ -1,4 +1,5 @@
 import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 
 import { AgentMark } from "@/components/shell/AgentMark";
 import { UsageMeter } from "@/components/shell/UsageMeter";
@@ -95,19 +96,18 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
   // only the essentials; the card's own button is a click away there.
   return (
     <span data-usage-indicator-group className="flex shrink-0 items-center gap-0.5">
-      <button
+      <Button
         ref={ref}
-        type="button"
+        variant="chrome"
+        size="inline"
         aria-haspopup="dialog"
         aria-expanded={expanded}
         aria-label={strings.summary.replace("{items}", summary.join("; "))}
         data-usage-indicator
         data-stale={stale || undefined}
-        className={cn(
-          "flex shrink-0 cursor-pointer items-center gap-2.5 px-1.5 py-0.5 outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover",
-          expanded && "bg-surface-hover",
-          className,
-        )}
+        // The ink is each block's own (a limit near turns its figure the
+        // accent), so the chip keeps the bar's instead of a control's.
+        className={cn("gap-2.5 text-inherit hover:text-inherit focus-visible:bg-surface-hover aria-expanded:text-inherit", className)}
         {...buttonProps}
       >
         <span aria-hidden="true" className={cn("size-1.5 shrink-0", profileColorClass(profileId))} />
@@ -139,7 +139,7 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
         {/* The design also put a dot here for any other profile near or at its
             limit, after a separator. Removed at the owner's request: other
             profiles show only in the card. */}
-      </button>
+      </Button>
       {!compact && refreshGroups && onRefresh && <UsageRefreshButton groups={refreshGroups} onRefresh={onRefresh} />}
     </span>
   );

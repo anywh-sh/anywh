@@ -11,7 +11,9 @@ import { cn } from "@/lib/utils"
  * - Decorative by default (`aria-hidden`): what it sits beside carries the
  *   accessible name, or the busy control carries `aria-busy`. Pass `label`
  *   when the spinner is the only thing saying something is happening; it
- *   then becomes a `status`.
+ *   then becomes a `status`. A labelled spinner that repeats in a list (a
+ *   tab, a session row) passes `role="img"` too: named, but not a live
+ *   region announcing every row that starts working.
  * - The blanket `prefers-reduced-motion` rule in index.css already stills it.
  * - `tone="current"` follows the text color, which is what a spinner inside a
  *   filled `Button` needs; the others sit on the page.

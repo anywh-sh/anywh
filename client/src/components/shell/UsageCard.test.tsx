@@ -115,7 +115,7 @@ describe("UsageCard", () => {
     fireEvent.click(refresh);
     expect(onRefresh).toHaveBeenCalledOnce();
     expect(refresh).toHaveAttribute("aria-busy", "false");
-    expect(refresh.querySelector("svg")?.getAttribute("class")).not.toContain("animate-spin");
+    expect(refresh.querySelector('[data-slot="spinner"]')).toBeNull();
   });
 
   it("takes a burst of clicks as one", () => {
@@ -163,7 +163,7 @@ describe("UsageCard", () => {
     const { card } = openCard({ byProfile: { trabalho: live([{ ...claude(58, 41), reading: true, readingSince: NOW }]) } });
     const refresh = within(card).getByRole("button", { name: "Refresh usage" });
     expect(refresh).toHaveAttribute("aria-busy", "true");
-    expect(refresh.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
+    expect(refresh.querySelector('[data-slot="spinner"]')).not.toBeNull();
     const account = within(card).getByRole("region", { name: "Claude Code" });
     expect(account.querySelector("[data-usage-account-reading]")).toHaveTextContent("updating…");
     // The flag is dropped once it has gone unanswered too long.

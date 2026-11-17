@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { VariantProps } from "class-variance-authority";
-import { ArrowRight, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, Plus, Trash2, X } from "lucide-react";
 import { Button, type buttonVariants } from "./button";
 
 type Variant = NonNullable<VariantProps<typeof buttonVariants>["variant"]>;
@@ -16,6 +16,8 @@ const VARIANTS = {
   secondary: true,
   ghost: true,
   link: true,
+  chrome: true,
+  quiet: true,
 } satisfies Record<Variant, true>;
 
 const SIZES = {
@@ -23,6 +25,7 @@ const SIZES = {
   sm: "text",
   default: "text",
   lg: "text",
+  inline: "text",
   "icon-xs": "icon",
   "icon-sm": "icon",
   icon: "icon",
@@ -70,6 +73,26 @@ export const Ghost: Story = {
 
 export const Link: Story = {
   args: { variant: "link", children: "Learn more" },
+};
+
+/** Window controls, strip and status bar buttons: a fill, never an outline. */
+export const Chrome: Story = {
+  args: { variant: "chrome", size: "icon", "aria-label": "Add", children: <Plus /> },
+};
+
+/** The × of a tab or a banner: only the glyph brightens. */
+export const Quiet: Story = {
+  args: { variant: "quiet", size: "icon-xs", "aria-label": "Close", children: <X /> },
+};
+
+/** Takes the size of the text around it — here a status bar's. */
+export const Inline: Story = {
+  args: { variant: "chrome", size: "inline", children: "v0.2.0" },
+  render: (args) => (
+    <div className="flex h-7 items-center bg-bg-chrome px-2 font-mono text-[11.5px] text-text-faint">
+      <Button {...args} />
+    </div>
+  ),
 };
 
 export const Disabled: Story = {

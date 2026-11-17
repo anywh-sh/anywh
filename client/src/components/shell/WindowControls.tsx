@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { Copy, Minus, Square, X } from "lucide-react";
 import { useWindowControls } from "@/hooks/platform/useWindowControls";
 import { useDict } from "@/i18n";
@@ -19,17 +20,15 @@ function WindowControlButton({
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="chrome"
+      size="icon"
       aria-label={label}
       onClick={onClick}
-      className={cn(
-        "flex h-full w-[46px] cursor-pointer items-center justify-center text-muted-foreground transition-colors",
-        variant === "close" ? "hover:bg-destructive hover:text-foreground" : "hover:bg-surface-hover hover:text-foreground",
-      )}
+      className={cn("h-full w-[46px]", variant === "close" && "hover:bg-destructive")}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 

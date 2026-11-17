@@ -1,5 +1,7 @@
 import { memo } from "react";
-import { Loader2, SquareTerminal } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
+import { RowButton } from "@/components/ui/row-button";
+import { SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDict, useLocale } from "@/i18n";
 import { profileColorClass } from "@/lib/profiles/profiles";
@@ -65,15 +67,7 @@ export const SessionListItem = memo(function SessionListItem({
 
   return (
     <div className="relative flex items-center" onContextMenu={menu.onContextMenu}>
-      <button
-        type="button"
-        onClick={() => onSelect(session)}
-        className={cn(
-          "relative flex w-full cursor-pointer items-center gap-[9px] px-2 text-left transition-colors",
-          size === "lg" ? "min-h-11 py-2.5" : "h-[30px]",
-          selected ? "bg-bg-elevated" : "hover:bg-bg-hover",
-        )}
-      >
+      <RowButton onClick={() => onSelect(session)} size={size === "lg" ? "lg" : "default"} selected={selected}>
         {/* The profile's colour as a bar, not a dot: it is the one piece of
          * per-row chrome that has to survive a long title truncating, and it
          * doubles as the selected-row marker — full height when selected, a
@@ -125,7 +119,7 @@ export const SessionListItem = memo(function SessionListItem({
             className="size-1.5 shrink-0 bg-destructive"
           />
         ) : running ? (
-          <Loader2 aria-label={indicatorLabel} className="size-3 shrink-0 animate-spin text-foreground" />
+          <Spinner size="sm" label={indicatorLabel} role="img" />
         ) : completedAt !== undefined ? (
           <span
             title={formatAbsoluteTime(completedAt, locale)}
@@ -146,7 +140,7 @@ export const SessionListItem = memo(function SessionListItem({
             </span>
           )
         )}
-      </button>
+      </RowButton>
       <SessionDeleteMenu menu={menu} title={session.title} onRename={() => onRename(session)} onDelete={() => onDelete(session)} />
     </div>
   );

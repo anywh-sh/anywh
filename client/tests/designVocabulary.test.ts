@@ -229,7 +229,6 @@ const RAW_BUTTON_BASELINE: Record<string, number> = {
   "components/firstrun/OnboardingFrame.tsx": 1,
   "components/firstrun/Preparing.tsx": 2,
   "components/firstrun/QuietLink.tsx": 1,
-  "components/firstrun/Segmented.tsx": 1,
   "components/sala/AgentAnswer.tsx": 1,
   "components/sala/AgentPanel.tsx": 7,
   "components/sala/NewAgentLauncher.tsx": 2,
@@ -245,25 +244,6 @@ const RAW_BUTTON_BASELINE: Record<string, number> = {
   "components/settings/ProfileSettings.tsx": 2,
   "components/settings/SettingsNav.tsx": 2,
   "components/settings/ThemeSection.tsx": 3,
-  "components/shell/FilesToggleButton.tsx": 2,
-  "components/shell/FirstLaunchBanner.tsx": 1,
-  "components/shell/PaneTabStrip.tsx": 2,
-  "components/shell/ProfileSwitcher.tsx": 1,
-  "components/shell/RailAddButton.tsx": 1,
-  "components/shell/RightPanelToggleButton.tsx": 1,
-  "components/shell/RoomPaneToggleButtons.tsx": 3,
-  "components/shell/SessionListItem.tsx": 1,
-  "components/shell/SessionList.tsx": 3,
-  "components/shell/SessionSearch.tsx": 1,
-  "components/shell/Sidebar.tsx": 2,
-  "components/shell/StatusBar.tsx": 6,
-  "components/shell/TabGroupStrip.tsx": 3,
-  "components/shell/TerminalToggleButton.tsx": 2,
-  "components/shell/UpdateModal.tsx": 1,
-  "components/shell/UpdateRestartButton.tsx": 2,
-  "components/shell/UsageIndicator.tsx": 1,
-  "components/shell/UsageRefreshButton.tsx": 1,
-  "components/shell/WindowControls.tsx": 1,
 };
 
 /**
@@ -279,11 +259,6 @@ const RAW_SPINNER_BASELINE: Record<string, number> = {
   "components/chat/MessageLog.tsx": 1,
   "components/files/DownloadToasts.tsx": 1,
   "components/sala/RoomTabIndicator.tsx": 1,
-  "components/shell/SessionListItem.tsx": 1,
-  "components/shell/StatusBar.tsx": 2,
-  "components/shell/TabGroupStrip.tsx": 1,
-  "components/shell/usageNote.tsx": 1,
-  "components/shell/UsageRefreshButton.tsx": 1,
 };
 
 /**
@@ -329,7 +304,20 @@ function ratchet(actual: Record<string, number>, baseline: Record<string, number
   };
 }
 
+/**
+ * Elements made clickable with `role="button"`, the other way to hand-roll a
+ * button: it dodges the `<button>` count above, and carries a hand-written
+ * keyboard handler besides. Same ratchet. Usually the reason was a control
+ * nested inside (a tab and its ×); the way out is the trigger and the control
+ * as siblings, as `TabTrigger` does.
+ */
+const ROLE_BUTTON_BASELINE: Record<string, number> = {
+  "components/chat/activity/ToolCallRow.tsx": 1,
+  "components/files/FileTree.tsx": 1,
+};
+
 const rawButtons = () => ratchet(countsOutsidePrimitives(/<button(?=[\s>])/g), RAW_BUTTON_BASELINE);
+const roleButtons = () => ratchet(countsOutsidePrimitives(/role="button"/g), ROLE_BUTTON_BASELINE);
 const rawSpinners = () => ratchet(countsOutsidePrimitives(/\banimate-spin\b/g), RAW_SPINNER_BASELINE);
 
 describe("primitives", () => {
@@ -345,6 +333,14 @@ describe("primitives", () => {
     // A migrated file lowers its entry (or drops it) in the same change, so
     // the slack it freed can't be spent by the next hand-styled button.
     expect(rawButtons().stale).toEqual([]);
+  });
+
+  it("never fakes a button with role=\"button\"", () => {
+    expect(roleButtons().grew).toEqual([]);
+  });
+
+  it("keeps the role=\"button\" baseline tight", () => {
+    expect(roleButtons().stale).toEqual([]);
   });
 
   it("shows loading with Spinner instead of a hand-rolled animate-spin", () => {

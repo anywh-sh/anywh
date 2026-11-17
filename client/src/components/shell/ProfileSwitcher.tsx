@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RowButton } from "@/components/ui/row-button";
 import { Check, ChevronsUpDown, Plus, Link2, RotateCw } from "lucide-react";
 import {
   DropdownMenu,
@@ -67,11 +68,7 @@ export function ProfileSwitcher({ activeProfile, supported, onChange, allProfile
           same fix as WorkingDirectoryButton/ModelButton. */}
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={dict.shell.profiles.activeProfile}
-            className="group flex h-10 w-full cursor-pointer items-center gap-2.5 px-2 text-left transition-colors hover:bg-bg-hover"
-          >
+          <RowButton aria-label={dict.shell.profiles.activeProfile} className="group h-10 gap-2.5">
             <ProfileSquare profileId={activeProfile.id} size="lg" />
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-[length:calc(13.5px*var(--chrome-scale))] leading-[1.2] font-medium text-foreground">
@@ -82,7 +79,7 @@ export function ProfileSwitcher({ activeProfile, supported, onChange, allProfile
               </span>
             </span>
             <ChevronsUpDown className="size-3.5 shrink-0 text-text-faint transition-colors group-hover:text-foreground" />
-          </button>
+          </RowButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
           <DropdownMenuLabel>{dict.shell.profiles.heading}</DropdownMenuLabel>

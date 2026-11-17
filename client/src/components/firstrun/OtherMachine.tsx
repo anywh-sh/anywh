@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 import { Field } from "@/components/firstrun/Field";
 import { FirstRunHeading } from "@/components/firstrun/FirstRunHeading";
 import { QuietLink } from "@/components/firstrun/QuietLink";
-import { Segmented } from "@/components/firstrun/Segmented";
+import { Segmented } from "@/components/ui/segmented";
 import { StepRows } from "@/components/firstrun/StepIcon";
 import type { StepRow } from "@/components/shell/StepList";
 import { Button } from "@/components/ui/button";

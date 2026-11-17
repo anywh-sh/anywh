@@ -7,7 +7,7 @@ import * as stories from "./button.stories";
 // The stories are the spec: each one renders here exactly as it does in the
 // Storybook canvas, so a story that stops rendering what it claims fails CI
 // instead of drifting unnoticed in a catalog nobody opened.
-const { Default, Destructive, Disabled, Loading, IconOnly, AsChild, Matrix } = composeStories(stories);
+const { Default, Destructive, Disabled, Loading, IconOnly, AsChild, Chrome, Quiet, Inline, Matrix } = composeStories(stories);
 
 describe("Button stories", () => {
   afterEach(cleanup);
@@ -68,6 +68,21 @@ describe("Button stories", () => {
     const link = screen.getByRole("link", { name: "anywh.sh" });
     expect(link).toHaveAttribute("data-slot", "button");
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("renders the chrome and quiet variants", () => {
+    render(<Chrome />);
+    expect(screen.getByRole("button", { name: "Add" })).toHaveAttribute("data-variant", "chrome");
+    cleanup();
+    render(<Quiet />);
+    expect(screen.getByRole("button", { name: "Close" })).toHaveAttribute("data-variant", "quiet");
+  });
+
+  it("takes the surrounding text's size when inline, with the smallest spinner", () => {
+    render(<Inline loading />);
+    const button = screen.getByRole("button", { name: "v0.2.0" });
+    expect(button).toHaveClass("text-[length:inherit]");
+    expect(button.querySelector('[data-slot="spinner"]')).toHaveAttribute("data-size", "xs");
   });
 
   it("covers every variant at every size in the matrix", () => {
