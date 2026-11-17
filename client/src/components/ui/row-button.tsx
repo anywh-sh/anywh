@@ -16,6 +16,9 @@ import { cn } from "@/lib/utils"
  *   `end` for the rail on the window's other side).
  * - `tone="faint"` is for secondary rows (a group heading, "older in
  *   search"): dimmer ink, and no fill on hover, only the ink brightening.
+ * - `size="auto"` leaves the height and padding to the caller, for rows that
+ *   are not the sidebar's: a card's header, a dialog's list. Off the
+ *   sidebar's ground, pass that surface's fill (`hover:bg-surface-hover`).
  * - Children own their own colors where they need to (a session title that
  *   stays bright when unseen); the row's tone is the default ink.
  */
@@ -30,6 +33,8 @@ const rowButtonVariants = cva(
       size: {
         default: "h-[30px]",
         lg: "min-h-11 py-2.5",
+        // Padded by the caller: a card's header, a list inside a dialog.
+        auto: "",
       },
       selected: {
         true: "bg-bg-elevated text-foreground hover:text-foreground",
