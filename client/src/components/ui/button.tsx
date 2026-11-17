@@ -11,7 +11,11 @@ import { Spinner } from "@/components/ui/spinner"
  * face is reserved for prose (message content, descriptions) and the display
  * face for titles.
  *
- * Two structural choices worth knowing before editing:
+ * Three structural choices worth knowing before editing:
+ *
+ * - `type` defaults to `"button"`, not the HTML default `"submit"`: a
+ *   control dropped inside a form (the composer is one) would otherwise send
+ *   it. A submit says so with `type="submit"`.
  *
  * - The base carries `border border-transparent`, so the variants that grow a
  *   border on hover don't shift their own layout by a pixel when they do.
@@ -106,6 +110,7 @@ function Button({
   asChild = false,
   loading = false,
   disabled,
+  type = "button",
   children,
   ...props
 }: React.ComponentProps<"button"> &
@@ -132,6 +137,7 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
+      type={type}
       data-loading={loading || undefined}
       aria-busy={loading || undefined}
       disabled={disabled || loading}
