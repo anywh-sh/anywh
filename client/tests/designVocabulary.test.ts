@@ -206,17 +206,6 @@ const RAW_BUTTON_BASELINE: Record<string, number> = {
   "components/firstrun/OnboardingFrame.tsx": 1,
   "components/firstrun/Preparing.tsx": 2,
   "components/firstrun/QuietLink.tsx": 1,
-  "components/sala/AgentAnswer.tsx": 1,
-  "components/sala/AgentPanel.tsx": 7,
-  "components/sala/NewAgentLauncher.tsx": 2,
-  "components/sala/RoomPanel.tsx": 1,
-  "components/sala/SalaCanvas.tsx": 3,
-  "components/sala/SalaCard.tsx": 7,
-  "components/sala/SalaMultiBar.tsx": 4,
-  "components/sala/SalaSidePanel.tsx": 1,
-  "components/sala/SalaSubtaskCard.tsx": 4,
-  "components/sala/SalaToolbar.tsx": 7,
-  "components/sala/SessionTypeSelector.tsx": 1,
   "components/settings/AppearanceSettings.tsx": 1,
   "components/settings/ProfileSettings.tsx": 2,
   "components/settings/SettingsNav.tsx": 2,
@@ -230,7 +219,6 @@ const RAW_BUTTON_BASELINE: Record<string, number> = {
  */
 const RAW_SPINNER_BASELINE: Record<string, number> = {
   "components/files/DownloadToasts.tsx": 1,
-  "components/sala/RoomTabIndicator.tsx": 1,
 };
 
 /**
@@ -287,7 +275,25 @@ const ROLE_BUTTON_BASELINE: Record<string, number> = {
   "components/files/FileTree.tsx": 1,
 };
 
-const rawButtons = () => ratchet(countsOutsidePrimitives(/<button(?=[\s>])/g), RAW_BUTTON_BASELINE);
+/**
+ * Buttons drawn inside the room canvas's zoomed plane (a card's hit area and
+ * actions, a subtask's, an area's ×, the answer anchored under a card). Not
+ * a pending migration: these stay in `sala.css`, whose header says why — in
+ * the plane, what is composited and repainted per frame is the point, and a
+ * primitive's transitions, ring and class list would change it out of
+ * sight. Everything the room draws outside the plane (toolbar, selection
+ * bar, toast, side panel, launcher) is built from primitives. Same ratchet:
+ * the plane may not gain a hand-styled button either.
+ */
+const CANVAS_PLANE_BUTTONS: Record<string, number> = {
+  "components/sala/AgentAnswer.tsx": 1,
+  "components/sala/SalaCanvas.tsx": 1,
+  "components/sala/SalaCard.tsx": 7,
+  "components/sala/SalaSubtaskCard.tsx": 4,
+};
+
+const rawButtons = () =>
+  ratchet(countsOutsidePrimitives(/<button(?=[\s>])/g), { ...RAW_BUTTON_BASELINE, ...CANVAS_PLANE_BUTTONS });
 const roleButtons = () => ratchet(countsOutsidePrimitives(/role="button"/g), ROLE_BUTTON_BASELINE);
 const rawSpinners = () => ratchet(countsOutsidePrimitives(/\banimate-spin\b/g), RAW_SPINNER_BASELINE);
 

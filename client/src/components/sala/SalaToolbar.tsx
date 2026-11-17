@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDict } from "@/i18n";
@@ -34,6 +35,9 @@ function Tip({ label, keys, children }: { label: string; keys?: readonly string[
   );
 }
 
+/** A tool: an icon in a 34px square, raised while it is the one in hand. */
+const TOOL = "h-[34px] w-auto min-w-[34px] gap-[7px] px-[9px] font-sans text-[13px] text-text-faint disabled:opacity-40 aria-pressed:bg-bg-elevated";
+
 /**
  * Icons only, centred on the bottom edge of the plane over the status bar's
  * line: border on top and sides, none underneath, so it reads as growing out
@@ -43,9 +47,9 @@ export function SalaToolbar(props: SalaToolbarProps) {
   const dict = useDict().sala.toolbar;
   const tool = (id: SalaTool, label: string, keys: readonly string[], icon: ReactNode) => (
     <Tip label={label} keys={keys}>
-      <button type="button" className={cn("sala-tool", props.tool === id && "on")} aria-label={label} aria-pressed={props.tool === id} onClick={() => props.onTool(id)}>
+      <Button variant="chrome" size="icon" className={TOOL} aria-label={label} aria-pressed={props.tool === id} onClick={() => props.onTool(id)}>
         {icon}
-      </button>
+      </Button>
     </Tip>
   );
   return (
@@ -55,37 +59,43 @@ export function SalaToolbar(props: SalaToolbarProps) {
         {tool("hand", dict.hand, ["H", dict.space], <HandIcon />)}
         <span className="sala-sep" aria-hidden="true" />
         <Tip label={dict.newAgent} keys={["A"]}>
-          <button type="button" className={cn("sala-tool", props.newAgentOpen && "on")} aria-label={dict.newAgent} aria-pressed={props.newAgentOpen} onClick={props.onNewAgent}>
+          <Button variant="chrome" size="icon" className={TOOL} aria-label={dict.newAgent} aria-pressed={props.newAgentOpen} onClick={props.onNewAgent}>
             <NewAgentIcon />
-          </button>
+          </Button>
         </Tip>
         <Tip label={dict.attach} keys={["U"]}>
-          <button type="button" className="sala-tool" aria-label={dict.attach} onClick={props.onAttach}>
+          <Button variant="chrome" size="icon" className={TOOL} aria-label={dict.attach} onClick={props.onAttach}>
             <AttachIcon />
-          </button>
+          </Button>
         </Tip>
         {tool("text", dict.text, ["T"], <TextIcon />)}
         {tool("area", dict.area, ["R"], <AreaIcon />)}
         <span className="sala-sep" aria-hidden="true" />
         <Tip label={dict.zoomOut} keys={["−"]}>
-          <button type="button" className="sala-tool" aria-label={dict.zoomOut} onClick={props.onZoomOut}>
+          <Button variant="chrome" size="icon" className={TOOL} aria-label={dict.zoomOut} onClick={props.onZoomOut}>
             <MinusIcon />
-          </button>
+          </Button>
         </Tip>
         <Tip label={dict.zoomReset.replace("{percent}", props.zoomText)} keys={[shiftKeyLabel(), "0"]}>
-          <button type="button" className="sala-tool zoom" aria-label={dict.zoomReset.replace("{percent}", props.zoomText)} onClick={props.onZoomReset}>
+          <Button
+            variant="chrome"
+            size="icon"
+            className={cn(TOOL, "min-w-[54px] px-1.5 font-mono text-[12px] font-medium text-muted-foreground")}
+            aria-label={dict.zoomReset.replace("{percent}", props.zoomText)}
+            onClick={props.onZoomReset}
+          >
             <span ref={props.zoomLabelRef}>{props.zoomText}</span>
-          </button>
+          </Button>
         </Tip>
         <Tip label={dict.zoomIn} keys={["+"]}>
-          <button type="button" className="sala-tool" aria-label={dict.zoomIn} onClick={props.onZoomIn}>
+          <Button variant="chrome" size="icon" className={TOOL} aria-label={dict.zoomIn} onClick={props.onZoomIn}>
             <PlusIcon />
-          </button>
+          </Button>
         </Tip>
         <Tip label={dict.fit} keys={[shiftKeyLabel(), "1"]}>
-          <button type="button" className="sala-tool" aria-label={dict.fit} onClick={props.onFit}>
+          <Button variant="chrome" size="icon" className={TOOL} aria-label={dict.fit} onClick={props.onFit}>
             <FitIcon />
-          </button>
+          </Button>
         </Tip>
       </div>
     </div>

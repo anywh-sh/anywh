@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
 import { modifierKeyLabel, shiftKeyLabel } from "@/lib/platform/platform";
 import { AreaIcon, CloseIcon, TrashIcon } from "@/components/sala/SalaIcons";
@@ -20,24 +21,24 @@ export function SalaMultiBar({ count, canStop, onGroup, onStop, onRemove, onClea
     <div className="sala-float sala-mbar" data-float role="toolbar" aria-label={dict.label}>
       <span className="sala-mbar-n">{dict.count.replace("{count}", String(count))}</span>
       <span className="sala-mbar-h">{dict.hint.replace("{shift}", shiftKeyLabel()).replace("{mod}", modifierKeyLabel())}</span>
-      <button type="button" onClick={onGroup}>
+      <Button variant="chrome" size="bar" onClick={onGroup}>
         <AreaIcon size={13} />
         <span>{dict.group}</span>
-      </button>
+      </Button>
       {canStop && (
-        <button type="button" onClick={onStop}>
+        <Button variant="chrome" size="bar" onClick={onStop}>
           <span aria-hidden="true" style={{ width: 8, height: 8, background: "currentColor" }} />
           <span>{dict.stop}</span>
-        </button>
+        </Button>
       )}
-      <button type="button" className="danger" onClick={onRemove}>
+      <Button variant="chrome" size="bar" className="hover:text-destructive" onClick={onRemove}>
         <TrashIcon size={13} />
         <span>{dict.remove}</span>
-      </button>
+      </Button>
       <span className="sala-sep" aria-hidden="true" />
-      <button type="button" className="sala-mbar-x" onClick={onClear} aria-label={dict.clear} title={dict.clear}>
+      <Button variant="chrome" size="icon" className="size-[26px]" onClick={onClear} aria-label={dict.clear} title={dict.clear}>
         <CloseIcon size={11} />
-      </button>
+      </Button>
     </div>
   );
 }

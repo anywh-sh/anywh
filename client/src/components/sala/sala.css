@@ -857,40 +857,6 @@
   border: 1px solid var(--border-soft);
   border-bottom: 0;
 }
-.sala-tool {
-  position: relative;
-  height: 34px;
-  min-width: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 9px;
-  font-size: 13px;
-  color: var(--text-faint);
-  cursor: pointer;
-  transition:
-    background-color var(--motion-fast) var(--motion-ease),
-    color var(--motion-fast) var(--motion-ease);
-}
-.sala-tool:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--foreground);
-}
-.sala-tool:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.sala-tool.on {
-  background: var(--bg-elevated);
-  color: var(--foreground);
-}
-.sala-tool.zoom {
-  min-width: 54px;
-  padding: 0 6px;
-  font: 500 12px var(--font-mono);
-  color: var(--muted-foreground);
-}
 .sala-sep {
   width: 1px;
   height: 18px;
@@ -958,20 +924,6 @@
 .sala-toast.act {
   padding-right: 5px;
 }
-.sala-toast button {
-  height: 26px;
-  margin-left: 4px;
-  padding: 0 10px;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--foreground);
-  background: var(--composer-border);
-  cursor: pointer;
-  transition: background-color var(--motion-fast) var(--motion-ease);
-}
-.sala-toast button:hover {
-  background: var(--border);
-}
 .sala-toast-sub {
   color: var(--text-faint);
 }
@@ -1004,31 +956,6 @@
   padding: 0 10px 0 2px;
   font: 400 11px var(--font-mono);
   color: var(--text-faint);
-}
-.sala-mbar button {
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  font-size: 12.5px;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  transition:
-    background-color var(--motion-fast) var(--motion-ease),
-    color var(--motion-fast) var(--motion-ease);
-}
-.sala-mbar button:hover {
-  background: var(--surface-hover);
-  color: var(--foreground);
-}
-.sala-mbar button.danger:hover {
-  color: var(--destructive);
-}
-.sala-mbar .sala-mbar-x {
-  width: 26px;
-  justify-content: center;
-  padding: 0;
 }
 
 /* the question before an action that cannot simply be taken back
@@ -1364,20 +1291,6 @@
   font: 400 11.5px var(--font-mono);
   color: var(--text-faint);
 }
-.sala-side-close {
-  width: 26px;
-  height: 26px;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-faint);
-  cursor: pointer;
-}
-.sala-side-close:hover {
-  background: var(--surface-hover);
-  color: var(--foreground);
-}
 .sala-side-body {
   flex: 1;
   min-height: 0;
@@ -1407,20 +1320,6 @@
   gap: 4px;
   padding: 6px 8px;
   border-top: 1px solid var(--border-soft);
-}
-.sala-side-act {
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 8px;
-  font-size: 12.5px;
-  color: var(--muted-foreground);
-  cursor: pointer;
-}
-.sala-side-act:hover {
-  background: var(--surface-hover);
-  color: var(--foreground);
 }
 .sala-pane .grow {
   flex: 1;
@@ -1741,25 +1640,6 @@
   font: 400 11.5px var(--font-mono);
   color: var(--destructive);
 }
-.sala-send {
-  width: 26px;
-  height: 26px;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-hover);
-  color: var(--foreground);
-  cursor: pointer;
-}
-.sala-send:disabled {
-  color: var(--text-faint);
-  cursor: default;
-}
-.sala-send:not(:disabled):hover {
-  background: var(--foreground);
-  color: var(--bg-chrome);
-}
 .sala-plus {
   width: 13px;
   text-align: center;
@@ -1771,18 +1651,6 @@
 .sala-about {
   right: 12px;
   top: 12px;
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--bg-elevated) 33%, var(--background));
-  border: 1px solid var(--border-soft);
-  color: var(--muted-foreground);
-  cursor: pointer;
-}
-.sala-about:hover {
-  color: var(--foreground);
 }
 .sala-done {
   left: 50%;
@@ -1806,17 +1674,6 @@
 .sala-done span {
   font: 400 11.5px var(--font-mono);
   color: var(--muted-foreground);
-}
-.sala-done button {
-  height: 24px;
-  padding: 0 9px;
-  margin-left: 4px;
-  font-size: 12.5px;
-  color: var(--foreground);
-  cursor: pointer;
-}
-.sala-done button:hover {
-  background: var(--surface-hover);
 }
 .sala-launcher {
   left: 50%;
@@ -1849,21 +1706,6 @@
   gap: 8px;
   padding: 4px 8px 6px;
   background: var(--bg-elevated);
-}
-.sala-launcher-parent {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  height: 28px;
-  padding: 0 8px;
-  font-size: 13px;
-  color: var(--muted-foreground);
-  cursor: pointer;
-}
-.sala-launcher-parent:hover {
-  background: var(--surface-hover);
-  color: var(--foreground);
 }
 .sala-launcher .grow {
   flex: 1;
@@ -2081,15 +1923,3 @@
   stroke-dasharray: 4 4;
 }
 
-/* A subtask's row in the panel: it takes the person to its mini-card. */
-.sala-side-row.sub {
-  width: 100%;
-  padding: 0 6px;
-  margin: 0 -6px;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.14s ease;
-}
-.sala-side-row.sub:hover {
-  background: var(--surface-hover);
-}
