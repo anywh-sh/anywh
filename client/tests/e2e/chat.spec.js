@@ -11,13 +11,13 @@ describe("anywh conversation tabs", () => {
   let baseline = 0;
 
   it("opens a conversation and names its tab from the dictionary", async () => {
-    baseline = (await $$('[role="tab"]')).length;
+    baseline = (await $$('[role="tab"][data-tab-id]')).length;
 
     const newConversation = await $('[aria-label="New session"]');
     await newConversation.waitForExist({ timeout: 15000 });
     await newConversation.click();
 
-    const tab = await $('[role="tab"]');
+    const tab = await $('[role="tab"][data-tab-id]');
     await tab.waitForExist({ timeout: 5000 });
     // The relay is what titles a session, and there is none here — so this
     // is the untitled fallback, which is the one string every surface that
@@ -30,24 +30,24 @@ describe("anywh conversation tabs", () => {
     await newTab.waitForExist({ timeout: 15000 });
     await newTab.click();
 
-    await browser.waitUntil(async () => (await $$('[role="tab"]')).length === baseline + 2, {
+    await browser.waitUntil(async () => (await $$('[role="tab"][data-tab-id]')).length === baseline + 2, {
       timeout: 5000,
       timeoutMsg: "the + did not open a second tab",
     });
   });
 
   it("makes the tab it just opened the active one", async () => {
-    const tabs = await $$('[role="tab"]');
+    const tabs = await $$('[role="tab"][data-tab-id]');
     await expect(await tabs[baseline + 1].getAttribute("data-state")).toBe("active");
     await expect(await tabs[baseline].getAttribute("data-state")).toBe("inactive");
   });
 
   it("switches to another tab on click", async () => {
-    const tabs = await $$('[role="tab"]');
+    const tabs = await $$('[role="tab"][data-tab-id]');
     await tabs[baseline].click();
 
     await browser.waitUntil(
-      async () => (await (await $$('[role="tab"]'))[baseline].getAttribute("data-state")) === "active",
+      async () => (await (await $$('[role="tab"][data-tab-id]'))[baseline].getAttribute("data-state")) === "active",
       { timeout: 5000, timeoutMsg: "clicking a tab did not activate it" },
     );
   });
@@ -60,7 +60,7 @@ describe("anywh conversation tabs", () => {
     await close.waitForExist({ timeout: 5000 });
     await close.click();
 
-    await browser.waitUntil(async () => (await $$('[role="tab"]')).length === baseline + 1, {
+    await browser.waitUntil(async () => (await $$('[role="tab"][data-tab-id]')).length === baseline + 1, {
       timeout: 5000,
       timeoutMsg: "the tab did not close",
     });
