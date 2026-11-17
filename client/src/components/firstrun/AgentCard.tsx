@@ -2,7 +2,7 @@ import { useId } from "react";
 import { ArrowUpRight, Check } from "lucide-react";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { QuietLink } from "@/components/firstrun/QuietLink";
-import { Spinner } from "@/components/firstrun/Spinner";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";

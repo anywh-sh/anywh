@@ -1,5 +1,5 @@
 import { Check, X } from "lucide-react";
-import { Spinner } from "@/components/firstrun/Spinner";
+import { Spinner } from "@/components/ui/spinner";
 
 export type OnboardingStepStatus = "pending" | "running" | "done" | "failed";
 
@@ -11,7 +11,7 @@ export type OnboardingStepStatus = "pending" | "running" | "done" | "failed";
 export function StepIcon({ status }: { status: OnboardingStepStatus | "warning" }) {
   if (status === "done") return <Check className="size-3.5 shrink-0 text-diff-add" aria-hidden="true" />;
   if (status === "failed") return <X className="size-3.5 shrink-0 text-destructive" aria-hidden="true" />;
-  if (status === "running") return <Spinner className="size-3.5" />;
+  if (status === "running") return <Spinner size="md" />;
   return <span className="mx-[3px] size-2 shrink-0 border border-text-faint" aria-hidden="true" />;
 }
 

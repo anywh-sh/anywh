@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { Spinner } from "@/components/ui/spinner"
 
 /**
  * Controls are mono, square and dense — that is the brand, not a style
@@ -17,9 +18,16 @@ import { cn } from "@/lib/utils"
  * - `transition-colors`, never `transition-all`. `all` includes layout
  *   properties, and a button is the single most repeated element in the app —
  *   this is the first place a careless transition costs frames.
+ *
+ * `loading` keeps the label in place but invisible and lays the spinner over
+ * it, so the button keeps its width and nothing around it shifts. It also
+ * disables the button and sets `aria-busy`, but keeps full opacity — busy is
+ * not unavailable, and a faded button reads as "you can't"; the label (or `aria-label`) stays
+ * the accessible name. Not available with `asChild` — the child owns its
+ * content there.
  */
 const buttonVariants = cva(
-  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 border border-transparent font-mono font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 border border-transparent font-mono font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50 data-loading:disabled:opacity-100 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -55,26 +63,69 @@ const buttonVariants = cva(
   }
 )
 
+const SPINNER_SIZE = {
+  xs: "xs",
+  "icon-xs": "xs",
+  sm: "sm",
+  "icon-sm": "sm",
+  default: "md",
+  icon: "md",
+  lg: "md",
+  "icon-lg": "md",
+} as const satisfies Record<NonNullable<VariantProps<typeof buttonVariants>["size"]>, string>
+
 function Button({
   className,
   variant = "default",
   size = "default",
   asChild = false,
+  loading = false,
+  disabled,
+  children,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
+    loading?: boolean
   }) {
-  const Comp = asChild ? Slot.Root : "button"
+  if (asChild) {
+    return (
+      <Slot.Root
+        data-slot="button"
+        data-variant={variant}
+        data-size={size}
+        className={cn(buttonVariants({ variant, size, className }))}
+        {...props}
+      >
+        {children}
+      </Slot.Root>
+    )
+  }
 
   return (
-    <Comp
+    <button
       data-slot="button"
       data-variant={variant}
       data-size={size}
+      data-loading={loading || undefined}
+      aria-busy={loading || undefined}
+      disabled={disabled || loading}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
-    />
+    >
+      {loading ? (
+        <>
+          {/* `contents` keeps the children laid out by the button's own flex
+              and gap, exactly as when not loading. */}
+          <span className="invisible contents">{children}</span>
+          <span className="absolute inset-0 flex items-center justify-center">
+            <Spinner size={size ? SPINNER_SIZE[size] : "md"} tone="current" />
+          </span>
+        </>
+      ) : (
+        children
+      )}
+    </button>
   )
 }
 

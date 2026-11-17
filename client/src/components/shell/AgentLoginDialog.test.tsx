@@ -87,11 +87,11 @@ describe("AgentLoginDialog", () => {
     await user.type(body().getByLabelText(copy.pasteLabel), "  abc#def  ");
     await user.click(body().getByRole("button", { name: copy.submit }));
     expect(ws.sent).toEqual([JSON.stringify({ type: "code", value: "abc#def" })]);
-    // Checking: the button shows only a spinner and can't be pressed again.
+    // Checking: a spinner covers the label and the button can't be pressed again.
     const submit = body().getByRole("button", { name: copy.submit });
     expect(submit).toBeDisabled();
     expect(submit).toHaveAttribute("aria-busy", "true");
-    expect(submit).not.toHaveTextContent(copy.submit);
+    expect(submit.querySelector('[data-slot="spinner"]')).not.toBeNull();
 
     ws.emit({ type: "done", account: "me@example.com", plan: "max" });
     expect(body().getByRole("status")).toHaveTextContent("Connected as me@example.com");
