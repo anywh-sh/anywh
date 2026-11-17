@@ -1,4 +1,5 @@
 import { ArrowUpCircle, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useReadyUpdate, useRestartIntoUpdate } from "@/hooks/platform/useAppUpdate";
 import { useDict } from "@/i18n";
@@ -22,27 +23,29 @@ export function UpdateRestartButton() {
     <div className="flex h-[30px] min-w-0 shrink items-stretch border border-border text-xs text-primary">
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
-            disabled={restarting}
+          <Button
+            variant="chrome"
+            size="inline"
+            loading={restarting}
             aria-label={dict.restartToUpdate}
             onClick={() => void restart()}
-            className="flex cursor-pointer items-center gap-1.5 px-2 font-mono outline-hidden transition-colors hover:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-ring/60 disabled:opacity-50"
+            className="h-auto px-2 py-0 text-primary hover:bg-bg-elevated hover:text-primary"
           >
             <ArrowUpCircle className="size-3.5" strokeWidth={1.5} />
             {dict.restartShort}
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">{dict.restartToUpdateHint.replace("{version}", ready.update.version)}</TooltipContent>
       </Tooltip>
-      <button
-        type="button"
+      <Button
+        variant="chrome"
+        size="icon-xs"
         aria-label={dict.dismissRestartToUpdate}
         onClick={dismissRestartPrompt}
-        className="flex w-6 cursor-pointer items-center justify-center border-l border-border text-muted-foreground outline-hidden transition-colors hover:bg-bg-elevated hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+        className="h-auto border-l-border hover:bg-bg-elevated"
       >
         <X className="size-3" strokeWidth={1.5} />
-      </button>
+      </Button>
     </div>
   );
 }

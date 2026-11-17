@@ -1,7 +1,7 @@
 import { PanelRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 
 interface RightPanelToggleButtonProps {
   /** Whether the group's right-hand panel is showing. */
@@ -23,18 +23,9 @@ export function RightPanelToggleButton({ shown, onToggle }: RightPanelToggleButt
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label={label}
-          aria-pressed={shown}
-          className={cn(
-            "flex h-[30px] w-10 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground",
-            shown && "text-foreground",
-          )}
-        >
+        <Button variant="chrome" size="icon" onClick={onToggle} aria-label={label} aria-pressed={shown} className="h-[30px] w-10 hover:bg-bg-hover">
           <PanelRight className="size-4" />
-        </button>
+        </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>

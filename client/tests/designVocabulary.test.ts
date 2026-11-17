@@ -229,7 +229,6 @@ const RAW_BUTTON_BASELINE: Record<string, number> = {
   "components/firstrun/OnboardingFrame.tsx": 1,
   "components/firstrun/Preparing.tsx": 2,
   "components/firstrun/QuietLink.tsx": 1,
-  "components/firstrun/Segmented.tsx": 1,
   "components/sala/AgentAnswer.tsx": 1,
   "components/sala/AgentPanel.tsx": 7,
   "components/sala/NewAgentLauncher.tsx": 2,
@@ -245,25 +244,6 @@ const RAW_BUTTON_BASELINE: Record<string, number> = {
   "components/settings/ProfileSettings.tsx": 2,
   "components/settings/SettingsNav.tsx": 2,
   "components/settings/ThemeSection.tsx": 3,
-  "components/shell/FilesToggleButton.tsx": 2,
-  "components/shell/FirstLaunchBanner.tsx": 1,
-  "components/shell/PaneTabStrip.tsx": 2,
-  "components/shell/ProfileSwitcher.tsx": 1,
-  "components/shell/RailAddButton.tsx": 1,
-  "components/shell/RightPanelToggleButton.tsx": 1,
-  "components/shell/RoomPaneToggleButtons.tsx": 3,
-  "components/shell/SessionListItem.tsx": 1,
-  "components/shell/SessionList.tsx": 3,
-  "components/shell/SessionSearch.tsx": 1,
-  "components/shell/Sidebar.tsx": 2,
-  "components/shell/StatusBar.tsx": 6,
-  "components/shell/TabGroupStrip.tsx": 3,
-  "components/shell/TerminalToggleButton.tsx": 2,
-  "components/shell/UpdateModal.tsx": 1,
-  "components/shell/UpdateRestartButton.tsx": 2,
-  "components/shell/UsageIndicator.tsx": 1,
-  "components/shell/UsageRefreshButton.tsx": 1,
-  "components/shell/WindowControls.tsx": 1,
 };
 
 /**
@@ -279,11 +259,6 @@ const RAW_SPINNER_BASELINE: Record<string, number> = {
   "components/chat/MessageLog.tsx": 1,
   "components/files/DownloadToasts.tsx": 1,
   "components/sala/RoomTabIndicator.tsx": 1,
-  "components/shell/SessionListItem.tsx": 1,
-  "components/shell/StatusBar.tsx": 2,
-  "components/shell/TabGroupStrip.tsx": 1,
-  "components/shell/usageNote.tsx": 1,
-  "components/shell/UsageRefreshButton.tsx": 1,
 };
 
 /**

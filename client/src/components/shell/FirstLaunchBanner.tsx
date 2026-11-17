@@ -30,14 +30,9 @@ export function FirstLaunchBanner() {
       aria-label={copy.title}
       className="fixed bottom-9 left-3 z-50 flex w-96 max-w-[calc(100vw-1.5rem)] flex-col gap-3 border border-border bg-popover p-4 text-popover-foreground shadow-popover"
     >
-      <button
-        type="button"
-        onClick={accept}
-        aria-label={copy.close}
-        className="absolute top-2.5 right-2.5 inline-flex size-6 cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
-      >
+      <Button variant="quiet" size="icon-xs" onClick={accept} aria-label={copy.close} className="absolute top-2.5 right-2.5">
         <X className="size-3.5" />
-      </button>
+      </Button>
       <h2 className="pr-6 font-display text-[15px] leading-snug font-bold tracking-[-0.01em] text-balance text-foreground">{copy.title}</h2>
       <p className="text-xs leading-relaxed text-pretty text-muted-foreground">{copy.body}</p>
       <div className="flex items-center gap-2">

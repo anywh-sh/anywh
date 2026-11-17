@@ -1,7 +1,7 @@
 import { memo, useState } from "react";
+import { RowButton } from "@/components/ui/row-button";
 import { Plus, Search } from "lucide-react";
 import { KbdShortcut } from "@/components/ui/kbd";
-import { cn } from "@/lib/utils";
 import { SessionList } from "@/components/shell/SessionList";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { ProfileSwitcher } from "@/components/shell/ProfileSwitcher";
@@ -92,30 +92,16 @@ export const Sidebar = memo(function Sidebar({
       </div>
 
       <div className="flex shrink-0 flex-col px-2 pt-1 pb-1.5">
-        <button
-          type="button"
-          onClick={onOpenSearch}
-          aria-label={dict.shell.sidebar.search}
-          className="flex h-[30px] w-full cursor-pointer items-center gap-[9px] px-2 text-left text-[length:calc(13px*var(--chrome-scale))] text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
-        >
+        <RowButton onClick={onOpenSearch} aria-label={dict.shell.sidebar.search}>
           <Search className="size-3.5 shrink-0" />
           <span className="flex-1">{dict.shell.sidebar.search}</span>
           <KbdShortcut keys={shortcutKeys("K")} />
-        </button>
-        <button
-          type="button"
-          onClick={onNewConversation}
-          aria-label={dict.shell.sidebar.newConversation}
-          className={cn(
-            "relative flex h-[30px] w-full cursor-pointer items-center gap-[9px] px-2 text-left text-[length:calc(13px*var(--chrome-scale))] transition-colors hover:text-foreground",
-            newSessionActive ? "bg-bg-elevated text-foreground" : "text-muted-foreground hover:bg-bg-hover",
-          )}
-        >
-          {newSessionActive && <span aria-hidden="true" className="absolute inset-y-0 left-0 w-0.5 bg-muted-foreground" />}
+        </RowButton>
+        <RowButton onClick={onNewConversation} aria-label={dict.shell.sidebar.newConversation} selected={newSessionActive} mark="start">
           <Plus className="size-3.5 shrink-0" />
           <span className="flex-1">{dict.shell.sidebar.newConversation}</span>
           <KbdShortcut keys={shortcutKeys("N")} />
-        </button>
+        </RowButton>
       </div>
 
       <SessionList

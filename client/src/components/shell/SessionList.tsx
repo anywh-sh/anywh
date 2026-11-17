@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { RowButton } from "@/components/ui/row-button";
 import { ChevronDown, MessageSquareDashed, Search } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
@@ -196,39 +197,36 @@ export function SessionList({
               >
                 {row.kind === "heading" ? (
                   <div className="relative mt-3.5">
-                    <button
-                      type="button"
+                    <RowButton
+                      tone="faint"
                       aria-expanded={!collapsed.has(row.id)}
                       onClick={() => toggleGroup(row.id)}
-                      className="flex h-[21px] w-full cursor-pointer items-center gap-2 px-2 pb-1.5 text-left font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint transition-colors hover:text-muted-foreground"
+                      className="h-[21px] gap-2 pb-1.5 font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium"
                     >
                       <ChevronDown className={cn("-mr-1 size-2.5 shrink-0 transition-transform", collapsed.has(row.id) && "-rotate-90")} aria-hidden />
                       <span className="dark:opacity-80">{dict.shell.sidebar[row.id]}</span>
                       <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
                       <span className="min-w-[2ch] text-right">{row.count}</span>
-                    </button>
+                    </RowButton>
                     {/* A sibling of the fold button, not a child: a button can't
                      * hold a button, and pressing it must not fold the group. */}
                     {row.id === "completed" && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="chrome"
+                        size="inline"
                         title={dict.shell.sidebar.clearCompletedTitle}
                         onClick={clearCompletedSessions}
-                        className="absolute top-0 right-[calc(8px+2ch+8px)] h-[15px] cursor-pointer bg-[var(--bg-sidebar)] px-1.5 font-mono text-[length:calc(11px*var(--chrome-scale))] font-normal text-text-faint transition-colors hover:bg-bg-hover hover:text-foreground"
+                        className="absolute top-0 right-[calc(8px+2ch+8px)] h-[15px] bg-[var(--bg-sidebar)] py-0 text-[length:calc(11px*var(--chrome-scale))] text-text-faint hover:bg-bg-hover"
                       >
                         {dict.shell.sidebar.clearCompleted}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 ) : row.kind === "older" ? (
-                  <button
-                    type="button"
-                    onClick={onOpenSearch}
-                    className="flex h-[30px] w-full cursor-pointer items-center gap-[9px] px-2 text-left text-[length:calc(12.5px*var(--chrome-scale))] text-text-faint transition-colors hover:text-muted-foreground"
-                  >
+                  <RowButton tone="faint" onClick={onOpenSearch} className="text-[length:calc(12.5px*var(--chrome-scale))]">
                     <Search className="size-3 shrink-0" aria-hidden />
                     <span>{dict.shell.sidebar.olderInSearch}</span>
-                  </button>
+                  </RowButton>
                 ) : (
                   <SessionListItem
                     session={row.session}

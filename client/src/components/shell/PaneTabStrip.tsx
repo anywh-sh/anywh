@@ -1,5 +1,8 @@
 import { Plus, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { TabTrigger } from "@/components/ui/tab-trigger";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { handleRovingKeyDown } from "@/lib/rovingKeys";
 import { useDict } from "@/i18n";
 import { cn, scrollHorizontallyOnWheel } from "@/lib/utils";
 
@@ -46,47 +49,46 @@ export function PaneTabStrip({ tabs, activeId, onSelect, onClose, onAdd, addLabe
       // spelled out to stay horizontal-only when it gets squeezed.
       className="scrollbar-thin flex h-8 items-stretch overflow-x-auto overflow-y-hidden"
     >
-      {tabs.map((tab) => (
-        <div
-          key={tab.id}
-          role="button"
-          tabIndex={0}
-          onClick={() => onSelect(tab.id)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") onSelect(tab.id);
-          }}
-          className={cn(
-            "flex shrink-0 cursor-pointer items-center gap-1.5 border-r border-border-soft py-1 pr-1.5 pl-2.5 font-mono text-[11px] transition-colors",
-            tab.id === activeId
-              ? "bg-bg-elevated text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
-              : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
-          )}
-        >
-          <span className={cn("max-w-24 truncate", tab.italic && "italic")}>{tab.label}</span>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onClose(tab.id);
-            }}
-            aria-label={dict.panels.closeTab.replace("{name}", tab.label)}
-            className="flex size-4 cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-destructive"
+      <div role="tablist" onKeyDown={(event) => handleRovingKeyDown(event, "tab")} className="flex items-stretch">
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={cn(
+              "relative flex shrink-0 items-center border-r border-border-soft font-mono text-[11px]",
+              tab.id === activeId
+                ? "bg-bg-elevated text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
+                : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
+            )}
           >
-            <X className="size-3" />
-          </button>
-        </div>
-      ))}
+            {/* The × is the trigger's sibling, laid over its reserved right
+                padding: a button can't hold a button. */}
+            <TabTrigger selected={tab.id === activeId} onClick={() => onSelect(tab.id)} className="flex h-full items-center py-1 pr-[26px] pl-2.5">
+              <span className={cn("block max-w-24 truncate", tab.italic && "italic")}>{tab.label}</span>
+            </TabTrigger>
+            <Button
+              variant="quiet"
+              size="icon-xs"
+              onClick={() => onClose(tab.id)}
+              aria-label={dict.panels.closeTab.replace("{name}", tab.label)}
+              className="absolute right-1.5 size-4 hover:text-destructive"
+            >
+              <X className="size-3" />
+            </Button>
+          </div>
+        ))}
+      </div>
       {onAdd && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
-              type="button"
+            <Button
+              variant="chrome"
+              size="icon"
               onClick={onAdd}
               aria-label={addLabel ?? dict.panels.terminal.newTerminal}
-              className="flex w-7 shrink-0 cursor-pointer items-center justify-center text-text-faint transition-colors hover:bg-surface-hover hover:text-foreground"
+              className="h-auto w-7 text-text-faint"
             >
               <Plus className="size-3.5" />
-            </button>
+            </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">{addLabel ?? dict.panels.terminal.newTerminal}</TooltipContent>
         </Tooltip>

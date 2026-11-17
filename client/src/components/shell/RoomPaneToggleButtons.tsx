@@ -1,7 +1,7 @@
 import { Bot, Info } from "lucide-react";
 import { useDict } from "@/i18n";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { RailSelectedMark, railButtonClass } from "@/components/shell/railButton";
+import { RailButton } from "@/components/shell/railButton";
 import { cn } from "@/lib/utils";
 
 interface RoomPaneToggleButtonProps {
@@ -12,8 +12,7 @@ interface RoomPaneToggleButtonProps {
 /**
  * A room's own buttons in its group's side panel rail, under files and
  * terminal (see `panelTogglesSlot.ts`): what the room says about itself, and
- * the conversation of the agent looked at last. Raw `<button>` markup like
- * the ones above them.
+ * the conversation of the agent looked at last.
  */
 export function RoomAboutToggleButton({ open, onToggle }: RoomPaneToggleButtonProps) {
   const dict = useDict();
@@ -21,10 +20,9 @@ export function RoomAboutToggleButton({ open, onToggle }: RoomPaneToggleButtonPr
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button type="button" onClick={onToggle} aria-label={label} className={railButtonClass(open)}>
-          <RailSelectedMark selected={open} />
+        <RailButton onClick={onToggle} aria-label={label} selected={open}>
           <Info className="size-4" />
-        </button>
+        </RailButton>
       </TooltipTrigger>
       <TooltipContent side="left">{label}</TooltipContent>
     </Tooltip>
@@ -37,10 +35,9 @@ export function RoomAgentToggleButton({ open, onToggle }: RoomPaneToggleButtonPr
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button type="button" onClick={onToggle} aria-label={label} className={cn(railButtonClass(open), "text-room-agent/70 hover:text-room-agent", open && "text-room-agent")}>
-          <RailSelectedMark selected={open} />
+        <RailButton onClick={onToggle} aria-label={label} selected={open} className={cn("text-room-agent/70 hover:text-room-agent", open && "text-room-agent")}>
           <Bot className="size-4" />
-        </button>
+        </RailButton>
       </TooltipTrigger>
       <TooltipContent side="left">{label}</TooltipContent>
     </Tooltip>

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
-import { Loader2, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { TabTrigger } from "@/components/ui/tab-trigger";
 import { RoomGlyph } from "@/components/sala/SalaIcons";
 import { useDict } from "@/i18n";
 import { cn, scrollHorizontallyOnWheel, truncateWords } from "@/lib/utils";
@@ -92,7 +95,7 @@ interface SortableTabProps {
 // its profile rule stretched to the full width, and full opacity — never a
 // different font weight or spacing.
 const TAB_TRIGGER_CLASS =
-  "relative z-10 inline-flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-[13px] text-[length:calc(13px*var(--chrome-scale))] whitespace-nowrap text-text-faint transition-colors hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none data-[state=active]:text-foreground";
+  "relative z-10 inline-flex h-full min-w-0 flex-1 items-center gap-2 pl-[13px] text-[length:calc(13px*var(--chrome-scale))] whitespace-nowrap text-text-faint hover:text-muted-foreground data-[state=active]:text-foreground";
 
 /**
  * Only spreads dnd-kit's `listeners`/`setNodeRef`, not `attributes` — avoids
@@ -174,14 +177,10 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               isActive ? "[clip-path:inset(0)]" : "[clip-path:inset(0_13px)] opacity-85",
             )}
           />
-          <button
+          <TabTrigger
             ref={(el) => buttonRef(tab.id, el)}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            data-state={isActive ? "active" : "inactive"}
+            selected={isActive}
             data-tab-id={tab.id}
-            tabIndex={isActive ? 0 : -1}
             onClick={() => onSelect(tab.id)}
             // The close button's room is always reserved, so a tab keeps its width
             // when it is hovered or becomes the active one.
@@ -200,7 +199,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               {tab.room ? (
                 <RoomTabIndicator roomId={tab.id} />
               ) : tab.isRunning ? (
-                <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={dict.chat.tabs.agentWorking} />
+                <Spinner size="sm" label={dict.chat.tabs.agentWorking} />
               ) : (
                 tab.hasUnreadCompletion && (
                   // "Turn finished, not seen yet": a plain light dot.
@@ -210,9 +209,10 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             </span>
             {tab.room && <RoomGlyph size={14} className="shrink-0" aria-label={dict.sala.roomGlyph} role="img" />}
             <span className="min-w-0 flex-1 truncate">{tab.titlePending === true ? <TitleSkeleton className="w-24" /> : title}</span>
-          </button>
-          <button
-            type="button"
+          </TabTrigger>
+          <Button
+            variant="quiet"
+            size="icon-xs"
             onClick={(event) => {
               event.stopPropagation();
               onClose(tab.id);
@@ -224,12 +224,12 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               // its clickable box covers the full row including the `pr-7`
               // padding reserved for this button, so without a higher
               // z-index the trigger intercepts every click meant for the X.
-              "absolute right-2 z-20 flex size-[22px] cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-foreground",
+              "absolute right-2 z-20 size-[22px]",
               isActive ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100",
             )}
           >
             <X className="size-3" />
-          </button>
+          </Button>
           <SessionDeleteMenu
             menu={menu}
             title={title}
@@ -373,14 +373,15 @@ export function TabGroupStrip({
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                type="button"
+              <Button
+                variant="chrome"
+                size="icon-sm"
                 onClick={onNewTab}
                 aria-label={dict.chat.tabs.newTab}
-                className="mt-[11px] ml-[5px] flex size-7 shrink-0 self-start cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
+                className="mt-[11px] ml-[5px] self-start hover:bg-bg-hover"
               >
                 <Plus className="size-4" />
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">{dict.chat.tabs.newTab}</TooltipContent>
           </Tooltip>

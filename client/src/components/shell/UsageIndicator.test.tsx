@@ -187,9 +187,9 @@ describe("UsageIndicator", () => {
     expect(agent("claude")).toHaveTextContent(/^not read yet$/);
     expect(refreshButton()).toHaveAttribute("aria-busy", "true");
     expect(refreshButton()).toHaveAttribute("aria-disabled", "true");
-    const icon = refreshButton().querySelector("svg")!.getAttribute("class") ?? "";
-    expect(icon).toContain("animate-spin");
-    expect(icon).not.toContain("animate-pulse");
+    // The icon gives way to the one spinner, never a pulse.
+    expect(refreshButton().querySelector('[data-slot="spinner"]')).not.toBeNull();
+    expect(refreshButton().querySelector("svg")).toBeNull();
     expect(button()).toHaveAccessibleName("Usage: Claude Code updating…");
   });
 

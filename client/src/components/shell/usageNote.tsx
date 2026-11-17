@@ -1,4 +1,5 @@
 import type { Dictionary } from "@/i18n";
+import { Spinner } from "@/components/ui/spinner";
 import type { RuntimeNote } from "@/lib/planUsage/derive";
 import { cn } from "@/lib/utils";
 
@@ -46,10 +47,6 @@ export function noteSpoken(note: RuntimeNote, strings: UsageStrings): string {
  */
 export function ReadingMark({ className }: { className?: string }) {
   return (
-    <span
-      aria-hidden="true"
-      data-usage-reading
-      className={cn("size-2 shrink-0 animate-spin rounded-full border border-border border-t-foreground", className)}
-    />
+<Spinner size="xs" data-usage-reading className={cn("size-2", className)} />
   );
 }

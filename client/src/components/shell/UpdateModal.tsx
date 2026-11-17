@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Segmented } from "@/components/ui/segmented";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,7 +14,6 @@ import {
 import { useDict } from "@/i18n";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { resolveUpdateMode } from "@/lib/install/updateMode";
-import { cn } from "@/lib/utils";
 
 /** Same one-liner `install.sh` itself prints and `ManualInstructions`
  * already spells out — copied verbatim rather than derived from the
@@ -57,9 +57,9 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
   const mode = resolveUpdateMode(settings.updateMode, canAutoInstall);
 
   const modeOptions = [
-    { mode: "notify" as const, label: dict.checkAutomaticallyNotify },
-    ...(canAutoInstall ? [{ mode: "auto-download" as const, label: dict.checkAutomaticallyInstall }] : []),
-    { mode: "off" as const, label: dict.checkAutomaticallyOff },
+    { value: "notify" as const, label: dict.checkAutomaticallyNotify },
+    ...(canAutoInstall ? [{ value: "auto-download" as const, label: dict.checkAutomaticallyInstall }] : []),
+    { value: "off" as const, label: dict.checkAutomaticallyOff },
   ];
 
   async function handleAction(): Promise<void> {
@@ -139,29 +139,15 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
             <p className="text-sm text-muted-foreground">{dict.upToDateBody.replace("{version}", APP_VERSION)}</p>
           )}
 
-          <div
-            role="radiogroup"
-            aria-label={dict.checkAutomatically}
-            className="mt-1 inline-flex self-start border border-border"
-          >
-            {modeOptions.map(({ mode: optionMode, label }) => (
-              <button
-                key={optionMode}
-                type="button"
-                role="radio"
-                aria-checked={mode === optionMode}
-                onClick={() => setUpdateMode(optionMode)}
-                className={cn(
-                  "cursor-pointer border-r border-border px-3 py-1.5 font-mono text-xs transition-colors last:border-r-0",
-                  mode === optionMode
-                    ? "bg-surface-hover text-foreground"
-                    : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            id="update-mode"
+            kind="radio"
+            label={dict.checkAutomatically}
+            value={mode}
+            options={modeOptions}
+            onChange={setUpdateMode}
+            className="mt-1"
+          />
         </DialogBody>
       </DialogContent>
     </Dialog>

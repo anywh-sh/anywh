@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 import { RotateCw } from "lucide-react";
 
 import { useDict, type Dictionary } from "@/i18n";
@@ -68,22 +70,21 @@ export function RefreshIconButton({
   outsideCard?: boolean;
 }) {
   return (
-    <button
-      type="button"
+    // `aria-disabled`, not `disabled` (nor `loading`, which disables): a held
+    // button still shows its title, which says why it is held and until when.
+    <Button
+      variant="chrome"
+      size="icon-xs"
       onClick={onClick}
       aria-label={label}
       title={title}
       aria-busy={reading}
       aria-disabled={held}
       data-usage-refresh={outsideCard || undefined}
-      className={cn(
-        "flex size-6 shrink-0 items-center justify-center text-text-faint outline-hidden transition-colors focus-visible:bg-surface-hover",
-        held ? "cursor-default opacity-50" : "cursor-pointer hover:bg-surface-hover hover:text-foreground",
-        className,
-      )}
+      className={cn("text-text-faint", held && "cursor-default opacity-50 hover:bg-transparent hover:text-text-faint", className)}
     >
-      <RotateCw className={cn("size-3.5", reading && "animate-spin")} strokeWidth={1.5} aria-hidden="true" />
-    </button>
+      {reading ? <Spinner size="sm" tone="current" /> : <RotateCw className="size-3.5" strokeWidth={1.5} aria-hidden="true" />}
+    </Button>
   );
 }
 
