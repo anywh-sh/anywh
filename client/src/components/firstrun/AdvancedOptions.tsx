@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { CommandLine } from "@/components/firstrun/CommandLine";
 import { Field } from "@/components/firstrun/Field";
 import { FirstRunHeading } from "@/components/firstrun/FirstRunHeading";
-import { Segmented } from "@/components/firstrun/Segmented";
+import { Segmented } from "@/components/ui/segmented";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { localInstallPossible, suggestAddresses } from "@/lib/install/localRelay
 import { currentPlatform } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
 import { isValidHost } from "@/lib/profiles/hostAddress";
-import { handleRovingKeyDown } from "@/components/firstrun/rovingKeys";
+import { handleRovingKeyDown } from "@/lib/rovingKeys";
 
 export type InstallVia = "app" | "terminal";
 

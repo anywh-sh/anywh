@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandLine } from "@/components/firstrun/CommandLine";
 import { OnboardingFrame } from "@/components/firstrun/OnboardingFrame";
-import { Segmented } from "@/components/firstrun/Segmented";
+import { Segmented } from "@/components/ui/segmented";
 import { Stepper } from "@/components/firstrun/Stepper";
 import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";

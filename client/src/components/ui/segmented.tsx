@@ -1,4 +1,4 @@
-import { handleRovingKeyDown } from "@/components/firstrun/rovingKeys";
+import { handleRovingKeyDown } from "@/lib/rovingKeys";
 import { cn } from "@/lib/utils";
 
 export interface SegmentedOption<T extends string> {
