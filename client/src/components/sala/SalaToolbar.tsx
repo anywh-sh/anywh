@@ -37,7 +37,7 @@ function Tip({ label, keys, children }: { label: string; keys?: readonly string[
 
 /** A tool: an icon in a 34px square, raised while it is the one in hand. */
 const TOOL =
-  "h-[34px] w-auto min-w-[34px] gap-[7px] px-[9px] font-sans text-[13px] text-text-faint aria-pressed:bg-bg-elevated aria-pressed:hover:bg-surface-hover";
+  "h-[34px] w-auto min-w-[34px] gap-[7px] border-0 px-[9px] font-sans text-[13px] text-text-faint aria-pressed:bg-bg-elevated aria-pressed:hover:bg-surface-hover";
 
 /**
  * Icons only, centred on the bottom edge of the plane over the status bar's
