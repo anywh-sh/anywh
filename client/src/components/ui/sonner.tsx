@@ -42,6 +42,9 @@ function Toaster(props: ToasterProps) {
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
+          // sonner pins its own system font stack on the region; the app's
+          // body font is what every other surface uses.
+          fontFamily: "inherit",
         } as React.CSSProperties
       }
       {...props}
