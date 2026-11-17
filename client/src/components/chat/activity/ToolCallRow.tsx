@@ -129,7 +129,16 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
           sit inside a button. */}
       <div className="relative flex items-center gap-2.5 px-3 py-[9px] text-[13.5px] leading-snug transition-colors hover:bg-surface-hover">
         <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-          <TextButton tone="none" aria-expanded={open} onClick={toggle} className="flex min-w-0 items-center gap-1.5 after:absolute after:inset-0">
+          {/* The focus ring is drawn on the cover, the whole row, since the
+              row clips the toggle itself. Named with the target too, which
+              for a file sits outside it. */}
+          <TextButton
+            tone="none"
+            aria-expanded={open}
+            aria-label={`${verb} ${target}`}
+            onClick={toggle}
+            className="flex min-w-0 items-center gap-1.5 after:absolute after:inset-0 focus-visible:ring-0 focus-visible:after:ring-2 focus-visible:after:ring-ring/60 focus-visible:after:ring-inset"
+          >
             <ToolIcon call={call} className="size-4 shrink-0 text-text-faint" />
             <span className="shrink-0 whitespace-nowrap text-text-faint">{verb}</span>
             {!(openablePath && onOpenPath) && <span className="min-w-0 truncate font-mono text-[12.5px] text-foreground">{target}</span>}
@@ -146,7 +155,8 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
           )}
           <ChevronRight className={cn("size-3 shrink-0 text-text-faint transition-transform", open && "rotate-90")} />
         </span>
-        <span className="flex shrink-0 items-center gap-[7px] font-mono text-[11px] text-text-faint">
+        {/* Above the cover: the meta's titles stay hoverable and its text selectable. */}
+        <span className="relative z-10 flex shrink-0 items-center gap-[7px] font-mono text-[11px] text-text-faint">
           {meta?.kind === "diff" && (
             <span className="flex gap-1.5 font-medium">
               {meta.added > 0 && <span className="text-diff-add">+{meta.added}</span>}
@@ -164,7 +174,7 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
               A call the user stopped is none of those, so it shows nothing. */}
           {!call.done ? (
             <>
-              <Spinner size="md" tone="accent" />
+              <Spinner size="sm" tone="accent" />
               {call.startedAt !== undefined && <Elapsed startedAt={call.startedAt} />}
             </>
           ) : failed ? (
