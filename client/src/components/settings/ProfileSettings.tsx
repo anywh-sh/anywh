@@ -66,7 +66,10 @@ function ChoiceButton({
       disabled={disabled}
       aria-pressed={selected}
       className={cn(
-        "h-auto px-2.5 py-1 text-[11.5px] font-normal hover:bg-surface-hover",
+        // Wraps a long label (a model's name, in Portuguese) instead of
+        // overflowing the row, and keeps the pointer while disabled so the
+        // title still says why.
+        "h-auto px-2.5 py-1 text-[11.5px] font-normal whitespace-normal hover:bg-surface-hover disabled:pointer-events-auto disabled:cursor-not-allowed",
         selected && "border-primary bg-primary-soft text-primary-ink hover:border-primary hover:bg-primary-soft hover:text-primary-ink",
       )}
     >
