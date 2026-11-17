@@ -117,9 +117,11 @@ export function WorkingDirectoryButton({
                 size="toolbar"
                 disabled={!isNewConversation && (!cwd || !connected)}
                 className={cn(
-                  "max-w-full shrink gap-2",
+                  // Disabled still takes the pointer: the tooltip says why
+                  // (still connecting) and shows the full path.
+                  "max-w-full shrink gap-2 disabled:pointer-events-auto disabled:cursor-not-allowed",
                   isIOS()
-                    ? "h-[26px] bg-bg-sidebar px-2.5 font-mono text-[11.5px]"
+                    ? "h-[26px] border bg-bg-sidebar px-2.5 font-mono text-[11.5px]"
                     : "h-[calc(26px*var(--chrome-scale))] text-[length:calc(12.5px*var(--chrome-scale))]",
                 )}
               >

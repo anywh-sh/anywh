@@ -126,7 +126,8 @@ export function AgentModelEffortButton({
           disabled={disabled}
           title={label}
           aria-label={effortLabel !== null ? label : `${name} · ${modelLabel}`}
-          className="gap-[7px]"
+          // Disabled still takes the pointer, so the title still names the model.
+          className="gap-[7px] disabled:pointer-events-auto disabled:cursor-default"
         >
           {agentId !== null && <AgentTile agentId={agentId} />}
           <span className="truncate text-foreground">{modelLabel}</span>
