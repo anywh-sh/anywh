@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DownloadToasts } from "@/components/files/DownloadToasts";
+import { Toaster } from "@/components/ui/sonner";
 import {
   dismissDownloadNotification,
-  finishBatchDownload,
+  finishDownload,
   getDownloadNotifications,
-  notifyFileDownloaded,
+  reportDownloadBytes,
   startBatchDownload,
+  startFileDownload,
   tickBatchDownload,
 } from "@/lib/platform/downloadNotifications";
 import { en } from "@/i18n/en";
@@ -20,62 +22,128 @@ const progress = (current: number, total: number) =>
   copy.progress.replace("{current}", String(current)).replace("{total}", String(total));
 const done = (current: number, total: number) =>
   copy.done.replace("{current}", String(current)).replace("{total}", String(total));
+const fileProgress = (name: string) => copy.fileProgress.replace("{name}", name);
 const fileDone = (name: string) => copy.fileDone.replace("{name}", name);
+const bytes = (received: string, total: string, percent: number) =>
+  copy.bytesProgress.replace("{received}", received).replace("{total}", total).replace("{percent}", String(percent));
+
+function renderToasts() {
+  return render(
+    <>
+      <Toaster />
+      <DownloadToasts />
+    </>,
+  );
+}
 
 afterEach(() => {
-  cleanup();
-  // No auto-dismiss anymore (a toast only leaves via its own close button) —
-  // without this, a notification left over from one test would still be in
-  // the shared module store for the next one.
+  // No auto-dismiss (a toast only leaves via its own button) — without this,
+  // a notification left over from one test would still be in the shared
+  // module store for the next one.
   act(() => {
     for (const entry of getDownloadNotifications()) dismissDownloadNotification(entry.id);
   });
+  cleanup();
 });
 
 describe("DownloadToasts", () => {
-  it("renders nothing with no active download", () => {
-    render(<DownloadToasts />);
-    expect(document.body.querySelector(".fixed.bottom-4")).toBeNull();
+  it("renders no toast with no active download", () => {
+    renderToasts();
+    expect(document.body.querySelector("[data-sonner-toast]")).toBeNull();
   });
 
-  it("shows the live count for a batch, then the done count once it finishes", () => {
-    render(<DownloadToasts />);
+  it("shows a lone file as soon as it starts, with a progress bar and the bytes in", async () => {
+    renderToasts();
 
     let id = "";
     act(() => {
-      id = startBatchDownload(3);
+      id = startFileDownload("video.mp4", 4 * 1024 * 1024);
     });
-    expect(screen.getByText(progress(0, 3))).toBeInTheDocument();
+    expect(await screen.findByText(fileProgress("video.mp4"))).toBeInTheDocument();
+
+    act(() => reportDownloadBytes(id, 1024 * 1024));
+    expect(await screen.findByText(bytes("1.0 MB", "4.0 MB", 25))).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "25");
+
+    act(() => finishDownload(id));
+    expect(await screen.findByText(fileDone("video.mp4"))).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("shows the live count for a batch, then the done count once it finishes", async () => {
+    renderToasts();
+
+    let id = "";
+    act(() => {
+      id = startBatchDownload(3, 300);
+    });
+    expect(await screen.findByText(progress(0, 3))).toBeInTheDocument();
 
     act(() => tickBatchDownload(id, 1));
-    expect(screen.getByText(progress(1, 3))).toBeInTheDocument();
+    expect(await screen.findByText(progress(1, 3))).toBeInTheDocument();
 
     act(() => {
       tickBatchDownload(id, 3);
-      finishBatchDownload(id);
+      finishDownload(id);
     });
-    expect(screen.getByText(done(3, 3))).toBeInTheDocument();
+    expect(await screen.findByText(done(3, 3))).toBeInTheDocument();
   });
 
-  it("shows the lone-file phrasing, truncated in a fixed-width toast, with the full name on hover", () => {
-    render(<DownloadToasts />);
+  it("stacks several downloads in one toast region instead of a column of cards", async () => {
+    renderToasts();
 
-    const longName = "a-suspiciously-long-report-filename-nobody-should-actually-use.pdf";
-    act(() => notifyFileDownloaded(longName));
+    act(() => {
+      startFileDownload("a.txt", 10);
+      startFileDownload("b.txt", 10);
+      startFileDownload("c.txt", 10);
+    });
 
-    const toast = screen.getByText(fileDone(longName));
-    expect(toast).toHaveClass("truncate");
-    expect(toast.closest("div[title]")).toHaveAttribute("title", longName);
+    await waitFor(() => expect(document.body.querySelectorAll("[data-sonner-toast]")).toHaveLength(3));
+    expect(document.body.querySelectorAll("[data-sonner-toaster]")).toHaveLength(1);
+    // Only the newest is in front; the others sit behind it in the stack.
+    expect(document.body.querySelectorAll('[data-sonner-toast][data-front="true"]')).toHaveLength(1);
+  });
+
+  it("cancels a running download from its ×, which removes the toast", async () => {
+    const user = userEvent.setup();
+    renderToasts();
+
+    let aborted = false;
+    act(() => {
+      startFileDownload("big.iso", 1 << 30, () => {
+        aborted = true;
+      });
+    });
+
+    await user.click(await screen.findByRole("button", { name: copy.cancel }));
+
+    expect(aborted).toBe(true);
+    await waitFor(() => expect(screen.queryByText(fileProgress("big.iso"))).toBeNull());
   });
 
   it("keeps a done toast on screen until its close button is clicked", async () => {
     const user = userEvent.setup();
-    render(<DownloadToasts />);
+    renderToasts();
 
-    act(() => notifyFileDownloaded("report.pdf"));
-    expect(screen.getByText(fileDone("report.pdf"))).toBeInTheDocument();
+    act(() => {
+      finishDownload(startFileDownload("report.pdf", 10));
+    });
+    expect(await screen.findByText(fileDone("report.pdf"))).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: copy.dismiss }));
-    expect(screen.queryByText(fileDone("report.pdf"))).toBeNull();
+    await waitFor(() => expect(screen.queryByText(fileDone("report.pdf"))).toBeNull());
+  });
+
+  it("truncates a long file name, keeping the full name on hover", async () => {
+    renderToasts();
+
+    const longName = "a-suspiciously-long-report-filename-nobody-should-actually-use.pdf";
+    act(() => {
+      startFileDownload(longName, 10);
+    });
+
+    const title = await screen.findByText(fileProgress(longName));
+    expect(title).toHaveClass("truncate");
+    expect(title.closest("div[title]")).toHaveAttribute("title", longName);
   });
 });

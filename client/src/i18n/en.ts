@@ -379,10 +379,14 @@ export const en: Dictionary = {
         },
       },
       downloads: {
+        fileProgress: "Downloading {name}",
         fileDone: "{name} downloaded",
         progress: "Downloading {current}/{total} files",
         done: "Downloaded {current}/{total} files",
+        bytesProgress: "{received} of {total} · {percent}%",
+        bytesReceived: "{received}",
         dismiss: "Dismiss notification",
+        cancel: "Cancel download",
       },
     },
     terminal: {

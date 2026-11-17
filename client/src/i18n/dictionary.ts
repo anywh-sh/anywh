@@ -1010,10 +1010,18 @@ export interface Dictionary {
         };
       };
       downloads: {
+        /** A lone file still arriving; `{name}` is the file name. */
+        fileProgress: string;
         fileDone: string;
         progress: string;
         done: string;
+        /** Under the title while running: `{received}`/`{total}` are sizes
+         * like "1.2 MB", `{percent}` a whole number. */
+        bytesProgress: string;
+        /** Before the size is known (an empty folder of zero-byte files). */
+        bytesReceived: string;
         dismiss: string;
+        cancel: string;
       };
     };
     terminal: {

@@ -379,10 +379,14 @@ export const ptBr: Dictionary = {
         },
       },
       downloads: {
+        fileProgress: "Baixando {name}",
         fileDone: "{name} baixado",
         progress: "Baixando {current}/{total} arquivos",
         done: "Baixados {current}/{total} arquivos",
+        bytesProgress: "{received} de {total} · {percent}%",
+        bytesReceived: "{received}",
         dismiss: "Dispensar notificação",
+        cancel: "Cancelar download",
       },
     },
     terminal: {

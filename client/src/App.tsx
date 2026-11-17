@@ -32,6 +32,7 @@ import { UpdateModal } from "@/components/shell/UpdateModal";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { FirstRun } from "@/components/firstrun/FirstRun";
 import { DownloadToasts } from "@/components/files/DownloadToasts";
+import { Toaster } from "@/components/ui/sonner";
 import { useDict } from "@/i18n";
 import { useActiveProfile } from "@/hooks/profiles/useActiveProfile";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -779,6 +780,9 @@ function AppShell() {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
+      {/* Bottom offset clears the 28px status bar with the same 12px gap the
+          right edge keeps from the window. */}
+      <Toaster position="bottom-right" offset={{ bottom: 40, right: 12 }} />
       <DownloadToasts />
       <FirstLaunchBanner />
 

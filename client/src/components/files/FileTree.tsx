@@ -20,8 +20,8 @@ import {
 import { ContextMenuAnchor, useContextMenu } from "@/hooks/platform/useContextMenu";
 import { detectEditors, type DetectedEditor } from "@/lib/platform/editors";
 import { buildEditorUrl, type EditorId, type EditorLocality } from "@/lib/platform/editorLinks";
-import { finishBatchDownload, notifyFileDownloaded, startBatchDownload, tickBatchDownload } from "@/lib/platform/downloadNotifications";
-import { downloadFile, downloadFolder, PartialFolderDownloadError } from "@/lib/relay/fileDownload";
+import { dismissDownloadNotification, finishDownload, reportDownloadBytes, startBatchDownload, startFileDownload, tickBatchDownload } from "@/lib/platform/downloadNotifications";
+import { downloadFile, downloadFolder, isAbortError, PartialFolderDownloadError } from "@/lib/relay/fileDownload";
 import { dropNestedPaths } from "@/lib/files/selection";
 import { createFile, deleteFile, deleteFolder, getHostInfo, listFiles, renameFile, type FileEntry } from "@/lib/relay/filesClient";
 import { isIOS } from "@/lib/platform/platform";
@@ -275,21 +275,31 @@ export function FileTree({
   }
 
   async function handleBulkDownload(paths: string[]): Promise<void> {
-    const files = paths.filter((path) => allEntriesByPath.get(path)?.kind === "file");
-    const jobId = startBatchDownload(files.length);
-    for (const [index, path] of files.entries()) {
+    const files = paths.flatMap((path) => {
       const entry = allEntriesByPath.get(path);
-      if (entry) {
-        try {
-          await downloadFile(profile, sessionId, entry.path, entry.name, entry.mtimeMs);
-        } catch (error) {
-          console.error("[anywh] failed to download file:", path, error);
-          window.alert(copy.errors.download);
-        }
+      return entry?.kind === "file" ? [entry] : [];
+    });
+    const controller = new AbortController();
+    const totalBytes = files.reduce((sum, entry) => sum + entry.size, 0);
+    const jobId = startBatchDownload(files.length, totalBytes, () => controller.abort());
+    let settledBytes = 0;
+    for (const [index, entry] of files.entries()) {
+      try {
+        await downloadFile(profile, sessionId, entry, {
+          signal: controller.signal,
+          onBytes: (received) => reportDownloadBytes(jobId, settledBytes + received),
+        });
+      } catch (error) {
+        // Cancelled from the toast: it's already gone, and so is the rest.
+        if (isAbortError(error)) return;
+        console.error("[anywh] failed to download file:", entry.path, error);
+        window.alert(copy.errors.download);
       }
+      settledBytes += entry.size;
+      reportDownloadBytes(jobId, settledBytes);
       tickBatchDownload(jobId, index + 1);
     }
-    finishBatchDownload(jobId);
+    finishDownload(jobId);
   }
 
   // "Open in editor": locality comes from the relay (declared,
@@ -562,9 +572,23 @@ function FileTreeNode({
   const [renameOpen, setRenameOpen] = useState(false);
 
   async function handleDownload(): Promise<void> {
+    const controller = new AbortController();
+    let jobId: string | null = null;
     try {
-      if (await downloadFile(profile, sessionId, entry.path, entry.name, entry.mtimeMs)) notifyFileDownloaded(entry.name);
+      await downloadFile(profile, sessionId, entry, {
+        signal: controller.signal,
+        onStart: () => {
+          jobId = startFileDownload(entry.name, entry.size, () => controller.abort());
+        },
+        onBytes: (received, total) => {
+          if (jobId !== null) reportDownloadBytes(jobId, received, total);
+        },
+      });
+      if (jobId !== null) finishDownload(jobId);
     } catch (error) {
+      // Cancelled from the toast, which already removed itself.
+      if (isAbortError(error)) return;
+      if (jobId !== null) dismissDownloadNotification(jobId);
       console.error("[anywh] failed to download file:", error);
       window.alert(copy.errors.download);
     }
@@ -630,13 +654,24 @@ function FileTreeNode({
   }
 
   async function handleDownloadFolder(): Promise<void> {
+    const controller = new AbortController();
     let jobId: string | null = null;
     try {
-      await downloadFolder(profile, sessionId, entry.path, entry.name, (completed, total) => {
-        jobId ??= startBatchDownload(total);
-        tickBatchDownload(jobId, completed);
+      await downloadFolder(profile, sessionId, entry.path, entry.name, {
+        signal: controller.signal,
+        onStart: (files, bytes) => {
+          jobId = startBatchDownload(files, bytes, () => controller.abort());
+        },
+        onBytes: (received) => {
+          if (jobId !== null) reportDownloadBytes(jobId, received);
+        },
+        onProgress: (completed) => {
+          if (jobId !== null) tickBatchDownload(jobId, completed);
+        },
       });
     } catch (error) {
+      // Cancelled from the toast, which already removed itself.
+      if (isAbortError(error)) return;
       console.error("[anywh] failed to download folder:", error);
       window.alert(
         error instanceof PartialFolderDownloadError
@@ -646,7 +681,7 @@ function FileTreeNode({
           : copy.errors.downloadFolder,
       );
     } finally {
-      if (jobId !== null) finishBatchDownload(jobId);
+      if (jobId !== null) finishDownload(jobId);
     }
   }
 
