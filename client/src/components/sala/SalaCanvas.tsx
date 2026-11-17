@@ -1520,7 +1520,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
           size="icon"
           // Over the canvas's grid: a pane of the elevated surface, a third
           // of the way up from the background, so the dots read through it.
-          className="sala-float sala-about size-[34px] border-border-soft bg-[color-mix(in_srgb,var(--bg-elevated)_33%,var(--background))] hover:bg-[color-mix(in_srgb,var(--bg-elevated)_33%,var(--background))]"
+          className="sala-float sala-about size-[34px] border-border-soft bg-[color-mix(in_srgb,var(--bg-elevated)_33%,var(--background))] hover:border-border-soft hover:bg-[color-mix(in_srgb,var(--bg-elevated)_33%,var(--background))]"
           data-float
           onClick={props.onAbout}
           aria-label={dict.panel.about}
