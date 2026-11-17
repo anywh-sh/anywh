@@ -50,7 +50,7 @@ export function PaneTabStrip({ tabs, activeId, onSelect, onClose, onAdd, addLabe
       className="scrollbar-thin flex h-8 items-stretch overflow-x-auto overflow-y-hidden"
     >
       <div role="tablist" onKeyDown={(event) => handleRovingKeyDown(event, "tab")} className="flex items-stretch">
-        {tabs.map((tab) => (
+        {tabs.map((tab, index) => (
           <div
             key={tab.id}
             className={cn(
@@ -62,7 +62,13 @@ export function PaneTabStrip({ tabs, activeId, onSelect, onClose, onAdd, addLabe
           >
             {/* The × is the trigger's sibling, laid over its reserved right
                 padding: a button can't hold a button. */}
-            <TabTrigger selected={tab.id === activeId} onClick={() => onSelect(tab.id)} className="flex h-full items-center py-1 pr-[26px] pl-2.5">
+            <TabTrigger
+              selected={tab.id === activeId}
+              // With no tab active, the first stays reachable by Tab.
+              tabIndex={tab.id === activeId || (index === 0 && !tabs.some((other) => other.id === activeId)) ? 0 : -1}
+              onClick={() => onSelect(tab.id)}
+              className="flex h-full items-center py-1 pr-[28px] pl-2.5"
+            >
               <span className={cn("block max-w-24 truncate", tab.italic && "italic")}>{tab.label}</span>
             </TabTrigger>
             <Button
