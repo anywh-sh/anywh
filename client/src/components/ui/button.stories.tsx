@@ -26,6 +26,7 @@ const SIZES = {
   default: "text",
   lg: "text",
   inline: "text",
+  toolbar: "text",
   "icon-xs": "icon",
   "icon-sm": "icon",
   icon: "icon",
@@ -93,6 +94,11 @@ export const Inline: Story = {
       <Button {...args} />
     </div>
   ),
+};
+
+/** A composer toolbar trigger: the chrome's sans, a fill while its menu is open. */
+export const Toolbar: Story = {
+  args: { variant: "chrome", size: "toolbar", children: "Bypass permissions" },
 };
 
 export const Disabled: Story = {
