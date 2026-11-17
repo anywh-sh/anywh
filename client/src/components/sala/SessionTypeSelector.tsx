@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { useDict } from "@/i18n";
 import { Segmented } from "@/components/ui/segmented";
 import { ConversationGlyph, RoomGlyph } from "@/components/sala/SalaIcons";
@@ -16,9 +17,12 @@ interface SessionTypeSelectorProps {
  */
 export function SessionTypeSelector({ value, onChange }: SessionTypeSelectorProps) {
   const dict = useDict().sala.newSession;
+  // Every tab keeps its panel mounted, so two new-session screens can be in
+  // the DOM at once: the options' ids must not collide.
+  const id = useId();
   return (
     <Segmented
-      id="session-type"
+      id={id}
       kind="radio"
       label={dict.modeLabel}
       value={value}
