@@ -63,6 +63,8 @@ interface MessageLogProps {
   onStartEdit: (id: string, text: string) => void;
   onCancelEdit: () => void;
   onSaveEdit: (id: string, text: string) => void;
+  /** An inline edit can't be saved while the relay is out of reach. */
+  sendDisabled?: boolean;
   onCopy: (text: string) => void;
   /** Opens a path mentioned in assistant text in the work dir file panel —
    * `undefined` on compact/iOS, where that panel doesn't exist (see
@@ -108,6 +110,7 @@ interface UserActionHandlers {
   onStartEdit: (id: string, text: string) => void;
   onCancelEdit: () => void;
   onSaveEdit: (id: string, text: string) => void;
+  sendDisabled?: boolean;
   onCopy: (text: string) => void;
   onOpenPath?: (path: string) => void;
   cwd: string | null;
@@ -154,6 +157,7 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
           onStartEdit={userActions.onStartEdit}
           onCancelEdit={userActions.onCancelEdit}
           onSaveEdit={userActions.onSaveEdit}
+          sendDisabled={userActions.sendDisabled}
           onCopy={userActions.onCopy}
         />
       );
@@ -243,6 +247,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
+  sendDisabled,
   onCopy,
   onOpenPath,
   cwd,
@@ -252,7 +257,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
 }: MessageLogProps, ref) {
   const parentRef = useRef<HTMLDivElement>(null);
   const dict = useDict();
-  const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, onCopy, onOpenPath, cwd, reconnect };
+  const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, sendDisabled, onCopy, onOpenPath, cwd, reconnect };
 
   // Which rows are expanded, for this tab — held here, above the virtualized
   // list, so a row that scrolls out of view keeps its state.

@@ -43,6 +43,7 @@ import { parseSlashCommand } from "@/lib/composer/slashCommands";
 import { activeModelLabel, catalogHasModel } from "@/lib/composer/modelCatalog";
 import { effortChoicesFor, modelAcceptsEffort } from "@/lib/composer/effortCatalog";
 import type { Profile } from "@/lib/profiles/profiles";
+import { Spinner } from "@/components/ui/spinner";
 import type { HistoryPageMessage } from "@/lib/relay/relay-types";
 import { useDict } from "@/i18n";
 import { createRoom } from "@/lib/relay/roomClient";
@@ -606,6 +607,15 @@ export function ChatPanel({
     onSessionDeleted: () => onDeletedRef.current?.(),
   });
 
+  // The relay will take what we send: socket open, its burst of state
+  // received, and no resync swapping the log. The gate for everything that
+  // goes to the relay; typing stays allowed.
+  const live = connected && caughtUp && !resyncing;
+  // Stopping is something the relay has to hear, same as sending.
+  const stopTurnWhenLive = useCallback(() => {
+    if (live) stopTurn();
+  }, [live, stopTurn]);
+
   // Tells the relay whether this conversation is in front of the person, so
   // it can skip the remote push for one they are already reading. Every
   // mounted tab says so, not just the visible one: a background tab is the
@@ -812,7 +822,7 @@ export function ChatPanel({
             jobs={backgroundJobs}
             onCancelJob={cancelBackgroundJob}
             agents={subagents}
-            onStopAgent={stopTurn}
+            onStopAgent={stopTurnWhenLive}
           />
         </div>
       ),
@@ -826,7 +836,7 @@ export function ChatPanel({
       backgroundJobs,
       cancelBackgroundJob,
       subagents,
-      stopTurn,
+      stopTurnWhenLive,
     ],
   );
 
@@ -836,7 +846,7 @@ export function ChatPanel({
   // deregisters on unmount, so the global tray never holds a stale entry for
   // a closed tab.
   useEffect(() => {
-    onBackgroundActionsReadyRef.current?.({ cancelBackgroundJob, dismissFailedBackgroundJob, stopTurn });
+    onBackgroundActionsReadyRef.current?.({ cancelBackgroundJob, dismissFailedBackgroundJob, stopTurn: stopTurnWhenLive });
     return () => onBackgroundActionsReadyRef.current?.(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -862,7 +872,7 @@ export function ChatPanel({
   // spot.
   performEditRef.current = (id, newText) => {
     const target = editTargetRef.current;
-    if (!target || target.id !== id) return;
+    if (!target || target.id !== id || !live) return;
     log.editUserMessage(id, newText);
     editMessage(target.fromEnd, newText);
     setTurnStartedAt(Date.now());
@@ -904,10 +914,6 @@ export function ChatPanel({
     });
   }, []);
 
-  // The relay will take what we send: socket open, its burst of state
-  // received, and no resync swapping the log. The gate for everything that
-  // goes to the relay; typing stays allowed.
-  const live = connected && caughtUp && !resyncing;
   loadOlderRef.current = loadOlderHistory;
   // The screen already shows the swapped log (`setResyncing(false)` rendered):
   // now the events that arrived during the resync can be applied, in order.
@@ -992,6 +998,10 @@ export function ChatPanel({
   }, [protocolMismatch]);
 
   const handleSend = (text: string, sentImages: PendingAttachment[]): void => {
+    // The composers are disabled while not live; this covers the other
+    // callers (a room's composer, a suggestion) so nothing is sent into a
+    // closed socket and lost.
+    if (!live) return;
     // Editing via composer (iOS) — the normal send (slash
     // commands, `addUserMessage`+`sendMessage`) doesn't apply here:
     // the text goes to `edit_message`, not `user_message`. Images
@@ -1098,6 +1108,7 @@ export function ChatPanel({
           onStartEdit={onStartEdit}
           onCancelEdit={onCancelEdit}
           onSaveEdit={onSaveEdit}
+          sendDisabled={!live}
           onCopy={onCopyMessage}
           onOpenPath={onOpenPath}
           cwd={cwd}
@@ -1131,7 +1142,7 @@ export function ChatPanel({
                 profile={profile}
                 cwd={cwd}
                 locked={cwdLocked}
-                connected={connected}
+                connected={live}
                 isNewConversation={isNewConversation}
                 onSetCwd={setCwd}
                 onFocusComposer={() => composerRef.current?.focus()}
@@ -1147,6 +1158,13 @@ export function ChatPanel({
          * cap anyway) is untouched. */}
         <div className={cn(isIOS() ? "contents" : "w-full px-4")}>
           <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-[728px] flex-col")}>
+            {hydrated && !live && (
+              <div role="status" data-connection-status className="mb-2 flex items-center gap-2 px-1 text-xs text-muted-foreground">
+                <Spinner size="xs" />
+                {dict.chat.connection.reconnecting}
+              </div>
+            )}
+
             {agentSignedOut && (
               <div data-agent-signed-out className="mb-2 flex items-center gap-2.5 border border-border bg-bg-sidebar py-1.5 pr-1.5 pl-3">
                 <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" />
@@ -1163,12 +1181,13 @@ export function ChatPanel({
                 questions={choicePrompt.questions}
                 kind={choicePrompt.kind}
                 onAnswer={answerChoice}
+                disabled={!live}
               />
             )}
 
             {renderComposer ? (
               renderComposer({
-                connected,
+                connected: live,
                 send: (text) => handleSend(text, []),
                 permissionMode,
                 permissionModes,
@@ -1181,7 +1200,7 @@ export function ChatPanel({
                   catalog={modelCatalog}
                   model={model}
                   locked={cwdLocked}
-                  connected={connected}
+                  connected={live}
                   onChangeModel={setModel}
                   permissionMode={permissionMode}
                   permissionModes={permissionModes}
@@ -1192,10 +1211,10 @@ export function ChatPanel({
                 />
                 <NativeComposer
                   ref={composerRef}
-                  disabled={!connected}
+                  disabled={!live}
                   turnInFlight={turnInFlight}
                   turnStartedAt={turnStartedAt}
-                  onStop={stopTurn}
+                  onStop={stopTurnWhenLive}
                   pendingImages={images.pending}
                   uploadingImage={images.uploading}
                   onAddFiles={(files) => images.addFiles(files)}
@@ -1214,10 +1233,10 @@ export function ChatPanel({
               <Composer
                 ref={composerRef}
                 profile={profile}
-                disabled={!connected}
+                disabled={!live}
                 turnInFlight={turnInFlight}
                 turnStartedAt={turnStartedAt}
-                onStop={stopTurn}
+                onStop={stopTurnWhenLive}
                 pendingImages={images.pending}
                 uploadingImage={images.uploading}
                 onAddFiles={(files) => images.addFiles(files)}
@@ -1240,15 +1259,21 @@ export function ChatPanel({
                 onChangeDraft={setDraft}
                 onSend={handleSend}
                 className={showingIdle ? "shadow-lift" : undefined}
-                sendBlockedReason={agentSignedOut ? dict.chat.agentSignedOut.sendBlocked.split("{agent}").join(agentDisplayName) : undefined}
-                onBlockedSend={recheckLogin}
+                sendBlockedReason={
+                  agentSignedOut
+                    ? dict.chat.agentSignedOut.sendBlocked.split("{agent}").join(agentDisplayName)
+                    : !live
+                      ? dict.chat.connection.sendBlocked
+                      : undefined
+                }
+                onBlockedSend={agentSignedOut ? recheckLogin : undefined}
                 placeholder={roomMode ? dict.sala.newSession.placeholderRoom : undefined}
                 infoStart={
                   <WorkingDirectoryButton
                     profile={profile}
                     cwd={cwd}
                     locked={cwdLocked}
-                    connected={connected}
+                    connected={live}
                     isNewConversation={isNewConversation}
                     onSetCwd={setCwd}
                     onFocusComposer={() => composerRef.current?.focus()}

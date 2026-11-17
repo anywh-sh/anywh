@@ -679,6 +679,14 @@ export interface Dictionary {
     };
     /** Above the composer while the session's agent has no login on its
      * profile, and on a turn that failed for one. `{agent}` is its name. */
+    /** The link to the relay is down or catching up: the conversation stays
+     * on screen, but nothing that goes to the relay can be sent. */
+    connection: {
+      /** The status line above the composer. */
+      reconnecting: string;
+      /** On whatever would send: the send button, an inline edit, a choice. */
+      sendBlocked: string;
+    };
     agentSignedOut: {
       message: string;
       /** On the send button while the agent has no login. */

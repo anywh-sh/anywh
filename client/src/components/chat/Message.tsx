@@ -25,6 +25,8 @@ interface UserBubbleProps {
   onCancelEdit: () => void;
   onSaveEdit: (id: string, text: string) => void;
   onCopy: (text: string) => void;
+  /** The relay can't take an edit right now (reconnecting): saving waits. */
+  sendDisabled?: boolean;
 }
 
 /** Relative timestamp ("3 min ago") with a tooltip revealing the exact time
@@ -70,6 +72,7 @@ export const UserBubble = memo(function UserBubble({
   onCancelEdit,
   onSaveEdit,
   onCopy,
+  sendDisabled = false,
 }: UserBubbleProps) {
   const dict = useDict();
   const editDisabled = Boolean(images && images.length > 0);
@@ -94,7 +97,7 @@ export const UserBubble = memo(function UserBubble({
 
   function handleSave(): void {
     const value = textareaRef.current?.value.trim() ?? "";
-    if (value) onSaveEdit(id, value);
+    if (value && !sendDisabled) onSaveEdit(id, value);
   }
 
   function handleCopy(): void {
@@ -147,6 +150,7 @@ export const UserBubble = memo(function UserBubble({
         {...(isIOS() && !isEditing ? { onTouchStart: armNativeMenu, "data-native-menu": "" } : undefined)}
       >
         {isEditing ? (
+          <>
           <textarea
             ref={textareaRef}
             defaultValue={text}
@@ -162,6 +166,8 @@ export const UserBubble = memo(function UserBubble({
             rows={1}
             className="w-full resize-none bg-transparent text-sm text-foreground outline-none"
           />
+          {sendDisabled && <p className="text-xs text-muted-foreground">{dict.chat.connection.sendBlocked}</p>}
+          </>
         ) : (
           <>
             {images && images.length > 0 && (

@@ -154,6 +154,10 @@ export const en: Dictionary = {
       codexCancel: "Cancel",
       reasonSuffix: "Reason: {reason}.",
     },
+    connection: {
+      reconnecting: "Reconnecting…",
+      sendBlocked: "Waiting for the connection to send",
+    },
     agentSignedOut: {
       message: "{agent} isn't signed in on this profile.",
       connect: "Connect",
