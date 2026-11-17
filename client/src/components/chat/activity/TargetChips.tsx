@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { memo } from "react";
 import { FileText, Globe, Plug, Search, Terminal, Wrench, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -65,17 +66,17 @@ export const TargetChips = memo(function TargetChips({ stepId, targets, failedCa
           </>
         );
         return target.kind === "file" && onOpenPath ? (
-          <button
+          <TextButton
             key={target.callId}
-            type="button"
+            tone="none"
             title={target.full}
             onClick={() => {
               onOpenPath(target.full);
             }}
-            className={cn(chip, "cursor-pointer transition-colors hover:bg-surface-hover")}
+            className={cn(chip, "hover:bg-surface-hover")}
           >
             {body}
-          </button>
+          </TextButton>
         ) : (
           <span key={target.callId} title={target.full} className={chip}>
             {body}
@@ -83,9 +84,9 @@ export const TargetChips = memo(function TargetChips({ stepId, targets, failedCa
         );
       })}
       {hidden > 0 && (
-        <button type="button" onClick={toggleAll} aria-expanded={all} className="h-6 cursor-pointer px-1 text-xs text-text-faint transition-colors hover:text-muted-foreground">
+        <TextButton tone="dim" onClick={toggleAll} aria-expanded={all} className="h-6 px-1 text-xs">
           {all ? work.showLess : work.moreTargets.replace("{count}", String(hidden))}
-        </button>
+        </TextButton>
       )}
     </div>
   );

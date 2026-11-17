@@ -89,7 +89,7 @@ async function expectFlow(): Promise<void> {
   await user.click(screen.getByRole("button", { name: /^Read/ }));
   // The step says what its one call found; the call, once there, says it again.
   expect(screen.getAllByText("2 lines")).toHaveLength(2);
-  await user.click(screen.getByText("Read", { selector: "span.shrink-0" }).closest('[role="button"]') as HTMLElement);
+  await user.click(screen.getByText("Read", { selector: "span.shrink-0" }).closest("button") as HTMLElement);
   expect(await screen.findByText("two")).toBeInTheDocument();
   await user.click(ran);
   expect(screen.getAllByText("exit 1").length).toBeGreaterThan(0);

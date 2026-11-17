@@ -1,3 +1,5 @@
+import { TextButton } from "@/components/ui/text-button";
+import { Button } from "@/components/ui/button";
 import { memo, useEffect, useReducer } from "react";
 import "@/components/chat/roomCard.css";
 import { useRoomCardActions } from "@/components/chat/roomCardActions";
@@ -44,14 +46,27 @@ function ReportCard({ report }: { report: RoomReportCard }) {
         </span>
       </div>
       {actions && (
-        <button
-          type="button"
-          className={blocked ? "room-card-btn cta" : "room-card-btn"}
-          aria-label={(blocked ? copy.replyAria : copy.openAria).replace("{title}", title)}
-          onClick={() => actions.openAgent(report.agentId)}
-        >
-          {blocked ? copy.reply : copy.open}
-        </button>
+        // The card's one action: filled when the agent waits on a reply,
+        // otherwise just its label brightening.
+        blocked ? (
+          <Button
+            size="xs"
+            aria-label={copy.replyAria.replace("{title}", title)}
+            onClick={() => actions.openAgent(report.agentId)}
+            className="h-[26px] px-3 font-sans text-[12.5px]"
+          >
+            {copy.reply}
+          </Button>
+        ) : (
+          <TextButton
+            tone="none"
+            aria-label={copy.openAria.replace("{title}", title)}
+            onClick={() => actions.openAgent(report.agentId)}
+            className="h-[26px] flex-none px-2.5 text-[12.5px] text-[var(--room-card-label)] hover:text-foreground"
+          >
+            {copy.open}
+          </TextButton>
+        )
       )}
     </div>
   );

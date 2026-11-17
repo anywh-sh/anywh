@@ -1,3 +1,5 @@
+import { TextButton } from "@/components/ui/text-button";
+import { RowButton } from "@/components/ui/row-button";
 import { useEffect, useState } from "react";
 import { ChevronRight, Eye, EyeOff, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -57,6 +59,9 @@ function parentOf(path: string): string {
   segments.pop();
   return segments.length === 0 ? "/" : `/${segments.join("/")}`;
 }
+
+/** A folder in the list: the dialog's mono, on the list's chrome ground. */
+const FOLDER_ROW = "gap-2.5 px-2 py-1.5 font-mono text-xs hover:bg-surface-hover";
 
 /**
  * Working directory picker modal — path field + navigable breadcrumb +
@@ -170,16 +175,9 @@ export function FolderPickerDialog({
               {crumbs.map((crumb, index) => (
                 <div key={crumb.path} className="flex items-center gap-1">
                   {index > 0 && <span className="text-text-faint">/</span>}
-                  <button
-                    type="button"
-                    onClick={() => void navigate(crumb.path)}
-                    className={cn(
-                      "cursor-pointer px-1 py-0.5 transition-colors hover:text-foreground",
-                      index === crumbs.length - 1 ? "text-foreground" : "text-muted-foreground",
-                    )}
-                  >
+                  <TextButton onClick={() => void navigate(crumb.path)} className={cn("px-1 py-0.5", index === crumbs.length - 1 && "text-foreground")}>
                     {crumb.label}
-                  </button>
+                  </TextButton>
                 </div>
               ))}
             </div>
@@ -213,15 +211,11 @@ export function FolderPickerDialog({
             ) : (
               <div className="flex flex-col">
                 {!atRoot && (
-                  <button
-                    type="button"
-                    onClick={() => void navigate(parentOf(browsePath))}
-                    className="flex shrink-0 cursor-pointer items-center gap-2.5 px-2 py-1.5 text-left font-mono text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
-                  >
+                  <RowButton size="auto" onClick={() => void navigate(parentOf(browsePath))} className={FOLDER_ROW}>
                     <Folder className="size-3.5 shrink-0" />
                     <span className="flex-1">..</span>
                     <span className="sr-only">{copy.parent}</span>
-                  </button>
+                  </RowButton>
                 )}
 
                 {loading && <div className="px-2 py-1.5 font-mono text-xs text-text-faint">{dict.common.loading}</div>}
@@ -232,16 +226,11 @@ export function FolderPickerDialog({
 
                 {!loading &&
                   entries.map((entry) => (
-                    <button
-                      key={entry.path}
-                      type="button"
-                      onClick={() => void navigate(entry.path)}
-                      className="flex shrink-0 cursor-pointer items-center gap-2.5 px-2 py-1.5 text-left font-mono text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
-                    >
+                    <RowButton key={entry.path} size="auto" onClick={() => void navigate(entry.path)} className={FOLDER_ROW}>
                       <Folder className="size-3.5 shrink-0" />
                       <span className="min-w-0 flex-1 truncate">{entry.name}</span>
                       <ChevronRight className="size-3 shrink-0 text-text-faint" />
-                    </button>
+                    </RowButton>
                   ))}
               </div>
             )}

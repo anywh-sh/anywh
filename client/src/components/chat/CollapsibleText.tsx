@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { TextButton } from "@/components/ui/text-button";
 import { useOpen } from "@/lib/format/openState";
 import { cn } from "@/lib/utils";
 
@@ -58,8 +59,8 @@ export function CollapsibleText({ id, expandLabel, collapseLabel, cap = DEFAULT_
         {children}
       </div>
       {capped && (
-        <button
-          type="button"
+        <TextButton
+          tone="faint"
           aria-expanded={open}
           aria-controls={contentId}
           // The bubble arms its iOS long-press menu on `touchstart`; a tap on
@@ -71,10 +72,10 @@ export function CollapsibleText({ id, expandLabel, collapseLabel, cap = DEFAULT_
             // the reader somewhere below it; bring its start back into view.
             if (open) requestAnimationFrame(() => content.current?.scrollIntoView({ block: "nearest" }));
           }}
-          className="cursor-pointer self-start font-mono text-[11px] text-text-faint transition-colors hover:text-foreground"
+          className="self-start font-mono text-[11px]"
         >
           {open ? collapseLabel : expandLabel}
-        </button>
+        </TextButton>
       )}
     </>
   );

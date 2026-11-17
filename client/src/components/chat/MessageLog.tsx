@@ -1,3 +1,4 @@
+import { Spinner } from "@/components/ui/spinner";
 import { forwardRef, memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -516,7 +517,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
     >
       {loadingOlderHistory && (
         <div className="sticky top-0 z-10 flex justify-center py-1.5">
-          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          <Spinner size="lg" />
         </div>
       )}
       {/* Narrower than the composer under it (`ChatPanel`, 728px) and centred on the same axis; the symmetric scrollbar gutter on the scroller keeps that axis when the log overflows. */}

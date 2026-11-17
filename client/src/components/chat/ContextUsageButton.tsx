@@ -1,10 +1,9 @@
 import { useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { ContextUsageRing } from "@/components/chat/ContextUsageRing";
 import { useDict } from "@/i18n";
-import { cn } from "@/lib/utils";
 import { contextModelName, contextUsageColor, contextUsagePercent, formatCategoryPercent, formatTokenCount } from "@/lib/format/contextUsage";
 import type { ContextUsage, ModelCatalog } from "@/lib/relay/relayClient";
 
@@ -112,32 +111,34 @@ export function ContextUsageButton({ usage, onOpen, modelCatalog }: ContextUsage
       }}
     >
       <DropdownMenuTrigger asChild>
-        <button
+        <Button
           ref={triggerRef}
-          type="button"
+          variant="chrome"
+          size="toolbar"
           aria-label={copy.ariaLabel.replace("{percent}", String(Math.round(pct)))}
           title={copy.label}
-          className={cn(toolbarTriggerClass, "gap-2 font-mono text-[11.5px] text-text-faint")}
+          className="gap-2 font-mono text-[11.5px] text-text-faint"
         >
           <ContextUsageRing usage={usage} size={16} />
           <span>{Math.round(pct)}%</span>
-        </button>
+        </Button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="w-72 p-0">
         <div className="flex items-center gap-2 border-b border-border-soft bg-bg-chrome px-[11px] py-[9px]">
           <span className="flex-1 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">{copy.label}</span>
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size="icon-xs"
             onClick={() => {
               setOpen(false);
               triggerRef.current?.blur();
             }}
             aria-label={copy.close}
-            className="flex size-5 shrink-0 cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-foreground"
+            className="size-5"
           >
             <X className="size-3" aria-hidden="true" />
-          </button>
+          </Button>
         </div>
 
         <div className="flex flex-col gap-2.5 px-[11px] pt-3 pb-[11px]">

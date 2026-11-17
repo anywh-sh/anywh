@@ -1,3 +1,4 @@
+import { RowButton } from "@/components/ui/row-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { SlashCommandEntry } from "@/lib/composer/slashCommands";
 import { cn } from "@/lib/utils";
@@ -30,17 +31,17 @@ export function SlashCommandMenu({ items, selectedIndex, onHover, onPick }: Slas
         <li key={entry.command}>
           <Tooltip open={index === selectedIndex}>
             <TooltipTrigger asChild>
-              <button
-                type="button"
+              <RowButton
+                size="auto"
                 onMouseEnter={() => onHover(index)}
                 onClick={() => onPick(entry)}
                 className={cn(
-                  "block w-full cursor-pointer truncate px-2 py-1.5 text-left font-mono text-[11.5px] transition-colors",
-                  index === selectedIndex ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-surface-hover",
+                  "block truncate px-2 py-1.5 font-mono text-[11.5px]",
+                  index === selectedIndex ? "bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground" : "hover:bg-surface-hover",
                 )}
               >
                 {entry.command}
-              </button>
+              </RowButton>
             </TooltipTrigger>
             <TooltipContent side="right">{entry.description}</TooltipContent>
           </Tooltip>

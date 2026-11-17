@@ -12,6 +12,7 @@ type Size = NonNullable<VariantProps<typeof buttonVariants>["size"]>;
 const VARIANTS = {
   default: true,
   destructive: true,
+  "destructive-outline": true,
   outline: true,
   secondary: true,
   ghost: true,
@@ -26,6 +27,7 @@ const SIZES = {
   default: "text",
   lg: "text",
   inline: "text",
+  toolbar: "text",
   "icon-xs": "icon",
   "icon-sm": "icon",
   icon: "icon",
@@ -57,6 +59,11 @@ export const Default: Story = {};
 
 export const Destructive: Story = {
   args: { variant: "destructive", children: "Delete session" },
+};
+
+/** A stop inside a card: outlined until pointed at. */
+export const DestructiveOutline: Story = {
+  args: { variant: "destructive-outline", size: "xs", children: "Stop agent" },
 };
 
 export const Outline: Story = {
@@ -93,6 +100,11 @@ export const Inline: Story = {
       <Button {...args} />
     </div>
   ),
+};
+
+/** A composer toolbar trigger: the chrome's sans, a fill while its menu is open. */
+export const Toolbar: Story = {
+  args: { variant: "chrome", size: "toolbar", children: "Bypass permissions" },
 };
 
 export const Disabled: Story = {

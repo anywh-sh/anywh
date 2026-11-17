@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -126,9 +127,9 @@ export function CodeBlock({ label, value, copyLabel, onCopy, cap = DEFAULT_CAP }
       </pre>
       {omitted > 0 && <p className="font-mono text-[11px] text-text-faint">{dict.block.truncated.replace("{count}", omitted.toLocaleString())}</p>}
       {capped && (
-        <button type="button" aria-expanded={full} onClick={() => setFull(!full)} className="cursor-pointer self-start font-mono text-[11px] text-text-faint transition-colors hover:text-foreground">
+        <TextButton tone="faint" aria-expanded={full} onClick={() => setFull(!full)} className="self-start font-mono text-[11px]">
           {full ? dict.block.showLess : dict.block.showAll}
-        </button>
+        </TextButton>
       )}
     </div>
   );

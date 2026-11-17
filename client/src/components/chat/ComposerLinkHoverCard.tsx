@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { createPortal } from "react-dom";
 import { getMarkRange, type Editor, type Range } from "@tiptap/core";
 import { Pencil } from "lucide-react";
@@ -141,17 +142,18 @@ export function ComposerLinkHoverCard({ editor }: ComposerLinkHoverCardProps) {
             className="z-50 flex w-auto max-w-72 items-center gap-1.5 border border-border bg-bg-elevated px-2.5 py-1.5 text-popover-foreground shadow-popover"
           >
             <span className="max-w-56 truncate font-mono text-xs text-muted-foreground">{currentHref}</span>
-            <button
-              type="button"
+            <Button
+              variant="chrome"
+              size="icon-xs"
               onClick={() => {
                 setCardOpen(false);
                 setDialogOpen(true);
               }}
               aria-label={dict.chat.composer.openLinkEditor}
-              className="flex shrink-0 cursor-pointer items-center justify-center p-1 text-muted-foreground hover:bg-border hover:text-foreground"
+              className="size-5 hover:bg-border"
             >
               <Pencil className="size-3" />
-            </button>
+            </Button>
           </div>,
           document.body,
         )}

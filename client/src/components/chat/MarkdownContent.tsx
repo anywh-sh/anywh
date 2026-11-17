@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -92,9 +93,9 @@ export function MarkdownContent({
           if (href && !looksLikeExternalUrl(href)) {
             if (onOpenPath) {
               return (
-                <button type="button" className="prose-chat-path-link" onClick={() => onOpenPath(href)}>
+                <TextButton tone="none" className="prose-chat-path-link" onClick={() => onOpenPath(href)}>
                   {children}
-                </button>
+                </TextButton>
               );
             }
             return <span>{children}</span>;
@@ -117,9 +118,9 @@ export function MarkdownContent({
           if (!className) {
             if (onOpenPath && looksLikeFilePath(text)) {
               return (
-                <button type="button" className="prose-chat-path-link" onClick={() => onOpenPath(text)}>
+                <TextButton tone="none" className="prose-chat-path-link" onClick={() => onOpenPath(text)}>
                   {text}
-                </button>
+                </TextButton>
               );
             }
             // A URL written as backtick code (`` `https://example.com` ``)

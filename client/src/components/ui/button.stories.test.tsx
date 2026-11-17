@@ -51,6 +51,19 @@ describe("Button stories", () => {
     expect(screen.getByRole("button").querySelector('[data-slot="spinner"]')).toHaveAttribute("data-size", "xs");
   });
 
+  it("is a plain button unless it says it submits", () => {
+    const onSubmit = vi.fn((event: Event) => event.preventDefault());
+    render(
+      <form onSubmit={(event) => onSubmit(event.nativeEvent)}>
+        <Default />
+      </form>,
+    );
+    const button = screen.getByRole("button", { name: "Continue" });
+    expect(button).toHaveAttribute("type", "button");
+    button.click();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("renders no spinner when idle", () => {
     render(<Default />);
     const button = screen.getByRole("button");

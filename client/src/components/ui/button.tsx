@@ -11,7 +11,11 @@ import { Spinner } from "@/components/ui/spinner"
  * face is reserved for prose (message content, descriptions) and the display
  * face for titles.
  *
- * Two structural choices worth knowing before editing:
+ * Three structural choices worth knowing before editing:
+ *
+ * - `type` defaults to `"button"`, not the HTML default `"submit"`: a
+ *   control dropped inside a form (the composer is one) would otherwise send
+ *   it. A submit says so with `type="submit"`.
  *
  * - The base carries `border border-transparent`, so the variants that grow a
  *   border on hover don't shift their own layout by a pixel when they do.
@@ -36,6 +40,11 @@ const buttonVariants = cva(
         default: "border-foreground bg-foreground text-background hover:border-muted-foreground hover:bg-muted-foreground",
         destructive:
           "border-destructive bg-destructive text-destructive-foreground hover:border-destructive-hover hover:bg-destructive-hover focus-visible:ring-destructive/50",
+        // A stop or cancel inside a card: the destructive colour as an
+        // outline, filling in only under the pointer, so a card full of them
+        // doesn't shout before anyone aims at one.
+        "destructive-outline":
+          "border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:ring-destructive/50",
         // The design's default control: an outline that only commits to a
         // border color, and firms up on hover rather than filling in.
         outline: "border-border text-muted-foreground hover:border-text-faint hover:bg-bg-elevated hover:text-foreground",
@@ -63,6 +72,10 @@ const buttonVariants = cva(
         // banner's sans): takes that size and weight instead of a control's,
         // and no border, so it is as wide as the text it replaces. A caller
         // that wants the hover outline passes `border` back.
+        // The composer toolbar's triggers (agent and model, permission mode,
+        // context, working directory): text in the chrome's sans at its
+        // scale, a 30px row like the composer's other controls.
+        toolbar: "h-[30px] min-w-0 gap-1.5 border-0 px-2 font-sans font-normal text-[length:calc(13px*var(--chrome-scale))]",
         inline: "gap-1.5 border-0 px-1.5 py-0.5 text-[length:inherit] font-normal [&_svg:not([class*='size-'])]:size-3",
         icon: "size-8",
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
@@ -86,6 +99,7 @@ const SPINNER_SIZE = {
   icon: "md",
   lg: "md",
   inline: "xs",
+  toolbar: "sm",
   "icon-lg": "md",
 } as const satisfies Record<NonNullable<VariantProps<typeof buttonVariants>["size"]>, string>
 
@@ -96,6 +110,7 @@ function Button({
   asChild = false,
   loading = false,
   disabled,
+  type = "button",
   children,
   ...props
 }: React.ComponentProps<"button"> &
@@ -122,6 +137,7 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
+      type={type}
       data-loading={loading || undefined}
       aria-busy={loading || undefined}
       disabled={disabled || loading}

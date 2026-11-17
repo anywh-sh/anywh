@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Check, ChevronDown, Lock } from "lucide-react";
 import {
   DropdownMenu,
@@ -9,7 +10,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AgentLogo } from "@/components/chat/AgentLogo";
-import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";
 import { getHostInfo, type SelectableAgentInfo } from "@/lib/relay/filesClient";
@@ -119,19 +119,21 @@ export function AgentModelEffortButton({
   return (
     <DropdownMenu modal={false} onOpenChange={(open) => !open && triggerRef.current?.blur()}>
       <DropdownMenuTrigger asChild disabled={disabled}>
-        <button
+        <Button
           ref={triggerRef}
-          type="button"
+          variant="chrome"
+          size="toolbar"
           disabled={disabled}
           title={label}
           aria-label={effortLabel !== null ? label : `${name} · ${modelLabel}`}
-          className={cn(toolbarTriggerClass, "gap-[7px] hover:bg-surface-hover data-[state=open]:bg-surface-hover")}
+          // Disabled still takes the pointer, so the title still names the model.
+          className="gap-[7px] disabled:pointer-events-auto disabled:cursor-default"
         >
           {agentId !== null && <AgentTile agentId={agentId} />}
           <span className="truncate text-foreground">{modelLabel}</span>
           {effortLabel !== null && <span className="shrink-0 text-text-faint">{effortLabel.toLowerCase()}</span>}
           <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
-        </button>
+        </Button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="min-w-[calc(300px*var(--chrome-scale))]">

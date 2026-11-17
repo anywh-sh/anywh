@@ -38,7 +38,7 @@ export function ContextUsageRing({ usage, size = 18 }: ContextUsageRingProps) {
       className="-rotate-90 shrink-0"
       // Decorative: when used alone the accessible name would come from the
       // `aria-label` below, but the real usage (ContextUsageButton) wraps it
-      // in a `<button>` that already declares the label — having both would
+      // in a button that already declares the label — having both would
       // make a screen reader announce the same information twice.
       aria-hidden="true"
     >

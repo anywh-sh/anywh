@@ -9,7 +9,7 @@ type Size = NonNullable<VariantProps<typeof rowButtonVariants>["size"]>;
 // Records, so a tone or size added to `rowButtonVariants` without a story
 // here is a compile error (same reasoning as button.stories.tsx).
 const TONES = { default: true, faint: true } satisfies Record<Tone, true>;
-const SIZES = { default: true, lg: true } satisfies Record<Size, true>;
+const SIZES = { default: true, lg: true, auto: true } satisfies Record<Size, true>;
 
 export const tones = Object.keys(TONES) as Tone[];
 export const sizes = Object.keys(SIZES) as Size[];

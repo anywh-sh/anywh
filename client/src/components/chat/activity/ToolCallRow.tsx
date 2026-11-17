@@ -1,4 +1,6 @@
-import { memo, useState, type KeyboardEvent } from "react";
+import { Spinner } from "@/components/ui/spinner";
+import { TextButton } from "@/components/ui/text-button";
+import { memo, useState } from "react";
 import { AlertCircle, Check, ChevronRight, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -119,47 +121,42 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
   const duration = callDuration(call);
   const withArguments = showsArguments(call);
 
-  function onKey(event: KeyboardEvent<HTMLDivElement>): void {
-    if (event.target !== event.currentTarget) return;
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      toggle();
-    }
-  }
-
   return (
     <div className="bg-background">
-      {/* A `div` acting as the toggle: the target inside it is a second
-          action (open the file) and a button can't sit inside a button. */}
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={toggle}
-        onKeyDown={onKey}
-        className="flex cursor-pointer items-center gap-2.5 px-3 py-[9px] text-[13.5px] leading-snug transition-colors hover:bg-surface-hover"
-      >
+      {/* The toggle's `::after` covers the whole row, so a click anywhere on
+          it opens the row; a file's path is a second action (open the file),
+          laid above that cover as the toggle's sibling, since a button can't
+          sit inside a button. */}
+      <div className="relative flex items-center gap-2.5 px-3 py-[9px] text-[13.5px] leading-snug transition-colors hover:bg-surface-hover">
         <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-          <ToolIcon call={call} className="size-4 shrink-0 text-text-faint" />
-          <span className="shrink-0 whitespace-nowrap text-text-faint">{verb}</span>
-          {openablePath && onOpenPath ? (
-            <button
-              type="button"
+          {/* The focus ring is drawn on the cover, the whole row, since the
+              row clips the toggle itself. Named with the target too, which
+              for a file sits outside it. */}
+          <TextButton
+            tone="none"
+            aria-expanded={open}
+            aria-label={`${verb} ${target}`}
+            onClick={toggle}
+            className="flex min-w-0 items-center gap-1.5 after:absolute after:inset-0 focus-visible:ring-0 focus-visible:after:ring-2 focus-visible:after:ring-ring/60 focus-visible:after:ring-inset"
+          >
+            <ToolIcon call={call} className="size-4 shrink-0 text-text-faint" />
+            <span className="shrink-0 whitespace-nowrap text-text-faint">{verb}</span>
+            {!(openablePath && onOpenPath) && <span className="min-w-0 truncate font-mono text-[12.5px] text-foreground">{target}</span>}
+          </TextButton>
+          {openablePath && onOpenPath && (
+            <TextButton
+              tone="none"
               title={dict.chat.activity.openFile}
-              className="min-w-0 cursor-pointer truncate font-mono text-[12.5px] text-foreground hover:underline"
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenPath(openablePath);
-              }}
+              className="relative z-10 min-w-0 truncate font-mono text-[12.5px] text-foreground hover:underline"
+              onClick={() => onOpenPath(openablePath)}
             >
               {target}
-            </button>
-          ) : (
-            <span className="min-w-0 truncate font-mono text-[12.5px] text-foreground">{target}</span>
+            </TextButton>
           )}
           <ChevronRight className={cn("size-3 shrink-0 text-text-faint transition-transform", open && "rotate-90")} />
         </span>
-        <span className="flex shrink-0 items-center gap-[7px] font-mono text-[11px] text-text-faint">
+        {/* Above the cover: the meta's titles stay hoverable and its text selectable. */}
+        <span className="relative z-10 flex shrink-0 items-center gap-[7px] font-mono text-[11px] text-text-faint">
           {meta?.kind === "diff" && (
             <span className="flex gap-1.5 font-medium">
               {meta.added > 0 && <span className="text-diff-add">+{meta.added}</span>}
@@ -177,7 +174,7 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
               A call the user stopped is none of those, so it shows nothing. */}
           {!call.done ? (
             <>
-              <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border border-t-primary" aria-hidden />
+              <Spinner size="sm" tone="accent" />
               {call.startedAt !== undefined && <Elapsed startedAt={call.startedAt} />}
             </>
           ) : failed ? (

@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { memo } from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -51,16 +52,16 @@ export const WorkStepRow = memo(function WorkStepRow({ step, connected, current,
       ) : (
         <div className="min-w-0 flex-1">
           <div className="flex min-h-5 items-center gap-2 leading-5">
-            <button
-              type="button"
+            <TextButton
+              tone="none"
               onClick={toggleDetail}
               aria-expanded={detailOpen}
               aria-label={`${(step.running ? work.steps[step.verb].ing : work.steps[step.verb].past)} — ${work.stepDetails}`}
-              className={cn("flex cursor-pointer items-center gap-1 text-left transition-colors hover:text-foreground", tone)}
+              className={cn("flex items-center gap-1 hover:text-foreground", tone)}
             >
               <Shimmer active={step.running}>{step.running ? work.steps[step.verb].ing : work.steps[step.verb].past}</Shimmer>
               <ChevronRight className={cn("size-3 shrink-0 transition-transform", detailOpen && "rotate-90")} aria-hidden />
-            </button>
+            </TextButton>
             <StepMeta step={step} />
           </div>
           <TargetChips
@@ -98,9 +99,9 @@ function ThoughtText({ id, text, running, tone }: { id: string; text: string; ru
   return (
     <div className={cn("min-w-0 flex-1 leading-5", tone)}>
       {long ? (
-        <button type="button" onClick={toggle} aria-expanded={open} className="block w-full cursor-pointer text-left transition-colors hover:text-foreground">
+        <TextButton tone="none" onClick={toggle} aria-expanded={open} className="block w-full hover:text-foreground">
           {body}
-        </button>
+        </TextButton>
       ) : (
         <Shimmer active={running} className="whitespace-normal">
           {text}
