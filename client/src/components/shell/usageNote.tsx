@@ -46,7 +46,5 @@ export function noteSpoken(note: RuntimeNote, strings: UsageStrings): string {
  * state on its own.
  */
 export function ReadingMark({ className }: { className?: string }) {
-  return (
-<Spinner size="xs" data-usage-reading className={cn("size-2", className)} />
-  );
+  return <Spinner size="xs" data-usage-reading className={cn("size-2", className)} />;
 }

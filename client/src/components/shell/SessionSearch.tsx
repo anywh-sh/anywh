@@ -204,6 +204,7 @@ function SearchPalette({
           <Button
             variant="quiet"
             size="icon-xs"
+            className="hover:text-muted-foreground"
             aria-label={dict.clear}
             onClick={() => {
               setQuery("");
