@@ -27,6 +27,7 @@ const SIZES = {
   default: "text",
   lg: "text",
   inline: "text",
+  bar: "text",
   toolbar: "text",
   "icon-xs": "icon",
   "icon-sm": "icon",
@@ -105,6 +106,11 @@ export const Inline: Story = {
 /** A composer toolbar trigger: the chrome's sans, a fill while its menu is open. */
 export const Toolbar: Story = {
   args: { variant: "chrome", size: "toolbar", children: "Bypass permissions" },
+};
+
+/** An action in a bar of them, like the room's selection bar. */
+export const Bar: Story = {
+  args: { variant: "chrome", size: "bar", children: "Group" },
 };
 
 export const Disabled: Story = {

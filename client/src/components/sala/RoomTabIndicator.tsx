@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { useDict } from "@/i18n";
 import { useRoomStatus } from "@/lib/sala/roomStatus";
 
@@ -9,7 +9,7 @@ export function RoomTabIndicator({ roomId }: { roomId: string }) {
   const status = useRoomStatus(roomId);
   if (!status) return null;
   if (status.needsYou > 0) return <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={sidebar.roomNeedsYou.replace("{count}", String(status.needsYou))} />;
-  if (status.working > 0) return <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={sidebar.roomWorking.replace("{count}", String(status.working))} />;
+  if (status.working > 0) return <Spinner size="sm" role="img" label={sidebar.roomWorking.replace("{count}", String(status.working))} />;
   if (status.failed > 0) return <span className="size-1.5 shrink-0 bg-destructive" aria-label={sidebar.roomFailed.replace("{count}", String(status.failed))} />;
   return null;
 }

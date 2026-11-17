@@ -1,9 +1,12 @@
+import type * as React from "react";
 import { handleRovingKeyDown } from "@/lib/rovingKeys";
 import { cn } from "@/lib/utils";
 
 export interface SegmentedOption<T extends string> {
   value: T;
   label: string;
+  /** Drawn before the label. */
+  icon?: React.ReactNode;
 }
 
 /**
@@ -61,10 +64,11 @@ export function Segmented<T extends string>({
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(option.value)}
             className={cn(
-              "h-6 cursor-pointer px-3 text-[length:calc(12px*var(--font-scale-ratio))] outline-hidden transition-colors focus-visible:underline",
+              "inline-flex h-6 cursor-pointer items-center gap-[7px] px-3 text-[length:calc(12px*var(--font-scale-ratio))] outline-hidden transition-colors focus-visible:underline",
               selected ? "bg-surface-hover text-foreground" : "text-text-faint hover:text-foreground",
             )}
           >
+            {option.icon}
             {option.label}
           </button>
         );

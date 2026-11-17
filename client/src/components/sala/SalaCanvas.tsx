@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import "@/components/sala/sala.css";
 import { useDict } from "@/i18n";
@@ -1514,9 +1515,19 @@ export function SalaCanvas(props: SalaCanvasProps) {
       </div>
 
       {props.aboutVisible && (
-        <button type="button" className="sala-float sala-about" data-float onClick={props.onAbout} aria-label={dict.panel.about} title={dict.panel.about}>
+        <Button
+          variant="outline"
+          size="icon"
+          // Over the canvas's grid: a pane of the elevated surface, a third
+          // of the way up from the background, so the dots read through it.
+          className="sala-float sala-about size-[34px] border-border-soft bg-[color-mix(in_srgb,var(--bg-elevated)_33%,var(--background))] hover:border-border-soft hover:bg-[color-mix(in_srgb,var(--bg-elevated)_33%,var(--background))]"
+          data-float
+          onClick={props.onAbout}
+          aria-label={dict.panel.about}
+          title={dict.panel.about}
+        >
           <AboutIcon size={16} />
-        </button>
+        </Button>
       )}
       {!hasAgents && <div className="sala-empty">{dict.canvas.empty}</div>}
       {props.reconnecting && (
@@ -1571,9 +1582,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
           <span>{toast.title}</span>
           {toast.sub && <span className="sala-toast-sub">{toast.sub}</span>}
           {toast.action && (
-            <button type="button" onClick={toast.action.run}>
+            <Button variant="secondary" size="bar" className="ml-1 border-0 bg-[var(--composer-border)] px-2.5 font-medium hover:bg-border" onClick={toast.action.run}>
               {toast.action.label}
-            </button>
+            </Button>
           )}
         </div>
       )}

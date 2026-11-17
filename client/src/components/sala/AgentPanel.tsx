@@ -1,3 +1,6 @@
+import { SEND } from "@/components/sala/salaSend";
+import { RowButton } from "@/components/ui/row-button";
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { ArrowUp, GitBranch, Layers } from "lucide-react";
 import { ChatPanel, type EmbeddedComposerSession } from "@/components/chat/ChatPanel";
@@ -84,31 +87,31 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
 
   const footer = (
     <>
-      <button type="button" className="sala-side-act" onClick={() => onOpenInTab(agent.agentId)}>
-        <Layers size={13} aria-hidden="true" />
+      <Button variant="chrome" size="bar" className="h-7" onClick={() => onOpenInTab(agent.agentId)}>
+        <Layers size={13} className="size-[13px]" aria-hidden="true" />
         <span>{text.openInTab}</span>
-      </button>
-      <button type="button" className="sala-side-act" onClick={() => onDelegate(agent.agentId)}>
+      </Button>
+      <Button variant="chrome" size="bar" className="h-7" onClick={() => onDelegate(agent.agentId)}>
         <span aria-hidden="true">+</span>
         <span>{text.delegate}</span>
-      </button>
+      </Button>
       <span className="grow" />
       {stopped ? (
-        <button type="button" className="sala-side-act" onClick={() => onResume(agent.agentId)}>
+        <Button variant="chrome" size="bar" className="h-7" onClick={() => onResume(agent.agentId)}>
           <span>{text.resume}</span>
-        </button>
+        </Button>
       ) : (
         canStop && (
-          <button type="button" className="sala-side-act" onClick={() => onStop(agent.agentId)}>
+          <Button variant="chrome" size="bar" className="h-7" onClick={() => onStop(agent.agentId)}>
             <span aria-hidden="true" style={{ width: 8, height: 8, background: "currentColor" }} />
             <span>{text.stop}</span>
-          </button>
+          </Button>
         )
       )}
-      <button type="button" className="sala-side-act" onClick={() => onRemove(agent.agentId)}>
-        <TrashIcon size={13} />
+      <Button variant="chrome" size="bar" className="h-7" onClick={() => onRemove(agent.agentId)}>
+        <TrashIcon size={13} className="size-[13px]" />
         <span>{text.remove}</span>
-      </button>
+      </Button>
     </>
   );
 
@@ -166,12 +169,19 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
             <section className="sala-side-sec">
               <h3 className="sala-side-h">{text.subtasks}</h3>
               {subtasks.map((task) => (
-                <button key={task.taskId} type="button" className="sala-side-row sub" data-subtask-row={task.taskId} onClick={() => onSelectSubtask(task.taskId)}>
+                // A subtask's row in the panel: it takes the person to its mini-card.
+                <RowButton
+                  key={task.taskId}
+                  size="auto"
+                  className="sala-side-row -mx-1.5 w-[calc(100%+12px)] px-1.5 hover:bg-surface-hover"
+                  data-subtask-row={task.taskId}
+                  onClick={() => onSelectSubtask(task.taskId)}
+                >
                   <span className={cn("sala-sub-dot", task.status)} aria-hidden="true" />
                   <span className="grow trunc" title={task.activity ?? task.summary}>
                     {task.description ?? task.subagentType ?? task.taskId}
                   </span>
-                </button>
+                </RowButton>
               ))}
             </section>
           )}
@@ -271,9 +281,9 @@ function WorkerComposer({ session, text }: { session: EmbeddedComposerSession; t
         <span className="grow" />
         {sendFailed ? <span className="sala-side-err">{text.sendFailed}</span> : contextFigure !== null && <span className="sala-side-clock trunc">{contextFigure}</span>}
         <VoiceButton voice={voice} />
-        <button type="button" className="sala-send" onClick={send} disabled={message.trim() === "" || !session.connected} aria-label={text.send} title={text.send}>
-          <ArrowUp size={14} aria-hidden="true" />
-        </button>
+        <Button variant="chrome" size="icon" className={SEND} onClick={send} disabled={message.trim() === "" || !session.connected} aria-label={text.send} title={text.send}>
+          <ArrowUp size={14} className="size-3.5" aria-hidden="true" />
+        </Button>
       </div>
     </div>
   );

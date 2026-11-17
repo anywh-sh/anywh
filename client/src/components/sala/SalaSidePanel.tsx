@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useRef, type ReactNode } from "react";
 import { useDict } from "@/i18n";
 import { CloseIcon } from "@/components/sala/SalaIcons";
@@ -47,9 +48,9 @@ export function SalaSidePanel({ onClose, ...pane }: SalaSidePanelProps) {
         {...pane}
         onClose={onClose}
         headerActions={
-          <button type="button" className="sala-side-close" onClick={onClose} aria-label={dict.close} title={dict.close}>
-            <CloseIcon size={12} />
-          </button>
+          <Button variant="chrome" size="icon" className="size-[26px] text-text-faint" onClick={onClose} aria-label={dict.close} title={dict.close}>
+            <CloseIcon size={12} className="size-[12px]" />
+          </Button>
         }
       />
     </div>

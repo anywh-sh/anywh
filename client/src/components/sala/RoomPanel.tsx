@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RoomCardActionsContext } from "@/components/chat/roomCardActions";
 import { CheckIcon } from "@/components/sala/SalaIcons";
@@ -365,9 +366,9 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
             <CheckIcon size={12} />
             <b>{dict.completed.title}</b>
             {kept > 0 && <span>{kept === 1 ? dict.completed.keptOne : dict.completed.kept.replace("{count}", String(kept))}</span>}
-            <button type="button" onClick={() => panes.open("about")}>
+            <Button variant="chrome" size="bar" className="ml-1 h-6 px-[9px] text-foreground" onClick={() => panes.open("about")}>
               {dict.completed.review}
-            </button>
+            </Button>
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { LayoutGrid, MessageSquare } from "lucide-react";
 import { Segmented, type SegmentedOption } from "./segmented";
 
 type Mode = "notify" | "auto-download" | "off";
@@ -15,6 +16,23 @@ function Controlled({ kind }: { kind: "tabs" | "radio" }) {
   return <Segmented id={`story-${kind}`} kind={kind} label="Check for updates" value={value} options={options} onChange={setValue} />;
 }
 
+function WithIconsExample() {
+  const [value, setValue] = useState<"chat" | "room">("chat");
+  return (
+    <Segmented
+      id="story-icons"
+      kind="radio"
+      label="Session type"
+      value={value}
+      onChange={setValue}
+      options={[
+        { value: "chat", label: "Conversation", icon: <MessageSquare className="size-3.5" /> },
+        { value: "room", label: "Room", icon: <LayoutGrid className="size-3.5" /> },
+      ]}
+    />
+  );
+}
+
 const meta = {
   title: "Primitives/Segmented",
   component: Controlled,
@@ -28,6 +46,11 @@ type Story = StoryObj<typeof meta>;
 
 /** Each option swaps the panel below it. */
 export const Tabs: Story = {};
+
+/** With an icon before each label. */
+export const WithIcons: Story = {
+  render: () => <WithIconsExample />,
+};
 
 /** Sets a value; nothing below changes. */
 export const Radio: Story = {
