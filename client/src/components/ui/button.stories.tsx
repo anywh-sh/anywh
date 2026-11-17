@@ -12,6 +12,7 @@ type Size = NonNullable<VariantProps<typeof buttonVariants>["size"]>;
 const VARIANTS = {
   default: true,
   destructive: true,
+  "destructive-outline": true,
   outline: true,
   secondary: true,
   ghost: true,
@@ -58,6 +59,11 @@ export const Default: Story = {};
 
 export const Destructive: Story = {
   args: { variant: "destructive", children: "Delete session" },
+};
+
+/** A stop inside a card: outlined until pointed at. */
+export const DestructiveOutline: Story = {
+  args: { variant: "destructive-outline", size: "xs", children: "Stop agent" },
 };
 
 export const Outline: Story = {

@@ -36,6 +36,11 @@ const buttonVariants = cva(
         default: "border-foreground bg-foreground text-background hover:border-muted-foreground hover:bg-muted-foreground",
         destructive:
           "border-destructive bg-destructive text-destructive-foreground hover:border-destructive-hover hover:bg-destructive-hover focus-visible:ring-destructive/50",
+        // A stop or cancel inside a card: the destructive colour as an
+        // outline, filling in only under the pointer, so a card full of them
+        // doesn't shout before anyone aims at one.
+        "destructive-outline":
+          "border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:ring-destructive/50",
         // The design's default control: an outline that only commits to a
         // border color, and firms up on hover rather than filling in.
         outline: "border-border text-muted-foreground hover:border-text-faint hover:bg-bg-elevated hover:text-foreground",
