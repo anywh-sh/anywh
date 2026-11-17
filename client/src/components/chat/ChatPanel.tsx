@@ -475,14 +475,11 @@ export function ChatPanel({
     onHistoryPage: (page) => logRef.current.hydrate(page),
     // Older turns requested via scrolling up.
     onOlderHistory: (page) => logRef.current.prependHistory(page),
-    // Message edited on ANOTHER device connected to this session —
-    // same reset+hydrate handling as `onReconnecting`/`onHistoryPage`, just
-    // without touching `ready`/`caughtUpRef`: this device is already caught
-    // up, it's not a real reconnection.
-    onHistoryTruncated: (page) => {
-      logRef.current.reset();
-      logRef.current.hydrate(page);
-    },
+    // Message edited on ANOTHER device connected to this session — the log
+    // is swapped for the truncated history in one dispatch, without touching
+    // `ready`/`caughtUpRef`: this device is already caught up, it's not a real
+    // reconnection.
+    onHistoryTruncated: (page) => logRef.current.replace(page),
     onEditMessageError: (code) => window.alert(dict.errors.editMessage[code]),
     onChoiceAnswerError: (code) => window.alert(dict.errors.answerChoice[code]),
     onCaughtUp: () => {

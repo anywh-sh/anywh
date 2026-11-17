@@ -2,6 +2,7 @@ import { useMemo, useReducer } from "react";
 import type { AgentEvent, HistoryMessage, HistoryPageMessage, PlanTodo, ToolInput, ToolKind, ToolOutcome, ToolSubject } from "@/lib/relay/relay-types";
 import type { RoomCard, SubagentStatus, TurnFailureClass } from "@/lib/relay/agent-event";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
+import { reconcileEntryIds } from "./reconcileEntryIds";
 
 export type LogEntry =
   | { kind: "user"; id: string; text: string; images?: PendingAttachment[]; sentAt: number; room?: RoomCard }
@@ -142,6 +143,12 @@ type Action =
    * the old replay (one dispatch per event, O(n²) `entries` copying) for a
    * single dispatch that already delivers the final state. */
   | { type: "HYDRATE"; messages: HistoryMessage[]; cursor: number; hasMore: boolean }
+  /** Swaps the whole log for a freshly folded history in one dispatch — what
+   * a resync after a reconnection, or an edit made on another device, needs:
+   * no frame in between where the conversation is empty. Folds from scratch
+   * like `HYDRATE`, then gives every entry that was already on screen its id
+   * back (`reconcileEntryIds`), so the virtualizer keeps its row measures. */
+  | { type: "REPLACE_LOG"; messages: HistoryMessage[]; cursor: number; hasMore: boolean }
   | { type: "REQUEST_OLDER_HISTORY" }
   /** Response to `load_older_history` — turns older
    * than `historyCursor`, inserted at the start of the log. */
@@ -518,6 +525,20 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
       return { ...next, hasMoreHistory: action.hasMore, historyCursor: action.cursor, loadingOlderHistory: false };
     }
 
+    case "REPLACE_LOG": {
+      let next: MessageLogState = initialState;
+      for (const message of action.messages) next = applyAgentEvent(next, message.event);
+      return {
+        ...next,
+        entries: reconcileEntryIds(state.entries, next.entries),
+        hasMoreHistory: action.hasMore,
+        historyCursor: action.cursor,
+        // Also frees a "loading older history" spinner whose answer will
+        // never come (the socket closed under it).
+        loadingOlderHistory: false,
+      };
+    }
+
     case "REQUEST_OLDER_HISTORY":
       return { ...state, loadingOlderHistory: true };
 
@@ -585,6 +606,10 @@ export interface UseMessageLogResult {
    * — called once per connection, in place of the old
    * event-by-event replay. */
   hydrate: (page: HistoryPageMessage) => void;
+  /** Swaps the log for `page` in a single dispatch, keeping the ids of the
+   * entries that are still there. `page` is the whole log to show (a tail
+   * already joined with any older pages), not a delta. */
+  replace: (page: HistoryPageMessage) => void;
   /** Marks that a request for older turns is in flight — call before
    * firing `loadOlderHistory` on the relay (Phase 5, UI), avoids a
    * duplicate request while the response hasn't arrived yet. */
@@ -625,6 +650,7 @@ export function useMessageLog(): UseMessageLogResult {
     handleTurnComplete: (stopped, durationMs) => dispatch({ type: "TURN_COMPLETE", stopped: stopped === true, durationMs }),
     reset: () => dispatch({ type: "RESET" }),
     hydrate: (page) => dispatch({ type: "HYDRATE", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore }),
+    replace: (page) => dispatch({ type: "REPLACE_LOG", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore }),
     beginLoadingOlderHistory: () => dispatch({ type: "REQUEST_OLDER_HISTORY" }),
     prependHistory: (page) =>
       dispatch({ type: "PREPEND_HISTORY", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore }),

@@ -452,3 +452,63 @@ describe("useMessageLog", () => {
     expect(result.current.subagents).toEqual({});
   });
 });
+
+describe("useMessageLog replace", () => {
+  const turn = (question: string, answer: string): AgentEvent[] => [
+    { type: "turn_started" },
+    { type: "user_message", text: question },
+    { type: "text", text: answer },
+    { type: "turn_ended", stopped: false },
+  ];
+  const idsOf = (entries: LogEntry[]) => entries.map((entry) => entry.id);
+
+  it("swaps the log in one render, with the same ids for what was already there", () => {
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return useMessageLog();
+    });
+    act(() => result.current.hydrate({ messages: agentEventPage(turn("one", "first")), cursor: 4, hasMore: true }));
+    const before = idsOf(result.current.entries);
+    const rendersBefore = renders;
+
+    act(() => result.current.replace({ messages: agentEventPage([...turn("one", "first"), ...turn("two", "second")]), cursor: 4, hasMore: true }));
+
+    expect(renders - rendersBefore).toBe(1);
+    expect(idsOf(result.current.entries).slice(0, before.length)).toEqual(before);
+    expect(stripVolatile(result.current.entries).map((entry) => (entry as { kind: string }).kind)).toEqual(["user", "text", "turn-footer", "user", "text", "turn-footer"]);
+  });
+
+  it("drops a live preview and an unanswered older-history request, and takes the new cursor", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.hydrate({ messages: agentEventPage(turn("one", "first")), cursor: 8, hasMore: true }));
+    act(() => result.current.beginLoadingOlderHistory());
+    act(() => result.current.handleEvent({ type: "text_delta", index: 0, text: "half a sentence" }));
+
+    act(() => result.current.replace({ messages: agentEventPage(turn("one", "first")), cursor: 6, hasMore: false }));
+
+    expect(result.current.streamingEntries).toEqual([]);
+    expect(result.current.loadingOlderHistory).toBe(false);
+    expect(result.current.historyCursor).toBe(6);
+    expect(result.current.hasMoreHistory).toBe(false);
+  });
+
+  it("follows a history that was cut short: only the unchanged prefix keeps its ids", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.hydrate({ messages: agentEventPage([...turn("one", "first"), ...turn("two", "second")]), cursor: 0, hasMore: false }));
+    const before = idsOf(result.current.entries);
+
+    act(() => result.current.replace({ messages: agentEventPage([...turn("one", "first"), ...turn("two", "rewritten")]), cursor: 0, hasMore: false }));
+
+    const after = idsOf(result.current.entries);
+    expect(after.slice(0, 3)).toEqual(before.slice(0, 3));
+    expect(after[4]).not.toBe(before[4]);
+  });
+
+  it("empties the log when the new history is empty (a /clear made elsewhere)", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.hydrate({ messages: agentEventPage(turn("one", "first")), cursor: 0, hasMore: false }));
+    act(() => result.current.replace({ messages: [], cursor: 0, hasMore: false }));
+    expect(result.current.entries).toEqual([]);
+  });
+});
