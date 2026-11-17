@@ -18,7 +18,12 @@ const GIT_LOCATION_VARS = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_IN
 /** Env for git: the machine's own, minus variables that would make it answer
  * for another repository, never prompting, in English so refusals can be told apart. */
 function gitEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" };
+  // GIT_OPTIONAL_LOCKS=0: a read like `git status` otherwise takes
+  // `index.lock` to write back refreshed stat info, and an agent's (or the
+  // person's) `git commit` in that worktree at the same moment fails with
+  // "index.lock: File exists". The relay only reads there; it must never
+  // hold that lock against them.
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0" };
   for (const name of GIT_LOCATION_VARS) delete env[name];
   return env;
 }
