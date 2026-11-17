@@ -942,7 +942,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             // Light like the send button it replaces, not red: stopping is
             // an ordinary action here, and the clock beside it is the turn's
             // only running counter.
-            <Button type="button" size="sm" className="h-[30px] text-[12px]" aria-label={dict.common.stop} onClick={onStop}>
+            <Button type="button" size="sm" className="h-[30px] text-[12px]" aria-label={dict.common.stop} disabled={disabled} onClick={onStop}>
               <span className="size-2 bg-current" />
               {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} clock className="font-mono" />}
             </Button>

@@ -20,6 +20,9 @@ interface ChoiceCardProps {
    * `choice_prompt` doc comment in relay-types.ts. */
   kind: "approval" | "choice";
   onAnswer: (answers: ChoiceAnswer[]) => void;
+  /** The answer can't reach the relay right now (reconnecting): the card
+   * stays readable, the controls that would answer it wait. */
+  disabled?: boolean;
 }
 
 /** Picker for a `present_choice` MCP call blocked
@@ -36,7 +39,7 @@ interface ChoiceCardProps {
  * whatever wasn't reached yet with an empty selection so the live blocked
  * tool call always genuinely unblocks. `kind: "choice"` collapses instead of
  * answering — see `ChoiceCardProps.kind` and the `collapsed` state. */
-export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardProps) {
+export function ChoiceCard({ promptId, questions, kind, onAnswer, disabled = false }: ChoiceCardProps) {
   const dict = useDict();
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Map<number, string[]>>(new Map());
@@ -134,10 +137,12 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
   }
 
   function finish(finalAnswers: Map<number, string[]>): void {
+    if (disabled) return;
     onAnswer(questions.map((question, questionIndex) => ({ question: question.question, selected: finalAnswers.get(questionIndex) ?? [] })));
   }
 
   function confirmCurrent(withSelection: string[]): void {
+    if (disabled) return;
     const next = new Map(answers).set(index, withSelection);
     if (isLast) {
       finish(next);
@@ -222,6 +227,7 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
           )}
           <TextButton
             onClick={() => (kind === "approval" ? finish(new Map(answers).set(index, effectiveSelection)) : setCollapsed(true))}
+            disabled={disabled && kind === "approval"}
             aria-label={kind === "approval" ? dict.chat.choice.closeAnswering : dict.chat.choice.collapse}
             className="ml-1"
           >
@@ -289,15 +295,18 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
         <span className="font-mono text-[11px] text-text-faint">
           {customText.trim()
             ? dict.chat.choice.customAnswer
-            : dict.chat.choice.selectedCount.replace("{count}", String(selected.length))}
+            : disabled
+              ? dict.chat.connection.sendBlocked
+              : dict.chat.choice.selectedCount.replace("{count}", String(selected.length))}
         </span>
         <div className="flex items-center gap-1.5">
-          <Button type="button" variant="secondary" size="sm" onClick={() => confirmCurrent([])}>
+          <Button type="button" variant="secondary" size="sm" disabled={disabled} onClick={() => confirmCurrent([])}>
             {dict.chat.choice.skip}
           </Button>
           <Button
             type="button"
             size="icon-sm"
+            disabled={disabled}
             onClick={() => confirmCurrent(effectiveSelection)}
             aria-label={isLast ? dict.chat.choice.submit : dict.chat.choice.nextQuestion}
           >

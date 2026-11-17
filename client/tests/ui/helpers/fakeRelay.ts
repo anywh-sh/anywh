@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import type { RuntimePlanUsage } from "@/lib/planUsage/model";
+import type { HistoryPageMessage } from "@/lib/relay/relay-types";
 
 /**
  * Stands in for the relay over the network edge — the client-side
@@ -15,6 +16,22 @@ import type { RuntimePlanUsage } from "@/lib/planUsage/model";
  * agent_event carrying `replyText` followed by a `turn_ended` agent_event.
  */
 type Listener = (event: { data?: string }) => void;
+
+/** What a relay says about a session's history, and how its connections
+ * behave, for the tests that drop and restore the link. Shared by every
+ * socket the fake opens and mutable between connections. */
+export interface FakeHistory {
+  /** The `history_page` every new chat connection receives before `caught_up`.
+   * Absent = no page (an empty session). */
+  tail?: HistoryPageMessage;
+  /** Answers to `load_older_history`, keyed by its `beforeCursor`. */
+  older?: Record<number, HistoryPageMessage>;
+  /** New connections stay CONNECTING until `release()`d — the relay is
+   * unreachable. */
+  holdConnections?: boolean;
+  /** `load_older_history` is answered only after `releaseOlder()`. */
+  holdOlder?: boolean;
+}
 
 class FakeRelaySocket {
   static readonly CONNECTING = 0;
@@ -34,13 +51,24 @@ class FakeRelaySocket {
     private readonly onSend: (socket: FakeRelaySocket, data: string) => void,
     options: FakeRelayOptions = {},
     planUsage?: () => FakePlanUsage | undefined,
+    private readonly history: FakeHistory = {},
   ) {
     const parsed = new URL(url);
     if (parsed.pathname === "/plan-usage/watch" && planUsage) {
       queueMicrotask(() => this.openPlanUsage(planUsage()));
       return;
     }
-    queueMicrotask(() => {
+    if (this.history.holdConnections) return;
+    queueMicrotask(() => this.open(options));
+  }
+
+  /** Completes the handshake of a connection that was held back. */
+  release(options: FakeRelayOptions = {}): void {
+    if (this.readyState === FakeRelaySocket.CONNECTING) this.open(options);
+  }
+
+  private open(options: FakeRelayOptions): void {
+    {
       this.readyState = FakeRelaySocket.OPEN;
       this.dispatch("open", {});
       // Required before ChatPanel renders anything at all, including the
@@ -58,8 +86,9 @@ class FakeRelaySocket {
         this.emitMessage({ type: "model_state", model: null });
         this.emitMessage({ type: "effort_state", effort: null });
       }
+      if (this.history.tail) this.emitMessage({ type: "history_page", ...this.history.tail });
       this.emitMessage({ type: "caught_up" });
-    });
+    }
   }
 
   /** `/plan-usage/watch`, answered the way each kind of relay does. */
@@ -188,6 +217,8 @@ export interface FakeRelayOptions {
    * relay's burst carries and what the composer's pickers render from. */
   agentId?: string;
   catalogs?: Record<string, unknown>;
+  /** Initial `FakeRelay.history`. */
+  history?: FakeHistory;
 }
 
 export interface FakeRelay {
@@ -215,6 +246,17 @@ export interface FakeRelay {
   /** Every `POST /upload` the app made, answered with a path under
    * `/tmp/anywh-uploads/` the way a real relay names a saved file. */
   uploads: FakeUpload[];
+  /** The scripted history, mutable between connections. */
+  history: FakeHistory;
+  /** Chat connections the app has opened (every socket but plan usage). */
+  chatSockets: () => FakeRelaySocket[];
+  /** Closes every open chat connection, the way a dropped link does. */
+  dropConnections: () => void;
+  /** Completes the handshake of every connection held by
+   * `history.holdConnections` (and stops holding). */
+  releaseConnections: () => void;
+  /** Answers the `load_older_history` requests held by `history.holdOlder`. */
+  releaseOlder: () => void;
   /** Restores the real `WebSocket`/`fetch` globals — call in `afterEach`. */
   uninstall: () => void;
 }
@@ -229,6 +271,8 @@ export function installFakeRelay(
 
   const planUsage: Record<string, FakePlanUsage> | null = options.planUsage ? { ...options.planUsage } : null;
   const deadSockets = new Set<FakeRelaySocket>();
+  const history: FakeHistory = { ...options.history };
+  const heldOlder: (() => void)[] = [];
   let forcedRefreshes = 0;
   let realReads = 0;
   const hostPort = (url: string): string => new URL(url).host;
@@ -274,6 +318,14 @@ export function installFakeRelay(
       setTimeout(answer, script.readMs);
       return;
     }
+    if (message.type === "load_older_history") {
+      const page = history.older?.[(message as { beforeCursor?: number }).beforeCursor ?? -1];
+      if (!page) return;
+      const answer = (): void => socket.emitMessage({ type: "older_history", ...page });
+      if (history.holdOlder) heldOlder.push(answer);
+      else queueMicrotask(answer);
+      return;
+    }
     if (message.type !== "user_message") return; // this tier only scripts the send flow so far
     queueMicrotask(() => {
       socket.emitMessage({
@@ -291,7 +343,7 @@ export function installFakeRelay(
     "WebSocket",
     class extends FakeRelaySocket {
       constructor(url: string) {
-        super(url, onSend, options, planUsage ? () => planUsage[hostPort(url)] : undefined);
+        super(url, onSend, options, planUsage ? () => planUsage[hostPort(url)] : undefined, history);
         sockets.push(this);
       }
     },
@@ -407,6 +459,19 @@ export function installFakeRelay(
         if (socket.readyState !== FakeRelaySocket.OPEN || !isPlanUsageSocket(socket) || hostPort(socket.url) !== target || deadSockets.has(socket)) continue;
         socket.emitMessage({ type: "plan_usage_state", runtimes, observedAt: observedAt ?? Date.now() });
       }
+    },
+    history,
+    chatSockets: () => sockets.filter((socket) => !isPlanUsageSocket(socket)),
+    dropConnections: () => {
+      for (const socket of sockets) if (!isPlanUsageSocket(socket) && socket.readyState === FakeRelaySocket.OPEN) socket.close();
+    },
+    releaseConnections: () => {
+      history.holdConnections = false;
+      for (const socket of sockets) socket.release(options);
+    },
+    releaseOlder: () => {
+      history.holdOlder = false;
+      for (const answer of heldOlder.splice(0)) answer();
     },
     control,
     patches,

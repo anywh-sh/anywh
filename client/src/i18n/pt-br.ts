@@ -154,6 +154,11 @@ export const ptBr: Dictionary = {
       codexCancel: "Cancelar",
       reasonSuffix: "Motivo: {reason}.",
     },
+    connection: {
+      reconnecting: "Reconectando…",
+      sendBlocked: "Aguardando a conexão para enviar",
+      waitingForOlder: "Aguardando a conexão…",
+    },
     agentSignedOut: {
       message: "O {agent} não está conectado neste perfil.",
       connect: "Conectar",
