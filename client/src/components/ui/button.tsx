@@ -76,6 +76,9 @@ const buttonVariants = cva(
         // context, working directory): text in the chrome's sans at its
         // scale, a 30px row like the composer's other controls.
         toolbar: "h-[30px] min-w-0 gap-1.5 border-0 px-2 font-sans font-normal text-[length:calc(13px*var(--chrome-scale))]",
+        // A labelled action in a bar of them (the room's selection bar, an
+        // agent's side panel): the sans at 12.5px, a 26px row.
+        bar: "h-[26px] gap-1.5 border-0 px-2 font-sans text-[12.5px] font-normal",
         inline: "gap-1.5 border-0 px-1.5 py-0.5 text-[length:inherit] font-normal [&_svg:not([class*='size-'])]:size-3",
         icon: "size-8",
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
@@ -99,6 +102,7 @@ const SPINNER_SIZE = {
   icon: "md",
   lg: "md",
   inline: "xs",
+  bar: "sm",
   toolbar: "sm",
   "icon-lg": "md",
 } as const satisfies Record<NonNullable<VariantProps<typeof buttonVariants>["size"]>, string>
