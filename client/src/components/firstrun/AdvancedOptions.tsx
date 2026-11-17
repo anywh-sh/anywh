@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { useEffect, useState } from "react";
 import { CommandLine } from "@/components/firstrun/CommandLine";
 import { Field } from "@/components/firstrun/Field";
@@ -45,14 +46,14 @@ function AddressOption({
   value?: string;
 }) {
   return (
-    <button
-      type="button"
+    <TextButton
+      tone="none"
       role="radio"
       aria-checked={selected}
       tabIndex={selected ? 0 : -1}
       onClick={onSelect}
       className={cn(
-        "flex min-h-[42px] w-full cursor-pointer items-center gap-2.5 border px-3 py-2 text-left outline-hidden transition-colors focus-visible:border-text-faint",
+        "flex min-h-[42px] w-full items-center gap-2.5 border px-3 py-2 outline-hidden focus-visible:border-text-faint focus-visible:ring-0",
         selected ? "border-text-faint bg-surface-hover" : "border-border-soft hover:border-border",
       )}
     >
@@ -68,7 +69,7 @@ function AddressOption({
         <span className="text-xs leading-[1.5] text-text-faint">{hint}</span>
       </span>
       {value && <span className="shrink-0 font-mono text-xs text-text-faint">{value}</span>}
-    </button>
+    </TextButton>
   );
 }
 

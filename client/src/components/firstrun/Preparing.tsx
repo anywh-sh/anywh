@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronRight } from "lucide-react";
 import { OnboardingFrame } from "@/components/firstrun/OnboardingFrame";
@@ -268,24 +269,20 @@ export function Preparing({
           </ol>
           {failure && !cancelled && <PreparingFailure code={failure.code} onAction={handleAction} />}
           <div className="flex items-center gap-3 border-t border-border-soft px-4 py-2">
-            <button
-              type="button"
+            <TextButton
+              tone="faint"
               aria-expanded={details}
               onClick={() => setDetails((v) => !v)}
-              className="inline-flex cursor-pointer items-center gap-1 text-[length:calc(12.5px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
+              className="inline-flex items-center gap-1 text-[length:calc(12.5px*var(--font-scale-ratio))]"
             >
               <ChevronRight className={cn("size-3.5 transition-transform", details && "rotate-90")} aria-hidden="true" />
               {copy.details}
-            </button>
+            </TextButton>
             <div className="flex-1" />
             {cancellable && (
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="cursor-pointer text-[length:calc(12.5px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
-              >
+              <TextButton tone="faint" onClick={handleCancel} className="text-[length:calc(12.5px*var(--font-scale-ratio))]">
                 {copy.cancel}
-              </button>
+              </TextButton>
             )}
           </div>
           {details && (

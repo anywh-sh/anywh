@@ -1,3 +1,4 @@
+import { RowButton } from "@/components/ui/row-button";
 import { useState } from "react";
 import { Link2, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -41,19 +42,17 @@ function NavButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
+    <RowButton
+      size="auto"
       onClick={onClick}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2.5 border px-2.5 py-1.5 text-left font-mono text-xs transition-colors",
-        active
-          ? "border-border bg-surface-hover text-foreground"
-          : "border-transparent text-muted-foreground hover:bg-surface-hover hover:text-foreground",
+        "gap-2.5 border px-2.5 py-1.5 font-mono text-xs hover:bg-surface-hover",
+        active ? "border-border bg-surface-hover text-foreground" : "border-transparent",
         className,
       )}
     >
       {children}
-    </button>
+    </RowButton>
   );
 }
 
@@ -120,13 +119,10 @@ export function SettingsNav({
           already answering. */}
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="mt-1.5 flex w-full cursor-pointer items-center gap-2 border border-dashed border-border px-2.5 py-1.5 font-mono text-xs text-text-faint transition-colors hover:border-text-faint hover:bg-surface-hover hover:text-foreground"
-          >
+          <RowButton size="auto" tone="faint" className="mt-1.5 gap-2 border border-dashed border-border px-2.5 py-1.5 font-mono text-xs hover:border-text-faint hover:bg-surface-hover hover:text-foreground">
             <Plus className="size-3" />
             {dict.shell.profiles.addProfile}
-          </button>
+          </RowButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
           <DropdownMenuItem onSelect={() => setPairOpen(true)}>

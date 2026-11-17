@@ -1,5 +1,7 @@
+import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 import { createPortal } from "react-dom";
-import { CheckCircle2, Loader2, X } from "lucide-react";
+import { CheckCircle2, X } from "lucide-react";
 import { useDownloadNotifications } from "@/hooks/media/useDownloadNotifications";
 import { useDict } from "@/i18n";
 import type { Dictionary } from "@/i18n/dictionary";
@@ -49,19 +51,20 @@ export function DownloadToasts() {
             // Same "in progress" language as SessionListItem/TabGroupStrip's
             // running-session spinner — a shared visual vocabulary for
             // "something's happening", not a download-specific icon choice.
-            <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            <Spinner size="lg" />
           )}
           <span className="truncate">{toastText(notification, copy)}</span>
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size="icon-xs"
             onClick={() => dismissDownloadNotification(notification.id)}
             aria-label={copy.dismiss}
             // Same close-button treatment as the pane tabs' own × — always
             // visible, faint until pointed at.
-            className="ml-auto shrink-0 cursor-pointer p-0.5 text-text-faint transition-colors hover:text-foreground"
+            className="ml-auto size-[18px]"
           >
             <X className="size-3.5" />
-          </button>
+          </Button>
         </div>
       ))}
     </div>,

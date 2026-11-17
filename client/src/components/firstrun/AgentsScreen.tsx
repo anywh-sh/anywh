@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { AgentLoginDialog } from "@/components/shell/AgentLoginDialog";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, RefreshCw } from "lucide-react";
@@ -155,15 +156,15 @@ export function AgentsScreen({
   // The one "Check again" on the screen: beside the list's label when there
   // is something to look at, under it when there is nothing to start with.
   const recheck = (
-    <button
-      type="button"
+    <TextButton
+      tone="faint"
       onClick={check}
       disabled={checking}
-      className="inline-flex cursor-pointer items-center gap-1.5 text-[length:calc(12px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline disabled:cursor-default disabled:opacity-50"
+      className="inline-flex items-center gap-1.5 text-[length:calc(12px*var(--font-scale-ratio))] disabled:cursor-default"
     >
       <RefreshCw className="size-3" aria-hidden="true" />
       {copy.recheck}
-    </button>
+    </TextButton>
   );
   const nothingToStart = !checking && installed.length === 0;
 

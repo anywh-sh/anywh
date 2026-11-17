@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { trackFeature } from "@/lib/telemetry/instrument";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -678,8 +679,11 @@ function FileTreeNode({
 
   return (
     <div>
-      <div
-        role="button"
+      <TextButton
+        tone="none"
+        // Explicit, and focused on click below: WebKit on macOS gives a button
+        // neither a click focus nor, by default, a Tab stop, and the row needs
+        // focus for Delete to reach it.
         tabIndex={0}
         data-file-tree-dir={isDir ? entry.path : undefined}
         onClick={(event) => {
@@ -691,6 +695,7 @@ function FileTreeNode({
           // looks like a plain click on this row and would collapse a
           // multi-selection right as a batch action's menu item is picked.
           if (!event.currentTarget.contains(event.target as Node)) return;
+          event.currentTarget.focus({ preventScroll: true });
           if (isDir && !event.shiftKey) onToggleExpand(entry.path);
           onFileClick(entry.path, event.shiftKey, entry.kind);
         }}
@@ -714,11 +719,8 @@ function FileTreeNode({
           if (isDeleteKey) {
             event.preventDefault();
             void confirmDeleteSelection();
-            return;
           }
-          if (event.key !== "Enter" && event.key !== " ") return;
-          if (isDir) onToggleExpand(entry.path);
-          else onFileClick(entry.path, false, entry.kind);
+          // Enter and Space are the button's own: they click it.
         }}
         style={{ paddingLeft: `${depth * INDENT_PX + 8}px` }}
         className={cn(
@@ -727,7 +729,7 @@ function FileTreeNode({
           // step below that. The caret alone marks what can be expanded —
           // which also spares a node per row on a tree that routinely has
           // hundreds.
-          "flex cursor-pointer items-center gap-1.5 py-0.5 pr-2 transition-colors hover:bg-surface-hover",
+          "flex w-full items-center gap-1.5 py-0.5 pr-2 hover:bg-surface-hover focus-visible:ring-inset",
           isActive
             ? "bg-primary-soft text-primary-ink"
             : isMultiSelected || (isDir && selectedPaths.has(entry.path))
@@ -865,7 +867,7 @@ function FileTreeNode({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-      </div>
+      </TextButton>
       {!isDir && (
         <RenameFileDialog open={renameOpen} onOpenChange={setRenameOpen} initialName={entry.name} onSave={(name) => void handleRename(name)} />
       )}
