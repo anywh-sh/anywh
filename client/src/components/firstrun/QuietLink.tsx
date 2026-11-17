@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import type { ButtonHTMLAttributes } from "react";
 import { ChevronRight } from "lucide-react";
 import { handleExternalLinkClick } from "@/lib/platform/externalLink";
@@ -34,9 +35,9 @@ export function QuietLink(
   }
   const { children, className, type = "button", ...rest } = props;
   return (
-    <button type={type} className={cn(QUIET, className)} {...rest}>
+    <TextButton type={type} tone="faint" className={cn("inline-flex items-center gap-1 text-[length:calc(13px*var(--font-scale-ratio))]", className)} {...rest}>
       {children}
       <ChevronRight className="size-3.5" aria-hidden="true" />
-    </button>
+    </TextButton>
   );
 }

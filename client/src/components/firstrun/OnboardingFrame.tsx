@@ -1,3 +1,4 @@
+import { TextButton } from "@/components/ui/text-button";
 import { useEffect, useRef, type ReactNode } from "react";
 import { ChevronLeft } from "lucide-react";
 import { Lockup } from "@/components/firstrun/Lockup";
@@ -95,14 +96,10 @@ export function OnboardingFrame({
                 {steps && current && <Stepper steps={steps} current={current} />}
               </div>
               {onBack && (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  className="-ml-1 inline-flex h-7 cursor-pointer items-center gap-1 text-[length:calc(13px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
-                >
+                <TextButton tone="faint" onClick={onBack} className="-ml-1 inline-flex h-7 items-center gap-1 text-[length:calc(13px*var(--font-scale-ratio))]">
                   <ChevronLeft className="size-3.5" aria-hidden="true" />
                   {copy.frame.back}
-                </button>
+                </TextButton>
               )}
             </header>
             <main ref={mainRef} className={cn("flex flex-col gap-8", className)}>
