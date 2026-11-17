@@ -91,6 +91,26 @@ function renderTree(
   );
 }
 
+describe("FileTree keyboard", () => {
+  it("takes focus on click, so Delete reaches the row the pointer picked", async () => {
+    vi.mocked(confirm).mockResolvedValue(false);
+    const user = userEvent.setup();
+    renderTree();
+    const row = (await screen.findByText("notas.txt")).closest("button") as HTMLElement;
+    await user.click(row);
+    expect(row).toHaveFocus();
+    await user.keyboard("{Delete}");
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    expect(deleteFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps every row in the Tab order", async () => {
+    renderTree();
+    const row = (await screen.findByText("notas.txt")).closest("button") as HTMLElement;
+    expect(row).toHaveAttribute("tabindex", "0");
+  });
+});
+
 describe("FileTree context menu", () => {
   it("shows download/rename/delete on right-click and downloads on the first", async () => {
     const user = userEvent.setup();

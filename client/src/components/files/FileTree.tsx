@@ -681,6 +681,10 @@ function FileTreeNode({
     <div>
       <TextButton
         tone="none"
+        // Explicit, and focused on click below: WebKit on macOS gives a button
+        // neither a click focus nor, by default, a Tab stop, and the row needs
+        // focus for Delete to reach it.
+        tabIndex={0}
         data-file-tree-dir={isDir ? entry.path : undefined}
         onClick={(event) => {
           // `DropdownMenuContent` portals its DOM node elsewhere (usually
@@ -691,6 +695,7 @@ function FileTreeNode({
           // looks like a plain click on this row and would collapse a
           // multi-selection right as a batch action's menu item is picked.
           if (!event.currentTarget.contains(event.target as Node)) return;
+          event.currentTarget.focus({ preventScroll: true });
           if (isDir && !event.shiftKey) onToggleExpand(entry.path);
           onFileClick(entry.path, event.shiftKey, entry.kind);
         }}
