@@ -191,7 +191,7 @@ test("resolveRawFile: resolves mime by extension", () => {
     writeFileSync(file, "bytes");
 
     const result = resolveRawFile(dir, file);
-    assert.deepEqual(result, { ok: true, path: file, mime: "image/webp" });
+    assert.deepEqual(result, { ok: true, path: file, mime: "image/webp", size: 5 });
   });
 });
 

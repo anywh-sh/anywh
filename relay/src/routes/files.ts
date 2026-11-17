@@ -134,6 +134,10 @@ export const handleFilesRoutes: RouteHandler = async (req, res, ctx) => {
       return true;
     }
     res.setHeader("Content-Type", result.mime);
+    res.setHeader("Content-Length", result.size);
+    // A cross-origin `fetch` can only read the headers on this list, and the
+    // client's download progress reads `Content-Length` off the response.
+    res.setHeader("Access-Control-Expose-Headers", "Content-Length");
     createReadStream(result.path).on("error", () => res.end()).pipe(res);
     return true;
   }
