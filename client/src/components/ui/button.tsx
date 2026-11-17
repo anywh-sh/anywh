@@ -44,12 +44,24 @@ const buttonVariants = cva(
         // at, then they acquire the outline variant's look.
         ghost: "text-muted-foreground hover:border-border hover:bg-bg-elevated hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        // Borderless chrome (window controls, strip and status bar buttons):
+        // a fill on hover and while its menu or popover is open, never an
+        // outline. The fill is the surface's: a caller on the sidebar's
+        // ground passes `hover:bg-bg-hover`, which wins over this one.
+        chrome:
+          "text-muted-foreground hover:bg-surface-hover hover:text-foreground aria-expanded:bg-surface-hover aria-expanded:text-foreground aria-pressed:text-foreground",
+        // An icon that only brightens: the × of a tab, a banner or a field.
+        // No fill, because it sits inside something that already has one.
+        quiet: "text-text-faint hover:text-foreground focus-visible:text-foreground",
       },
       size: {
         default: "h-8 gap-2 px-3.5 text-xs",
         xs: "h-6 gap-1 px-2 text-[10.5px] [&_svg:not([class*='size-'])]:size-3",
         sm: "h-7 gap-1.5 px-3 text-[11.5px]",
         lg: "h-9 px-5 text-[13px]",
+        // Sized by the text around it (the status bar's 11.5px mono, a
+        // banner's sans): takes that size and weight instead of a control's.
+        inline: "gap-1.5 px-1.5 py-0.5 text-[length:inherit] font-normal [&_svg:not([class*='size-'])]:size-3",
         icon: "size-8",
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-7",
@@ -71,6 +83,7 @@ const SPINNER_SIZE = {
   default: "md",
   icon: "md",
   lg: "md",
+  inline: "xs",
   "icon-lg": "md",
 } as const satisfies Record<NonNullable<VariantProps<typeof buttonVariants>["size"]>, string>
 
