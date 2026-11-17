@@ -188,40 +188,6 @@ describe("onboarding", () => {
 });
 
 /**
- * Raw `<button>` elements still carrying their own classes, per file, frozen
- * at the count they had when `Button` became the rule (AGENTS.md, "Primitivos
- * de UI"). It is a ratchet: a file not listed here may not add one, a listed
- * file may not go above its count, and a file that drops below it fails too,
- * so the list is lowered in the same change that migrates a button and never
- * leaves slack for a new one to slip in. Not every entry has to end up as a
- * `Button` — a clickable row or tab is a button semantically but not
- * visually; those leave the list by gaining their own primitive in
- * `components/ui/`, not by staying hand-styled.
- */
-const RAW_BUTTON_BASELINE: Record<string, number> = {
-  "components/files/DownloadToasts.tsx": 1,
-  "components/firstrun/AdvancedOptions.tsx": 1,
-  "components/firstrun/AgentsScreen.tsx": 1,
-  "components/firstrun/CommandLine.tsx": 1,
-  "components/firstrun/OnboardingFrame.tsx": 1,
-  "components/firstrun/Preparing.tsx": 2,
-  "components/firstrun/QuietLink.tsx": 1,
-  "components/settings/AppearanceSettings.tsx": 1,
-  "components/settings/ProfileSettings.tsx": 2,
-  "components/settings/SettingsNav.tsx": 2,
-  "components/settings/ThemeSection.tsx": 3,
-};
-
-/**
- * Hand-rolled loading indicators (`animate-spin` on a `Loader2` icon or on a
- * bordered span), per file, frozen when `Spinner` became the one indicator.
- * Same ratchet as the button baseline above.
- */
-const RAW_SPINNER_BASELINE: Record<string, number> = {
-  "components/files/DownloadToasts.tsx": 1,
-};
-
-/**
  * Files git tracks under `src/`, relative to it. The ratchets compare against
  * a checked-in baseline, so they must see exactly what CI sees: a prototype
  * kept out of the repo through `.git/info/exclude` would otherwise count
@@ -265,17 +231,6 @@ function ratchet(actual: Record<string, number>, baseline: Record<string, number
 }
 
 /**
- * Elements made clickable with `role="button"`, the other way to hand-roll a
- * button: it dodges the `<button>` count above, and carries a hand-written
- * keyboard handler besides. Same ratchet. Usually the reason was a control
- * nested inside (a tab and its ×); the way out is the trigger and the control
- * as siblings, as `TabTrigger` does.
- */
-const ROLE_BUTTON_BASELINE: Record<string, number> = {
-  "components/files/FileTree.tsx": 1,
-};
-
-/**
  * Buttons drawn inside the room canvas's zoomed plane (a card's hit area and
  * actions, a subtask's, an area's ×, the answer anchored under a card). Not
  * a pending migration: these stay in `sala.css`, whose header says why — in
@@ -292,47 +247,40 @@ const CANVAS_PLANE_BUTTONS: Record<string, number> = {
   "components/sala/SalaSubtaskCard.tsx": 4,
 };
 
-const rawButtons = () =>
-  ratchet(countsOutsidePrimitives(/<button(?=[\s>])/g), { ...RAW_BUTTON_BASELINE, ...CANVAS_PLANE_BUTTONS });
-const roleButtons = () => ratchet(countsOutsidePrimitives(/role="button"/g), ROLE_BUTTON_BASELINE);
-const rawSpinners = () => ratchet(countsOutsidePrimitives(/\banimate-spin\b/g), RAW_SPINNER_BASELINE);
+const rawButtons = () => ratchet(countsOutsidePrimitives(/<button(?=[\s>])/g), CANVAS_PLANE_BUTTONS);
 
 describe("primitives", () => {
+  // Every control outside components/ui is built from a primitive (AGENTS.md,
+  // "Primitivos de UI"). There was a ratchet here, a per-file baseline of the
+  // hand-styled controls from before the rule, lowered as each area moved to
+  // primitives; it reached zero, so these are plain rules now.
+
   it("builds controls from components/ui instead of a hand-styled <button>", () => {
     // A raw `<button>` with its own classes is out of reach of every change
     // to `Button` — which is how the app ended up with buttons that drift.
-    // Use `Button` (add a variant if none fits), or give the pattern its own
-    // primitive in `components/ui/` with a story.
+    // Use `Button` (add a variant if none fits), `TextButton` or `RowButton`,
+    // or give the pattern its own primitive in `components/ui/` with a story.
+    // The only raw buttons are the canvas plane's, declared above.
     expect(rawButtons().grew).toEqual([]);
   });
 
-  it("keeps the raw <button> baseline tight", () => {
-    // A migrated file lowers its entry (or drops it) in the same change, so
-    // the slack it freed can't be spent by the next hand-styled button.
+  it("keeps the canvas plane's declared buttons exact", () => {
+    // A plane button that moved to a primitive lowers its entry, so the
+    // slack can't be spent by a new hand-styled one.
     expect(rawButtons().stale).toEqual([]);
   });
 
-  it("keeps the canvas's declared buttons apart from the pending ones", () => {
-    // Merged into one baseline below, so a file in both would lose a count.
-    expect(Object.keys(CANVAS_PLANE_BUTTONS).filter((path) => path in RAW_BUTTON_BASELINE)).toEqual([]);
-  });
-
   it("never fakes a button with role=\"button\"", () => {
-    expect(roleButtons().grew).toEqual([]);
-  });
-
-  it("keeps the role=\"button\" baseline tight", () => {
-    expect(roleButtons().stale).toEqual([]);
+    // The other way to hand-roll a button: it dodges the count above and
+    // needs a keyboard handler of its own. When a row holds a second control,
+    // make the trigger and the control siblings (TabTrigger, ToolCallRow).
+    expect(countsOutsidePrimitives(/role="button"/g)).toEqual({});
   });
 
   it("shows loading with Spinner instead of a hand-rolled animate-spin", () => {
     // Before Spinner there were two drawings (a Loader2 icon and a bordered
     // ring) in five sizes and three border widths. `Spinner` has the sizes
     // and tones; `Button` has `loading`.
-    expect(rawSpinners().grew).toEqual([]);
-  });
-
-  it("keeps the raw spinner baseline tight", () => {
-    expect(rawSpinners().stale).toEqual([]);
+    expect(countsOutsidePrimitives(/\banimate-spin\b/g)).toEqual({});
   });
 });
