@@ -119,7 +119,7 @@ export const SessionListItem = memo(function SessionListItem({
             className="size-1.5 shrink-0 bg-destructive"
           />
         ) : running ? (
-          <Spinner size="sm" label={indicatorLabel} />
+          <Spinner size="sm" label={indicatorLabel} role="img" />
         ) : completedAt !== undefined ? (
           <span
             title={formatAbsoluteTime(completedAt, locale)}

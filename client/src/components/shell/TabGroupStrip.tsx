@@ -199,7 +199,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               {tab.room ? (
                 <RoomTabIndicator roomId={tab.id} />
               ) : tab.isRunning ? (
-                <Spinner size="sm" label={dict.chat.tabs.agentWorking} />
+                <Spinner size="sm" label={dict.chat.tabs.agentWorking} role="img" />
               ) : (
                 tab.hasUnreadCompletion && (
                   // "Turn finished, not seen yet": a plain light dot.
