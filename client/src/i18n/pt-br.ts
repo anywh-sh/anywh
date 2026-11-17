@@ -157,6 +157,7 @@ export const ptBr: Dictionary = {
     connection: {
       reconnecting: "Reconectando…",
       sendBlocked: "Aguardando a conexão para enviar",
+      waitingForOlder: "Aguardando a conexão…",
     },
     agentSignedOut: {
       message: "O {agent} não está conectado neste perfil.",

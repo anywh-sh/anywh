@@ -686,6 +686,9 @@ export interface Dictionary {
       reconnecting: string;
       /** On whatever would send: the send button, an inline edit, a choice. */
       sendBlocked: string;
+      /** At the top of the log, once the person scrolled up for older turns
+       * while the relay is out of reach; they load when it is back. */
+      waitingForOlder: string;
     };
     agentSignedOut: {
       message: string;

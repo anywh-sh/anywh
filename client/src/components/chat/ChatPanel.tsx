@@ -1095,6 +1095,7 @@ export function ChatPanel({
           hasMoreHistory={log.hasMoreHistory}
           loadingOlderHistory={log.loadingOlderHistory}
           onLoadOlderHistory={handleLoadOlderHistory}
+          offline={!live}
           className={isIOS() ? "pt-[var(--native-top-inset,calc(env(safe-area-inset-top)+64px))]" : undefined}
           // The native composer floats over the log: pad by its measured
           // strip, a little air, and the web stack above it.

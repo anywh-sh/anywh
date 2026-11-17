@@ -1,6 +1,6 @@
-import { Spinner } from "@/components/ui/spinner";
-import { forwardRef, memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
 import { UserBubble, AssistantText, TurnFooter } from "@/components/chat/Message";
@@ -40,6 +40,10 @@ interface MessageLogProps {
   /** Called when the user scrolls near the top of the list, with more
    * history still to fetch. */
   onLoadOlderHistory: () => void;
+  /** The relay can't answer right now (reconnecting). Scrolling to the top
+   * then shows a "waiting for connection" strip instead of asking, and the
+   * request goes out once this turns false again. */
+  offline?: boolean;
   /** Extra space at the bottom — on iOS, the composer floats over the log,
    * so the content needs extra breathing room to avoid ending up
    * hidden behind it. */
@@ -239,6 +243,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   hasMoreHistory,
   loadingOlderHistory,
   onLoadOlderHistory,
+  offline = false,
   className,
   style,
   endInsetKey,
@@ -428,6 +433,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   // advance when the response arrives, so this is the only reliable moment
   // to capture the "before". `null` when no compensation is in progress.
   const prependAnchorRef = useRef<number | null>(null);
+  const [waitingForOlder, setWaitingForOlder] = useState(false);
 
   const handleScroll = useCallback(() => {
     const el = parentRef.current;
@@ -462,9 +468,24 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
     }
 
     if (scrollTop > 120 || loadingOlderHistory || !hasMoreHistory) return;
+    if (offline) {
+      // No scroll anchor yet: nothing is requested, and the log may be
+      // swapped before the request is made.
+      setWaitingForOlder(true);
+      return;
+    }
     prependAnchorRef.current = virtualizer.getTotalSize();
     onLoadOlderHistory();
-  }, [hasMoreHistory, loadingOlderHistory, onLoadOlderHistory, virtualizer]);
+  }, [hasMoreHistory, loadingOlderHistory, offline, onLoadOlderHistory, virtualizer]);
+
+  // The relay is back: ask for the older turns the person scrolled up for.
+  useEffect(() => {
+    if (offline || !waitingForOlder) return;
+    setWaitingForOlder(false);
+    if (loadingOlderHistory || !hasMoreHistory) return;
+    prependAnchorRef.current = virtualizer.getTotalSize();
+    onLoadOlderHistory();
+  }, [offline, waitingForOlder, loadingOlderHistory, hasMoreHistory, onLoadOlderHistory, virtualizer]);
 
   // Found while testing with real-sized content (code blocks, long texts):
   // compensating scroll just once (on the first height change after the
@@ -523,6 +544,12 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
       {loadingOlderHistory && (
         <div className="sticky top-0 z-10 flex justify-center py-1.5">
           <Spinner size="lg" />
+        </div>
+      )}
+      {waitingForOlder && !loadingOlderHistory && (
+        <div role="status" className="sticky top-0 z-10 flex items-center justify-center gap-2 py-1.5 text-xs text-muted-foreground">
+          <Spinner size="xs" />
+          {dict.chat.connection.waitingForOlder}
         </div>
       )}
       {/* Narrower than the composer under it (`ChatPanel`, 728px) and centred on the same axis; the symmetric scrollbar gutter on the scroller keeps that axis when the log overflows. */}
