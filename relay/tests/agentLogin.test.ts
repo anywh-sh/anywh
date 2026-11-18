@@ -203,3 +203,22 @@ test("a profile draft signs in under its own Claude config folder and the real H
   await unknown.closed();
   assert.deepEqual(unknown.frames, [{ type: "error", reason: "unknown-profile" }]);
 });
+
+test("dropping a draft ends its running sign-in first, so the CLI's exit can't recreate the folder", async () => {
+  process.env.FAKE_CLAUDE_LOGIN_WRITES_ON_EXIT = "1";
+  try {
+    const draft = (await (await fetch(`http://127.0.0.1:${server.port}/control/profiles/draft`, { method: "POST", body: JSON.stringify({ label: "Walked away" }) })).json()) as { id: string };
+    const login = openLogin(`runtime=claude&profile=${draft.id}`);
+    await login.until(has("prompt"));
+    // What the app does: the sign-in dialog closes, then the draft is dropped.
+    login.socket.close();
+    await login.closed();
+    const deleted = await fetch(`http://127.0.0.1:${server.port}/control/profiles/draft/${draft.id}`, { method: "DELETE" });
+    assert.equal(deleted.status, 200);
+    // Past the fake's exit write: had the folder been deleted first, it would be back.
+    await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+    assert.equal(existsSync(join(server.profilesDir, draft.id)), false);
+  } finally {
+    delete process.env.FAKE_CLAUDE_LOGIN_WRITES_ON_EXIT;
+  }
+});

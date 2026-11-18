@@ -25,6 +25,41 @@ export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "bad-hom
  * use. */
 const active = new Map<string, { readonly login: AgentLoginSession; readonly socket: WebSocket }>();
 
+/** Every login whose process hasn't exited, with its key — `active` drops
+ * one as soon as its socket closes, which is before its process is gone. */
+const alive = new Map<AgentLoginSession, string>();
+
+/** How long a draft's deletion waits for a login it ended to exit. */
+const LOGIN_EXIT_WAIT_MS = 5000;
+
+/**
+ * Ends every login running into profile (or draft) `profileId`'s folders,
+ * and settles once their processes are gone — or after a short wait. A CLI
+ * that is still exiting writes its config file on the way out, which would
+ * recreate a folder deleted under it.
+ */
+export async function endProfileLogins(profileId: string): Promise<void> {
+  const suffix = `\0profile:${profileId}`;
+  for (const [key, entry] of active) {
+    if (!key.endsWith(suffix)) continue;
+    active.delete(key);
+    if (entry.socket.readyState === entry.socket.OPEN) entry.socket.close();
+  }
+  // Every login whose process hasn't exited yet, the ones already cancelled
+  // by a closed socket included: the app closes the sign-in before it drops
+  // the draft, and the process is still on its way out then.
+  const ending: Promise<void>[] = [];
+  for (const [login, key] of alive) {
+    if (!key.endsWith(suffix)) continue;
+    login.cancel();
+    ending.push(login.gone);
+  }
+  if (ending.length === 0) return;
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([Promise.all(ending), new Promise<void>((resolveWait) => (timer = setTimeout(resolveWait, LOGIN_EXIT_WAIT_MS)))]);
+  clearTimeout(timer);
+}
+
 /**
  * The agent's own account sign-in, run by the relay for the app.
  *
@@ -75,6 +110,8 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
   }
   const entry = { login, socket };
   active.set(key, entry);
+  alive.set(login, key);
+  void login.gone.then(() => alive.delete(login));
   console.log(`[relay] ${runtimeId} login started${ownHome ? "" : " for a new profile's home"}`);
 
   const release = (): void => {

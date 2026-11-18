@@ -125,6 +125,9 @@
 //                        the real one does; any other is the real
 //                        rejection, exit 1. FAKE_CLAUDE_LOGIN_GARBLED=1
 //                        prints text no parser recognizes and waits.
+//   FAKE_CLAUDE_LOGIN_WRITES_ON_EXIT=1 - `auth login` ended by SIGTERM
+//                        writes $CLAUDE_CONFIG_DIR/.claude.json shortly
+//                        before exiting, as the real one does.
 //   FAKE_CLAUDE_AUTH_METHOD - `auth status --json`'s `authMethod` (default
 //                        `claude.ai`, the subscription login). Any other
 //                        value drops `subscriptionType`, like an API-key
@@ -149,8 +152,8 @@
 //                        FAKE_CLAUDE_ENV_FILE, and safe to print on failure.
 
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 /** The `models` the catalog probe's `initialize` reply carries by default. */
 const DEFAULT_INIT_MODELS = [
@@ -378,6 +381,18 @@ if (args[0] === "--version") {
   process.exit(0);
 } else if (args[0] === "auth" && args[1] === "login") {
   if (process.env.FAKE_CLAUDE_LOGIN_ENV_FILE) writeFileSync(process.env.FAKE_CLAUDE_LOGIN_ENV_FILE, JSON.stringify(process.env));
+  // Claude Code 2.1.323, measured: a login ended by SIGTERM writes its
+  // config file on the way out, recreating its config folder if it is gone.
+  if (process.env.FAKE_CLAUDE_LOGIN_WRITES_ON_EXIT === "1" && process.env.CLAUDE_CONFIG_DIR) {
+    const configDir = process.env.CLAUDE_CONFIG_DIR;
+    process.on("SIGTERM", () => {
+      setTimeout(() => {
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(join(configDir, ".claude.json"), "{}");
+        process.exit(0);
+      }, 150);
+    });
+  }
   if (process.env.FAKE_CLAUDE_LOGIN_GARBLED === "1") {
     process.stdout.write("Something this version prints that nobody parses.\n");
     setInterval(() => {}, 1000);

@@ -38,6 +38,10 @@ export interface AgentLoginSession {
   /** Ends the login now: the child is killed, an RPC login is cancelled.
    * Idempotent, and silent — no event follows a cancel. */
   cancel(): void;
+  /** Settles once the CLI's process is gone, however the login ended. A
+   * process that is still exiting can write to its config folder, so
+   * anything deleting that folder waits for this first. */
+  readonly gone: Promise<void>;
 }
 
 export interface StartAgentLoginOptions {
@@ -130,12 +134,14 @@ export function startAgentLogin(def: AgentRuntimeDef, options: StartAgentLoginOp
       finished = true;
       driver.stop();
     },
+    gone: driver.gone,
   };
 }
 
 interface LoginDriver {
   submitCode(code: string): void;
   stop(): void;
+  readonly gone: Promise<void>;
 }
 
 function startCliLogin(
@@ -153,6 +159,8 @@ function startCliLogin(
     env,
     stdio: ["pipe", "pipe", "pipe"],
   });
+  // `close` also follows a spawn `error`, so this always settles.
+  const gone = new Promise<void>((resolveGone) => child.once("close", () => resolveGone()));
 
   let output = "";
   // What the CLI printed since the last code went in.
@@ -221,6 +229,7 @@ function startCliLogin(
       stopped = true;
       if (child.exitCode === null && child.signalCode === null) child.kill();
     },
+    gone,
   };
 }
 
@@ -235,6 +244,10 @@ function startRpcLogin(
   let loginId: string | undefined;
   let stopped = false;
   const initAbort = new AbortController();
+  let markGone: () => void = () => {};
+  const gone = new Promise<void>((resolveGone) => {
+    markGone = resolveGone;
+  });
 
   const end = (): void => {
     daemon?.kill();
@@ -259,6 +272,7 @@ function startRpcLogin(
       end();
     },
     onExit: () => {
+      markGone();
       if (stopped) return;
       emit({ type: "failed", detail: "the sign-in process exited" });
     },
@@ -281,6 +295,8 @@ function startRpcLogin(
       }
     },
     (error: unknown) => {
+      // Never started: there is no process to wait for.
+      markGone();
       if (stopped) return;
       emit({ type: "failed", detail: error instanceof Error ? error.message : String(error) });
     },
@@ -299,5 +315,6 @@ function startRpcLogin(
       // Best effort: the process is going away either way.
       void running.request(cancel.method, cancel.params).catch(() => {}).finally(() => running.kill());
     },
+    gone,
   };
 }

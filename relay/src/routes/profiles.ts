@@ -31,6 +31,7 @@ import type { AgentRuntimeDef, AuthStatus } from "../runtimes/types.js";
 import type { Registry } from "../runtimes/registry.js";
 import { lastUsedAgentIdInFile, type SessionStore } from "../session/sessionStore.js";
 import type { RouteHandler } from "./context.js";
+import { endProfileLogins } from "../ws/agentLogin.js";
 
 // Resolved relative to this file (not hardcoded), same reasoning as
 // SCRIPTS_DIR in runtimes/executables.ts — works running from `src/` (tsx),
@@ -330,6 +331,9 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Access-Control-Allow-Origin", "*");
     const id = decodeURIComponent(req.url.slice("/control/profiles/draft/".length).split("?")[0]);
+    // A sign-in still running into the draft would write its config file
+    // back after the folder is gone.
+    if (isProfileDraft(id)) await endProfileLogins(id);
     if (!discardProfileDraft(id)) {
       res.writeHead(404);
       res.end(JSON.stringify({ error: "draft not found" }));
