@@ -180,3 +180,26 @@ test("an agent with no sign-out is refused, and an unknown one is not found", as
   assert.equal((await fetch(`http://127.0.0.1:${server.port}/control/agents/kimi/logout`, { method: "POST" })).status, 400);
   assert.equal((await fetch(`http://127.0.0.1:${server.port}/control/agents/nope/logout`, { method: "POST" })).status, 404);
 });
+
+test("a profile draft signs in under its own Claude config folder and the real HOME, never this relay's account", async () => {
+  rmSync(loginEnvFile, { force: true });
+  process.env.CLAUDE_CONFIG_DIR = join(scratch, "this-relays-own-claude");
+  try {
+    const draft = (await (await fetch(`http://127.0.0.1:${server.port}/control/profiles/draft`, { method: "POST", body: JSON.stringify({ label: "Login draft" }) })).json()) as { id: string };
+    const login = openLogin(`runtime=claude&profile=${draft.id}`);
+    await login.until(has("prompt"));
+    const env = JSON.parse(readFileSync(loginEnvFile, "utf8")) as NodeJS.ProcessEnv;
+    assert.equal(env.CLAUDE_CONFIG_DIR, join(server.profilesDir, draft.id, "claude"));
+    assert.equal(env.CODEX_HOME, join(server.profilesDir, draft.id, "codex"));
+    // Not the relay's RELAY_HOME_OVERRIDE: a draft keeps the real $HOME.
+    assert.notEqual(env.HOME, server.homeDir);
+    login.socket.close();
+    await login.closed();
+  } finally {
+    delete process.env.CLAUDE_CONFIG_DIR;
+  }
+
+  const unknown = openLogin("runtime=claude&profile=no-such-profile");
+  await unknown.closed();
+  assert.deepEqual(unknown.frames, [{ type: "error", reason: "unknown-profile" }]);
+});

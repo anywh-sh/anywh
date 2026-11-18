@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
-import { homedir } from "node:os";
-import { buildChildEnv } from "../../host/childEnv.js";
+import { buildChildEnv, childHome, type ChildTarget } from "../../host/childEnv.js";
 import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../executables.js";
 import type { AgentRuntimeDef } from "../types.js";
 
@@ -10,7 +9,7 @@ const LOGOUT_TIMEOUT_MS = 15_000;
  * (`auth.logout`), so whatever its login stored goes the way the CLI itself
  * removes it. Resolves with the CLI's exit; rejects only when it can't be
  * run at all or doesn't answer in time. */
-export function runAgentLogout(def: AgentRuntimeDef, homeOverride: string | undefined): Promise<{ readonly ok: boolean; readonly detail?: string }> {
+export function runAgentLogout(def: AgentRuntimeDef, homeOverride: ChildTarget): Promise<{ readonly ok: boolean; readonly detail?: string }> {
   const args = def.auth.logout;
   if (!args) return Promise.reject(new Error(`runtime "${def.identity.id}" declares no logout`));
   const stripCredentials = (env: NodeJS.ProcessEnv): void => {
@@ -18,7 +17,7 @@ export function runAgentLogout(def: AgentRuntimeDef, homeOverride: string | unde
   };
   return new Promise((resolveLogout, rejectLogout) => {
     const child = spawn(resolveRuntimeBin(def.identity), [...args], {
-      cwd: homeOverride ?? homedir(),
+      cwd: childHome(homeOverride),
       env: buildChildEnv(homeOverride, EXTRA_PATH_DIRS, stripCredentials, def.identity.env.set),
       stdio: ["ignore", "pipe", "pipe"],
     });

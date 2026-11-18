@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { envForTarget, type ProfileTarget } from "./agentConfigDirs.js";
 
 /** Env for every relay child process (an agent CLI's turn, its one-shot
@@ -24,7 +25,7 @@ const HOST_CONFIG_VARS = ["ANYWH_PROFILE", "ANYWH_AGENT_HOST_SOCKET", "ANYWH_AGE
  * from here — and replaces HOME and every config-dir variable outright, so
  * nothing of this relay's own account leaks into the child. */
 export function buildChildEnv(
-  homeOverride: string | ProfileTarget | undefined,
+  homeOverride: ChildTarget,
   extraPathDirs: readonly string[],
   stripCredentials: (env: NodeJS.ProcessEnv) => void,
   agentEnvOverrides: Readonly<Record<string, string>> = {},
@@ -38,4 +39,15 @@ export function buildChildEnv(
   env.PATH = [...extraPathDirs, env.PATH ?? ""].join(":");
   Object.assign(env, agentEnvOverrides);
   return env;
+}
+
+/** Whose account a child runs under: this relay's own profile (its
+ * `RELAY_HOME_OVERRIDE`, or `undefined` for the real `$HOME`), or another
+ * profile spelled out as a `ProfileTarget`. */
+export type ChildTarget = string | ProfileTarget | undefined;
+
+/** The home a child for `target` starts in. */
+export function childHome(target: ChildTarget): string {
+  if (typeof target === "object") return target.home ?? homedir();
+  return target ?? homedir();
 }

@@ -153,6 +153,8 @@ test("isCreateProfileBody", () => {
   assert.equal(isCreateProfileBody({ label: "  " }), false, "label is whitespace-only");
   assert.equal(isCreateProfileBody({ label: 5 }), false, "wrong type for label");
   assert.equal(isCreateProfileBody({ label: "Work", home: 5 }), false, "wrong type for optional home");
+  assert.equal(isCreateProfileBody({ label: "Work", draftId: "work" }), true, "a draft's config root");
+  assert.equal(isCreateProfileBody({ label: "Work", draftId: "work", home: "/home/work" }), false, "a draft and a home at once");
   for (const v of NON_OBJECTS) assert.equal(isCreateProfileBody(v), false);
 });
 

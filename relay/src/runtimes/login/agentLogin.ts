@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
-import { homedir } from "node:os";
-import { buildChildEnv } from "../../host/childEnv.js";
+import { buildChildEnv, childHome, type ChildTarget } from "../../host/childEnv.js";
 import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../executables.js";
 import { spawnCodexDaemon, type CodexDaemon, type SpawnCodexDaemonOptions } from "../transports/codexDaemon.js";
 import type { AgentRuntimeDef, LoginFlow, LoginPrompt, TurnHost } from "../types.js";
@@ -42,7 +41,7 @@ export interface AgentLoginSession {
 }
 
 export interface StartAgentLoginOptions {
-  readonly homeOverride: string | undefined;
+  readonly homeOverride: ChildTarget;
   /** Seam for the daemon of an `rpc-device` flow; the real one by default. */
   readonly spawnDaemon?: (options: SpawnCodexDaemonOptions) => Promise<CodexDaemon>;
   /** How long a login may wait for the person before it is given up.
@@ -150,7 +149,7 @@ function startCliLogin(
   };
   const env = buildChildEnv(options.homeOverride, EXTRA_PATH_DIRS, stripCredentials, { ...def.identity.env.set, BROWSER: NO_BROWSER });
   const child = spawn(resolveRuntimeBin(def.identity), [...flow.args], {
-    cwd: options.homeOverride ?? homedir(),
+    cwd: childHome(options.homeOverride),
     env,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -243,7 +242,7 @@ function startRpcLogin(
 
   spawnDaemon({
     def,
-    cwd: options.homeOverride ?? homedir(),
+    cwd: childHome(options.homeOverride),
     homeOverride: options.homeOverride,
     host: DECLINING_HOST,
     // Waiting on the person is not idleness: the timeout below owns this.

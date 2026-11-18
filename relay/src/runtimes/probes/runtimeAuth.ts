@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { buildChildEnv } from "../../host/childEnv.js";
+import { buildChildEnv, type ChildTarget } from "../../host/childEnv.js";
 import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../executables.js";
 import type { AgentRuntimeDef, AuthStatus } from "../types.js";
 
@@ -30,7 +30,7 @@ export class AuthNotProbableError extends Error {
  * exists to prevent — and the `PATH` patch is what finds the binary at all
  * under a service manager's minimal `PATH`.
  */
-export function probeRuntimeAuth(def: AgentRuntimeDef, homeOverride: string | undefined): Promise<AuthStatus> {
+export function probeRuntimeAuth(def: AgentRuntimeDef, homeOverride: ChildTarget): Promise<AuthStatus> {
   const { auth } = def;
   if (auth.kind === "session-rpc") return Promise.reject(new AuthNotProbableError(def.identity.id));
   // A def that declares no auth at all is logged in by its own contract —

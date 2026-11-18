@@ -22,7 +22,7 @@
 // response, which `connection.pendingCount` already counts as busy.
 import { readFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { buildChildEnv } from "../../host/childEnv.js";
+import { buildChildEnv, type ChildTarget } from "../../host/childEnv.js";
 import { resolveShipped } from "../../host/paths.js";
 import { resolveRuntimeBin } from "../executables.js";
 import { createJsonRpcConnection } from "./jsonRpcStdio.js";
@@ -88,7 +88,7 @@ export interface SpawnCodexDaemonOptions {
   readonly cwd: string;
   /** Overrides the child process's $HOME — same per-profile isolation
    * every other spawn in this relay uses. */
-  readonly homeOverride?: string;
+  readonly homeOverride?: ChildTarget;
   /** Where a request the daemon initiates (an approval, structured input)
    * gets answered — the same `TurnHost` the MCP bridges answer for Claude,
    * per the contract (`runtimes/types.ts`). */

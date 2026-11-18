@@ -1,25 +1,23 @@
-import { isAbsolute } from "node:path";
 import { applyBundle, readBundle } from "../portability/configHome.js";
 import { readMcpAuthStatus } from "../portability/mcpAuth.js";
 import { toSnapshot } from "../portability/manifest.js";
-import { defaultCwd } from "../host/paths.js";
 import { isApplyPortabilityBody } from "../protocol/guards.js";
 import { readJsonBody } from "../protocol/httpBody.js";
 import type { RouteHandler } from "./context.js";
+import { readRequestedProfile } from "./requestedProfile.js";
 
 // The two questions the "bring my configuration" flow asks a relay: what
 // does this machine have for runtime X, and take this and write it.
 //
-// Both accept an explicit `home` on top of this relay's own profile home,
-// because the machine that reads a bundle and the machine that applies it
+// Both accept another profile (`profile`, or a legacy `home`) on top of
+// this relay's own, because the machine that reads a bundle and the machine that applies it
 // are usually not the same one — and even locally, creating a second
 // profile means writing into a home this relay isn't running under.
 
-function resolveHome(url: URL, fallback: string | undefined): { home: string } | { error: string } {
-  const requested = url.searchParams.get("home")?.trim();
-  if (!requested) return { home: defaultCwd(fallback) };
-  if (!isAbsolute(requested)) return { error: "home must be an absolute path" };
-  return { home: requested };
+function resolveHome(url: URL, fallback: string | undefined): { home: string; env: NodeJS.ProcessEnv } | { error: string } {
+  const requested = readRequestedProfile(url, fallback);
+  if ("error" in requested) return { error: requested.error === "bad-home" ? "home must be an absolute path" : "unknown profile" };
+  return { home: requested.home, env: requested.env };
 }
 
 export const handlePortabilityRoutes: RouteHandler = async (req, res, ctx) => {
@@ -45,7 +43,7 @@ export const handlePortabilityRoutes: RouteHandler = async (req, res, ctx) => {
     // `full=1` is the same read, contents included — the client asks for
     // the summary to decide whether to offer anything at all, and for the
     // whole thing only once the user says yes.
-    const bundle = readBundle(def, home.home);
+    const bundle = readBundle(def, home.home, home.env);
     res.end(JSON.stringify(url.searchParams.get("full") === "1" ? { ...bundle, found: true } : toSnapshot(bundle)));
     return true;
   }
@@ -68,7 +66,7 @@ export const handlePortabilityRoutes: RouteHandler = async (req, res, ctx) => {
       res.end(JSON.stringify({ error: home.error }));
       return true;
     }
-    res.end(JSON.stringify(readMcpAuthStatus(def, home.home)));
+    res.end(JSON.stringify(readMcpAuthStatus(def, home.home, home.env)));
     return true;
   }
 
@@ -93,7 +91,7 @@ export const handlePortabilityRoutes: RouteHandler = async (req, res, ctx) => {
           return;
         }
         try {
-          const result = applyBundle(def, home.home, body.bundle);
+          const result = applyBundle(def, home.home, body.bundle, home.env);
           // Applying a bundle writes hooks, and a hook runs on the next
           // turn. That is nothing the pty on this same relay couldn't
           // already do, but it must never be silent: the response names

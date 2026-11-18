@@ -1,11 +1,10 @@
-import { homedir } from "node:os";
-import { isAbsolute, resolve } from "node:path";
 import type { WebSocket } from "ws";
 import { isAgentLoginCodeMessage } from "../protocol/guards.js";
 import { afterAccountChange } from "../routes/accountChange.js";
 import { startAgentLogin, type AgentLoginSession } from "../runtimes/login/agentLogin.js";
 import { probeRuntimeAuth } from "../runtimes/probes/runtimeAuth.js";
 import type { RouteContext } from "../routes/context.js";
+import { readRequestedProfile } from "../routes/requestedProfile.js";
 
 /** What `/agent-login` sends. `prompt` carries what the dialog shows;
  * `output` is the CLI's own text, for when no prompt could be read off it.
@@ -19,7 +18,7 @@ export type AgentLoginServerMessage =
   | { readonly type: "done"; readonly account?: string; readonly plan?: string }
   | { readonly type: "error"; readonly reason: AgentLoginErrorReason; readonly detail?: string };
 
-export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "bad-home" | "start-failed" | "failed" | "not-signed-in" | "superseded";
+export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "bad-home" | "unknown-profile" | "start-failed" | "failed" | "not-signed-in" | "superseded";
 
 /** One login per runtime and `$HOME`. A second device opening the same
  * login takes over: the first one's process holds a code nobody else can
@@ -29,17 +28,17 @@ const active = new Map<string, { readonly login: AgentLoginSession; readonly soc
 /**
  * The agent's own account sign-in, run by the relay for the app.
  *
- * The `$HOME` is this relay's own (`ctx.homeOverride`) unless the client
- * names another, absolute one: that is a profile being created, whose own
- * relay doesn't exist yet and whose sign-in is checked before it does (the
- * same reason `/mcp-login` takes a `home`). Only a sign-in under the
- * relay's own home touches this relay's sessions and plan usage. The pasted
- * code goes straight to the CLI's stdin and is never logged. Closing the
- * socket ends the login.
+ * The account is this relay's own unless the client names another profile:
+ * `profile=<id>` (a profile or a draft on this machine, whose config folders
+ * the login writes into) or a legacy absolute `home`. That is a profile
+ * being created, whose own relay doesn't exist yet and whose sign-in is
+ * checked before it does (the same reason `/mcp-login` takes one). Only a
+ * sign-in under the relay's own account touches this relay's sessions and
+ * plan usage. The pasted code goes straight to the CLI's stdin and is never
+ * logged. Closing the socket ends the login.
  */
 export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: RouteContext): void {
   const runtimeId = url.searchParams.get("runtime")?.trim() ?? "";
-  const requestedHome = url.searchParams.get("home")?.trim() || undefined;
   const send = (message: AgentLoginServerMessage): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
   };
@@ -51,13 +50,11 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
   const def = ctx.registry.get(runtimeId);
   if (!def) return fail("unknown-runtime");
   if (!def.auth.login) return fail("unsupported");
-  if (requestedHome !== undefined && !isAbsolute(requestedHome)) return fail("bad-home");
-  const home = requestedHome ?? ctx.homeOverride;
-  // Compared as resolved paths, and against the real `$HOME` when the relay
-  // has no override: the same folder typed out is still this relay's own.
-  const relayHome = resolve(ctx.homeOverride ?? homedir());
-  const ownHome = requestedHome === undefined || resolve(requestedHome) === relayHome;
-  const key = `${runtimeId}\0${ownHome ? relayHome : resolve(requestedHome)}`;
+  const requested = readRequestedProfile(url, ctx.homeOverride);
+  if ("error" in requested) return fail(requested.error);
+  const home = requested.child;
+  const ownHome = requested.own;
+  const key = `${runtimeId}\0${requested.key}`;
 
   const previous = active.get(key);
   if (previous) {

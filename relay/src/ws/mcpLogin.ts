@@ -1,9 +1,8 @@
-import { isAbsolute } from "node:path";
 import type { WebSocket } from "ws";
 import { startMcpLogin } from "../portability/mcpAuth.js";
-import { defaultCwd } from "../host/paths.js";
 import { isTerminalInputMessage } from "../protocol/guards.js";
 import type { RouteContext } from "../routes/context.js";
+import { readRequestedProfile } from "../routes/requestedProfile.js";
 
 /**
  * One MCP sign-in per connection — the CLI's own `mcp login`, streamed.
@@ -22,7 +21,6 @@ import type { RouteContext } from "../routes/context.js";
 export function handleMcpLoginConnection(socket: WebSocket, url: URL, ctx: RouteContext): void {
   const runtimeId = url.searchParams.get("runtime")?.trim() ?? "";
   const serverName = url.searchParams.get("server")?.trim() ?? "";
-  const requestedHome = url.searchParams.get("home")?.trim();
 
   const fail = (error: string): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "error", error }));
@@ -32,13 +30,14 @@ export function handleMcpLoginConnection(socket: WebSocket, url: URL, ctx: Route
   const def = ctx.registry.get(runtimeId);
   if (!def) return fail(`unknown runtime "${runtimeId}"`);
   if (serverName.length === 0) return fail("server is required");
-  if (requestedHome && !isAbsolute(requestedHome)) return fail("home must be an absolute path");
+  const requested = readRequestedProfile(url, ctx.homeOverride);
+  if ("error" in requested) return fail(requested.error === "bad-home" ? "home must be an absolute path" : "unknown profile");
   if (def.portability.mcp.kind !== "supported") return fail(`runtime "${runtimeId}" declares no MCP support`);
 
-  const home = requestedHome ?? defaultCwd(ctx.homeOverride);
+  const { home } = requested;
   let login;
   try {
-    login = startMcpLogin(def, home, serverName);
+    login = startMcpLogin(def, home, serverName, requested.child);
   } catch (error) {
     console.error("[relay] failed to start mcp login:", error);
     return fail("failed to start the login");

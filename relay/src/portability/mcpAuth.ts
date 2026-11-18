@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import pty from "node-pty";
 import { listDeclaredServers, parseDeclaration } from "./declaration.js";
-import { buildChildEnv } from "../host/childEnv.js";
+import { buildChildEnv, type ChildTarget } from "../host/childEnv.js";
 import { resolveAgentPath } from "../host/agentConfigDirs.js";
 import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../runtimes/executables.js";
 import type { AgentRuntimeDef } from "../runtimes/types.js";
@@ -103,7 +103,9 @@ export interface McpLoginSession {
  * would technically satisfy both, but driving a CLI through a mechanism it
  * doesn't need is how a def's declaration quietly stops being checked.
  */
-export function startMcpLogin(def: AgentRuntimeDef, home: string, serverName: string): McpLoginSession {
+/** `account` is whose account the login runs under (see `buildChildEnv`);
+ * `home` is where it starts. */
+export function startMcpLogin(def: AgentRuntimeDef, home: string, serverName: string, account: ChildTarget = home): McpLoginSession {
   const { mcp } = def.portability;
   if (mcp.kind !== "supported") throw new Error(`runtime "${def.identity.id}" declares no MCP support`);
 
@@ -112,7 +114,7 @@ export function startMcpLogin(def: AgentRuntimeDef, home: string, serverName: st
   const stripCredentials = (env: NodeJS.ProcessEnv): void => {
     for (const name of def.identity.env.strip) delete env[name];
   };
-  const env = buildChildEnv(home, EXTRA_PATH_DIRS, stripCredentials, def.identity.env.set);
+  const env = buildChildEnv(account, EXTRA_PATH_DIRS, stripCredentials, def.identity.env.set);
 
   if (mcp.loginDriver === "pty") {
     // 100x30 rather than a real terminal's size: nothing renders this, and

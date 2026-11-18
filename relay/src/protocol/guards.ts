@@ -191,13 +191,16 @@ export function isApplyPortabilityBody(value: unknown): value is {
  * access to. `routes/profiles.ts` resolves it and answers 400 for an id no
  * def answers to. Absent means Claude, for every client built before the
  * runtime was a choice. */
-export function isCreateProfileBody(value: unknown): value is { label: string; home?: string; runtimeId?: string } {
+export function isCreateProfileBody(value: unknown): value is { label: string; home?: string; draftId?: string; runtimeId?: string } {
   if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { label?: unknown; home?: unknown; runtimeId?: unknown };
+  const candidate = value as { label?: unknown; home?: unknown; draftId?: unknown; runtimeId?: unknown };
   return (
     typeof candidate.label === "string" &&
     candidate.label.trim().length > 0 &&
     (candidate.home === undefined || typeof candidate.home === "string") &&
+    (candidate.draftId === undefined || typeof candidate.draftId === "string") &&
+    // Two ways to isolate an account; a body naming both is ambiguous.
+    !(typeof candidate.home === "string" && candidate.home.length > 0 && typeof candidate.draftId === "string" && candidate.draftId.length > 0) &&
     (candidate.runtimeId === undefined || typeof candidate.runtimeId === "string")
   );
 }

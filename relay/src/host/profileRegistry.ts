@@ -1,8 +1,8 @@
 import { connect, createServer } from "node:net";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { CONFIG_DIR_AGENTS, configDirsFromEnv, effectiveConfigDirs, type ProfileTarget } from "./agentConfigDirs.js";
+import { CONFIG_DIR_AGENTS, configDirsForRoot, configDirsFromEnv, effectiveConfigDirs, type ProfileTarget } from "./agentConfigDirs.js";
 
 // Host-side registry of relay profiles — every profile this
 // machine can run, independent of which one the current process happens to
@@ -454,3 +454,57 @@ export function deleteProfileFiles(id: string, envDir: string = ENV_DIR): void {
   }
 }
 
+
+/** The folders inside a profile's config root that `add-profile.sh
+ * --config-root` also creates. */
+const CONFIG_ROOT_SUBDIRS = ["claude", "codex", "kimi", "rooms"] as const;
+
+function listDraftIds(profilesDir: string): string[] {
+  try {
+    return readdirSync(profilesDir).filter((name) => PROFILE_ID_PATTERN.test(name));
+  } catch {
+    return [];
+  }
+}
+
+/** Reserves an id and its config root for a profile that doesn't exist yet,
+ * so its agents can be signed in (into that root) before the profile is
+ * created. The folder is the draft: no `.env` names it until `POST
+ * /control/profiles` runs `add-profile.sh --config-root` on it. 0700, as the
+ * script makes it: it is about to hold credentials. */
+export function createProfileDraft(label: string, envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): { id: string; root: string } {
+  const id = slugify(label, [...listProfileIds(envDir), ...listDraftIds(profilesDir)]);
+  const root = profileConfigRoot(id, profilesDir);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  chmodSync(root, 0o700);
+  for (const sub of CONFIG_ROOT_SUBDIRS) mkdirSync(join(root, sub), { recursive: true });
+  return { id, root };
+}
+
+/** Whether `id` is a draft: a config root with no profile behind it. */
+export function isProfileDraft(id: string, envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): boolean {
+  return isValidProfileId(id) && !existsSync(envFileFor(id, envDir)) && existsSync(profileConfigRoot(id, profilesDir));
+}
+
+/** Drops a draft the user walked away from, signed-in accounts included.
+ * Refuses anything that already became a profile: deleting that is
+ * `DELETE /control/profiles/:id`'s job, with its own safeguards. */
+export function discardProfileDraft(id: string, envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): boolean {
+  if (!isProfileDraft(id, envDir, profilesDir)) return false;
+  rmSync(profileConfigRoot(id, profilesDir), { recursive: true, force: true });
+  return true;
+}
+
+/** Whose accounts profile (or draft) `id` uses, for acting on it from a
+ * relay that isn't its own: its `.env`'s home override and config dirs, or
+ * a draft's config root. `undefined` for an id that is neither. */
+export function resolveProfileTarget(id: string, envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): ProfileTarget | undefined {
+  if (!isValidProfileId(id)) return undefined;
+  const env = readEnvFile(id, envDir);
+  if (env) {
+    const configDirs = configDirsFromEnv(env);
+    return { ...(env.RELAY_HOME_OVERRIDE ? { home: env.RELAY_HOME_OVERRIDE } : {}), configDirs };
+  }
+  if (existsSync(profileConfigRoot(id, profilesDir))) return { configDirs: configDirsForRoot(profileConfigRoot(id, profilesDir)) };
+  return undefined;
+}
