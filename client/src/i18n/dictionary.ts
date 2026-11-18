@@ -856,6 +856,8 @@ export interface Dictionary {
         fixedInSession: string;
         modelHeader: string;
         moreModels: string;
+        /** The model trigger's name while the agent and its catalog are still loading. */
+        loadingModels: string;
         effortHint: string;
       };
       context: {

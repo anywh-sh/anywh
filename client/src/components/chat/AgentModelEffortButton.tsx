@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";
@@ -170,7 +171,10 @@ export function AgentModelEffortMenu({
   });
 
   const currentModel = effectiveModel(catalog, model);
-  const modelLabel = currentModel !== null ? labelForModel(catalog, currentModel) : dict.pending;
+  // Until the session's agent and its catalog land there's no name to show:
+  // the trigger holds their place with skeletons, the label says it's loading.
+  const pending = currentModel === null;
+  const modelLabel = currentModel !== null ? labelForModel(catalog, currentModel) : dict.menu.loadingModels;
   const { primary, more } = splitModelOptions(catalog);
   const currentInMore = more.find((entry) => entry.id === currentModel);
   const option = effectiveModelOption(catalog, model);
@@ -203,10 +207,13 @@ export function AgentModelEffortMenu({
           title={label}
           aria-label={effortLabel !== null ? label : `${name} · ${modelLabel}`}
           // Disabled still takes the pointer, so the title still names the model.
-          className="gap-[7px] disabled:pointer-events-auto disabled:cursor-default"
+          // While loading, the skeletons already say "not yet": the disabled
+          // fade on top would leave them barely visible.
+          className={cn("gap-[7px] disabled:pointer-events-auto disabled:cursor-default", pending && "disabled:opacity-100")}
+          aria-busy={pending || undefined}
         >
-          {agentId !== null && <AgentTile agentId={agentId} />}
-          <span className="truncate text-foreground">{modelLabel}</span>
+          {agentId !== null ? <AgentTile agentId={agentId} /> : <Skeleton className="size-[calc(14px*var(--chrome-scale))] shrink-0" />}
+          {pending ? <Skeleton className="h-[0.75em] w-[calc(64px*var(--chrome-scale))]" /> : <span className="truncate text-foreground">{modelLabel}</span>}
           {effortLabel !== null && <span className="shrink-0 text-text-faint">{effortLabel.toLowerCase()}</span>}
           <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
         </Button>

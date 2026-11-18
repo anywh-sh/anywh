@@ -6,7 +6,7 @@ import * as stories from "./AgentModelEffortButton.stories";
 import { en } from "@/i18n/en";
 
 const copy = en.chat.composer;
-const { Playground, Claude, EffortSubmenu, MoreModels, AgentSubmenu, CodexEffort, Kimi, KimiMoreModels, Locked, SingleAgent, Pending } = composeStories(stories);
+const { Playground, Claude, EffortSubmenu, MoreModels, AgentSubmenu, CodexEffort, Kimi, KimiMoreModels, Locked, SingleAgent, Pending, CatalogLoading } = composeStories(stories);
 
 describe("AgentModelEffortMenu stories", () => {
   afterEach(() => act(() => cleanup()));
@@ -81,8 +81,20 @@ describe("AgentModelEffortMenu stories", () => {
     expect(screen.queryByRole("menuitem", { name: new RegExp(`^${copy.menu.agent}`) })).not.toBeInTheDocument();
   });
 
-  it("Pending is a disabled trigger", async () => {
+  it("Pending is a disabled, busy trigger with skeletons instead of a name", async () => {
     render(<Pending />);
-    expect(await screen.findByRole("button")).toBeDisabled();
+    const trigger = await screen.findByRole("button");
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveAttribute("aria-busy", "true");
+    expect(trigger).toHaveAttribute("title", expect.stringContaining(copy.menu.loadingModels));
+    expect(trigger.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(2);
+    expect(trigger).not.toHaveTextContent("…");
+  });
+
+  it("CatalogLoading shows the agent's logo and a skeleton for the model", async () => {
+    render(<CatalogLoading />);
+    const trigger = await screen.findByRole("button");
+    expect(trigger.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(1);
+    expect(trigger.querySelector("svg")).not.toBeNull();
   });
 });

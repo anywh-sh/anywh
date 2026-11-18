@@ -154,5 +154,10 @@ export const Locked: Story = { args: { locked: true, effort: "max" } };
 /** A relay with one agent: no agent row at all. */
 export const SingleAgent: Story = { args: { agents: ["claude"] } };
 
-/** Before the first `model_state`: the trigger waits, disabled. */
+/** Before the first `agent_state`/`model_state`: skeletons hold the logo's
+ * and the model's place, disabled. */
 export const Pending: Story = { args: { defaultOpen: false, disabled: true, catalog: null, agentId: null } };
+
+/** The agent is known, its catalog is still being probed: the logo is real,
+ * the model is still a skeleton. */
+export const CatalogLoading: Story = { args: { defaultOpen: false, catalog: null } };
