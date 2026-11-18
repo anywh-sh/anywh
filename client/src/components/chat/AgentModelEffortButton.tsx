@@ -49,6 +49,16 @@ function SubRowLabel({ children }: { children: React.ReactNode }) {
   return <span className="min-w-0 flex-1 truncate">{children}</span>;
 }
 
+/** The Agent row's hint: the session's agent, logo and name. */
+function AgentHint({ agentId, name }: { agentId: string | null; name: string }) {
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 pl-4 text-text-faint">
+      {agentId !== null && <AgentTile agentId={agentId} dim />}
+      <span className="font-mono text-[length:calc(11px*var(--chrome-scale))]">{name}</span>
+    </span>
+  );
+}
+
 /** A submenu row's hint: sits right before the chevron. */
 function SubHint({ children }: { children: React.ReactNode }) {
   return <span className="shrink-0 pl-4 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint">{children}</span>;
@@ -270,18 +280,15 @@ export function AgentModelEffortMenu({
             {(catalog || efforts.length > 0) && <DropdownMenuSeparator />}
             {locked ? (
               <DropdownMenuItem disabled className="opacity-100" title={dict.modelLocked}>
-                <span>{dict.menu.agent}</span>
-                <Hint>{name}</Hint>
+                <span className="min-w-0 flex-1 truncate">{dict.menu.agent}</span>
+                <AgentHint agentId={agentId} name={name} />
                 <Lock className="size-3 shrink-0" />
               </DropdownMenuItem>
             ) : (
               <DropdownMenuSub {...subProps("agent")}>
                 <DropdownMenuSubTrigger className={SUB_ROW}>
                   <SubRowLabel>{dict.menu.agent}</SubRowLabel>
-                  <span className="flex shrink-0 items-center gap-1.5 pl-4 text-text-faint">
-                    {agentId !== null && <AgentTile agentId={agentId} dim />}
-                    <span className="font-mono text-[length:calc(11px*var(--chrome-scale))]">{name}</span>
-                  </span>
+                  <AgentHint agentId={agentId} name={name} />
                 </DropdownMenuSubTrigger>
                 <DropdownMenuPortal>
                   <DropdownMenuSubContent sideOffset={6} className="min-w-[calc(220px*var(--chrome-scale))]">

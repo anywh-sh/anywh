@@ -71,6 +71,8 @@ describe("AgentModelEffortMenu stories", () => {
     expect(await screen.findByText(copy.menu.fixedInSession)).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: new RegExp(`^${copy.menu.agent}`) })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("menuitem", { name: `${copy.menu.effort} Max` })).toBeInTheDocument();
+    // The agent row keeps the agent's logo next to its name while locked.
+    expect(screen.getByRole("menuitem", { name: new RegExp(`^${copy.menu.agent}`) }).querySelector("svg:not(.lucide-lock)")).not.toBeNull();
   });
 
   it("SingleAgent has no agent row", async () => {
