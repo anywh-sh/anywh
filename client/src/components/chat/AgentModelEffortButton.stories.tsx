@@ -12,15 +12,15 @@ export const claudeCatalog: ModelCatalog = {
     { id: "fable", label: "Fable 5.2", description: "For your toughest challenges", efforts: CLAUDE_EFFORTS },
     { id: "sonnet", label: "Sonnet 5.5", description: "Most efficient for simpler tasks", efforts: CLAUDE_EFFORTS },
     { id: "haiku", label: "Haiku 5.5", description: "Fastest for quick answers", efforts: CLAUDE_EFFORTS },
-    { id: "claude-fable-5-1", label: "Fable 5.1", pinnedVersion: true, efforts: CLAUDE_EFFORTS },
-    { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", pinnedVersion: true },
-    { id: "claude-sonnet-5", label: "Sonnet 5", pinnedVersion: true, efforts: CLAUDE_EFFORTS },
-    { id: "claude-opus-5", label: "Opus 5", pinnedVersion: true, efforts: CLAUDE_EFFORTS },
-    { id: "claude-fable-5", label: "Fable 5", pinnedVersion: true, efforts: CLAUDE_EFFORTS },
-    { id: "claude-opus-4-8", label: "Opus 4.8", pinnedVersion: true, efforts: CLAUDE_EFFORTS },
-    { id: "claude-opus-4-7", label: "Opus 4.7", pinnedVersion: true, efforts: CLAUDE_EFFORTS },
-    { id: "claude-opus-4-6", label: "Opus 4.6", pinnedVersion: true, efforts: [{ id: "low" }, { id: "medium" }, { id: "high" }, { id: "max" }] },
-    { id: "claude-sonnet-4-6", label: "Sonnet 4.6", pinnedVersion: true, efforts: [{ id: "low" }, { id: "medium" }, { id: "high" }, { id: "max" }] },
+    { id: "claude-fable-5-1", label: "Fable 5.1", superseded: true, efforts: CLAUDE_EFFORTS },
+    { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", superseded: true },
+    { id: "claude-sonnet-5", label: "Sonnet 5", superseded: true, efforts: CLAUDE_EFFORTS },
+    { id: "claude-opus-5", label: "Opus 5", superseded: true, efforts: CLAUDE_EFFORTS },
+    { id: "claude-fable-5", label: "Fable 5", superseded: true, efforts: CLAUDE_EFFORTS },
+    { id: "claude-opus-4-8", label: "Opus 4.8", superseded: true, efforts: CLAUDE_EFFORTS },
+    { id: "claude-opus-4-7", label: "Opus 4.7", superseded: true, efforts: CLAUDE_EFFORTS },
+    { id: "claude-opus-4-6", label: "Opus 4.6", superseded: true, efforts: [{ id: "low" }, { id: "medium" }, { id: "high" }, { id: "max" }] },
+    { id: "claude-sonnet-4-6", label: "Sonnet 4.6", superseded: true, efforts: [{ id: "low" }, { id: "medium" }, { id: "high" }, { id: "max" }] },
   ],
   defaultId: "opus",
 };
@@ -49,11 +49,11 @@ export const codexCatalog: ModelCatalog = {
 const KIMI_EFFORTS = [{ id: "low" }, { id: "high" }, { id: "max" }];
 export const kimiCatalog: ModelCatalog = {
   options: [
-    { id: "kimi-code/kimi-for-coding", label: "K2.8 Preview", efforts: KIMI_EFFORTS, defaultEffort: "high" },
-    { id: "kimi-code/kimi-for-coding-highspeed", label: "K2.7 Code Highspeed", efforts: [{ id: "on" }, { id: "high" }], defaultEffort: "high" },
-    { id: "kimi-code/k3-256k", label: "K3-256k", efforts: KIMI_EFFORTS, defaultEffort: "high" },
+    { id: "kimi-code/kimi-for-coding", label: "K2.8 Preview", superseded: true, efforts: KIMI_EFFORTS, defaultEffort: "high" },
+    { id: "kimi-code/kimi-for-coding-highspeed", label: "K2.7 Code Highspeed", superseded: true, efforts: [{ id: "on" }, { id: "high" }], defaultEffort: "high" },
+    { id: "kimi-code/k3-256k", label: "K3-256k", superseded: true, efforts: KIMI_EFFORTS, defaultEffort: "high" },
     { id: "kimi-code/k3.1-pro-highspeed", label: "K3.1 Pro Highspeed 2x Usage Cost", efforts: KIMI_EFFORTS, defaultEffort: "high" },
-    { id: "kimi-code/k3", label: "K3", efforts: KIMI_EFFORTS, defaultEffort: "high" },
+    { id: "kimi-code/k3", label: "K3", superseded: true, efforts: KIMI_EFFORTS, defaultEffort: "high" },
     { id: "kimi-code/k3.1-pro", label: "K3.1 Pro", efforts: KIMI_EFFORTS, defaultEffort: "high" },
   ],
   defaultId: "kimi-code/kimi-for-coding",
@@ -123,7 +123,7 @@ type Story = StoryObj<typeof meta>;
  * model, the submenus open on hover. */
 export const Playground: Story = { args: { defaultOpen: false } };
 
-/** Claude's current line-up at the top level, each with its digit. */
+/** Claude's current line-up at the top level: one model per purpose. */
 export const Claude: Story = { args: {} };
 
 /** Effort is a submenu: what it costs, then the levels. Claude reports no
@@ -137,12 +137,16 @@ export const MoreModels: Story = { args: { model: "claude-opus-4-6", defaultSubm
 /** The relay's other runtimes. Switching swaps the catalog in place. */
 export const AgentSubmenu: Story = { args: { defaultSubmenu: "agent" } };
 
-/** Codex: no pinned versions, so no "More models"; its own default level is
+/** Codex: nothing superseded today, so no "More models"; its own default level is
  * badged instead of a "Default" row. */
 export const CodexEffort: Story = { args: { agentId: "codex", defaultSubmenu: "effort" } };
 
-/** Kimi: six models, none pinned — all at the top level. */
+/** Kimi: its newest generation on top (Pro for depth, Pro Highspeed for
+ * speed). Its CLI default is older, so More models names it. */
 export const Kimi: Story = { args: { agentId: "kimi" } };
+
+/** Kimi's older generations. */
+export const KimiMoreModels: Story = { args: { agentId: "kimi", defaultSubmenu: "more" } };
 
 /** After the first turn: model and agent fixed, effort still per turn. */
 export const Locked: Story = { args: { locked: true, effort: "max" } };

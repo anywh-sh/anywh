@@ -23,14 +23,14 @@ const TWO_AGENTS = {
     { id: "codex", capabilities: {} },
   ],
 };
-// Shaped like the real probes: Claude's aliases plus pinned exact versions
+// Shaped like the real probes: Claude's aliases plus superseded exact versions
 // and no default effort; Codex's with a default effort of its own.
 const CATALOG: ModelCatalog = {
   options: [
     { id: "opus", label: "Opus 5.5", efforts: [{ id: "low" }, { id: "high" }] },
     { id: "sonnet", label: "Sonnet 5.5", efforts: [{ id: "low" }, { id: "high" }] },
     { id: "haiku", label: "Haiku 5.5" },
-    { id: "claude-opus-4-8", label: "Opus 4.8", pinnedVersion: true, efforts: [{ id: "low" }] },
+    { id: "claude-opus-4-8", label: "Opus 4.8", superseded: true, efforts: [{ id: "low" }] },
   ],
   defaultId: "opus",
 };
@@ -77,14 +77,14 @@ describe("AgentModelEffortButton", () => {
     expect(trigger).toHaveTextContent("high");
   });
 
-  it("the top level lists the current line-up with its digits; pinned versions sit under More models", async () => {
+  it("the top level lists the current line-up; superseded models sit under More models", async () => {
     vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
     const user = userEvent.setup();
     const props = renderButton();
     await user.click(await screen.findByRole("button"));
 
     expect(await screen.findByText(copy.menu.modelHeader)).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Sonnet 5.5 2" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Sonnet 5.5" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /Opus 4\.8/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: copy.menu.moreModels }));
@@ -101,18 +101,7 @@ describe("AgentModelEffortButton", () => {
     expect(props.onChangeModel).not.toHaveBeenCalled();
   });
 
-  it("a digit picks that top-level model and closes the menu", async () => {
-    vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
-    const user = userEvent.setup();
-    const props = renderButton();
-    await user.click(await screen.findByRole("button"));
-    await screen.findByRole("menu");
-    await user.keyboard("3");
-    expect(props.onChangeModel).toHaveBeenCalledWith("haiku");
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-  });
-
-  it("a session on a pinned version names it on the More models row", async () => {
+  it("a session on a superseded model names it on the More models row", async () => {
     vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
     const user = userEvent.setup();
     renderButton({ model: "claude-opus-4-8" });
@@ -176,9 +165,6 @@ describe("AgentModelEffortButton", () => {
     expect(screen.queryByRole("menuitem", { name: /Sonnet/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: copy.menu.moreModels })).not.toBeInTheDocument();
     expect(screen.getByText(copy.menu.fixedInSession)).toBeInTheDocument();
-
-    await user.keyboard("2");
-    expect(props.onChangeModel).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("menuitem", { name: new RegExp(`^${copy.menu.effort}`) }));
     await user.click(await screen.findByRole("menuitem", { name: "Low" }));

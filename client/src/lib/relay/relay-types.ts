@@ -38,9 +38,9 @@ export interface ModelOption {
   efforts?: EffortOption[];
   /** The level the CLI runs when none is picked; absent when it doesn't say. */
   defaultEffort?: string;
-  /** An exact, dated version listed beside the CLI's moving aliases — shown
-   * under "More models" rather than at the top level. */
-  pinnedVersion?: true;
+  /** A newer model of the same line is in the catalog — shown under "More
+   * models" rather than at the top level. */
+  superseded?: true;
 }
 
 /** Mirrors the relay's `EffortOption`. `id` is opaque; labels are the client's. */

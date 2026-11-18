@@ -6,7 +6,7 @@ import * as stories from "./AgentModelEffortButton.stories";
 import { en } from "@/i18n/en";
 
 const copy = en.chat.composer;
-const { Playground, Claude, EffortSubmenu, MoreModels, AgentSubmenu, CodexEffort, Kimi, Locked, SingleAgent, Pending } = composeStories(stories);
+const { Playground, Claude, EffortSubmenu, MoreModels, AgentSubmenu, CodexEffort, Kimi, KimiMoreModels, Locked, SingleAgent, Pending } = composeStories(stories);
 
 describe("AgentModelEffortMenu stories", () => {
   afterEach(() => act(() => cleanup()));
@@ -21,7 +21,7 @@ describe("AgentModelEffortMenu stories", () => {
 
   it("Claude lists the four aliases on top, the rest behind More models", async () => {
     render(<Claude />);
-    for (const name of ["Opus 5.5", "Fable 5.2 2", "Sonnet 5.5 3", "Haiku 5.5 4"]) expect(await screen.findByRole("menuitem", { name })).toBeInTheDocument();
+    for (const name of ["Opus 5.5", "Fable 5.2", "Sonnet 5.5", "Haiku 5.5"]) expect(await screen.findByRole("menuitem", { name })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /Opus 4\.8/ })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: copy.menu.moreModels })).toBeInTheDocument();
   });
@@ -33,7 +33,7 @@ describe("AgentModelEffortMenu stories", () => {
     expect(screen.getByRole("menuitem", { name: "Extra high" })).toBeInTheDocument();
   });
 
-  it("MoreModels names the pinned model the session is on", async () => {
+  it("MoreModels names the superseded model the session is on", async () => {
     render(<MoreModels />);
     expect(await screen.findByRole("menuitem", { name: `${copy.menu.moreModels} Opus 4.6` })).toBeInTheDocument();
     expect(await screen.findByRole("menuitem", { name: "Sonnet 4.6" })).toBeInTheDocument();
@@ -52,9 +52,18 @@ describe("AgentModelEffortMenu stories", () => {
     expect(screen.queryByRole("menuitem", { name: copy.menu.moreModels })).not.toBeInTheDocument();
   });
 
-  it("Kimi shows all six models at the top level", async () => {
+  it("Kimi keeps its newest generation on top, one per purpose", async () => {
     render(<Kimi />);
-    expect(await screen.findByRole("menuitem", { name: "K3.1 Pro 6" })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: "K3.1 Pro" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "K3.1 Pro Highspeed 2x Usage Cost" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "K3" })).not.toBeInTheDocument();
+    // The CLI's default is an older generation: the More models row names it.
+    expect(screen.getByRole("menuitem", { name: `${copy.menu.moreModels} K2.8 Preview` })).toBeInTheDocument();
+  });
+
+  it("KimiMoreModels lists the older generations", async () => {
+    render(<KimiMoreModels />);
+    expect(await screen.findByRole("menuitem", { name: "K2.7 Code Highspeed" })).toBeInTheDocument();
   });
 
   it("Locked fixes model and agent but keeps effort", async () => {

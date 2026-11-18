@@ -63,14 +63,14 @@ export function catalogsFromLegacyDefaultModelState(label: string, available: st
   return { claude: { options, ...(defaultId ? { defaultId } : {}) } };
 }
 
-/** The catalog split the way the picker shows it: the CLI's current line-up
- * at the top level, the exact versions it also offers (`pinnedVersion`) under
- * "More models". A catalog that marks nothing — every agent but Claude, and a
- * relay from before the flag — is all top level; so is one that marks
- * everything, rather than leaving the top level empty. */
+/** The catalog split the way the picker shows it: the current line-up at
+ * the top level, the models a newer one replaces (`superseded`, which the
+ * relay's def for each agent decides) under "More models". A catalog that
+ * marks nothing — a relay from before the flag — is all top level; so is
+ * one that marks everything, rather than leaving the top level empty. */
 export function splitModelOptions(catalog: ModelCatalog | null | undefined): { primary: ModelOption[]; more: ModelOption[] } {
   const options = catalog?.options ?? [];
-  const primary = options.filter((option) => option.pinnedVersion !== true);
+  const primary = options.filter((option) => option.superseded !== true);
   if (primary.length === 0) return { primary: options, more: [] };
-  return { primary, more: options.filter((option) => option.pinnedVersion === true) };
+  return { primary, more: options.filter((option) => option.superseded === true) };
 }

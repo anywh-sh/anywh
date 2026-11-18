@@ -31,19 +31,19 @@ describe("catalogsFromLegacyDefaultModelState", () => {
 
 describe("splitModelOptions", () => {
   const opus = { id: "opus", label: "Opus 5.5" };
-  const pinned = { id: "claude-opus-4-8", label: "Opus 4.8", pinnedVersion: true as const };
+  const older = { id: "claude-opus-4-8", label: "Opus 4.8", superseded: true as const };
 
-  it("puts pinned versions under More models, in the CLI's order", () => {
-    expect(splitModelOptions({ options: [opus, pinned] })).toEqual({ primary: [opus], more: [pinned] });
+  it("puts superseded models under More models, in the CLI's order", () => {
+    expect(splitModelOptions({ options: [opus, older] })).toEqual({ primary: [opus], more: [older] });
   });
 
-  it("keeps everything at the top level when nothing is pinned (every other agent, an older relay)", () => {
+  it("keeps everything at the top level when nothing is superseded (an older relay)", () => {
     const gpt = { id: "gpt-5.6-terra", label: "GPT-5.6-Terra" };
     expect(splitModelOptions({ options: [gpt] })).toEqual({ primary: [gpt], more: [] });
   });
 
-  it("never leaves the top level empty when everything is pinned", () => {
-    expect(splitModelOptions({ options: [pinned] })).toEqual({ primary: [pinned], more: [] });
+  it("never leaves the top level empty when everything is superseded", () => {
+    expect(splitModelOptions({ options: [older] })).toEqual({ primary: [older], more: [] });
   });
 
   it("is empty without a catalog", () => {
