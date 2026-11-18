@@ -416,6 +416,19 @@ test("portability.mcp.loginArgs: the subcommand that doesn't start OAuth on its 
 
 // `model/list` effort fields, codex-cli 0.154.0 (trimmed): `ultra` only on
 // the biggest model, a per-model default.
+test("models: a model Codex names an upgrade for is superseded; one with upgrade null is not", () => {
+  const stdout = JSON.stringify({
+    id: 2,
+    result: {
+      data: [
+        { id: "gpt-5.6-terra", displayName: "GPT-5.6-Terra", description: "", hidden: false, isDefault: true, upgrade: null },
+        { id: "gpt-5.5", displayName: "GPT-5.5", description: "", hidden: false, isDefault: false, upgrade: "gpt-5.6-terra" },
+      ],
+    },
+  });
+  assert.deepEqual(parseCodexModelList(stdout)?.options.map((option) => option.superseded === true), [false, true]);
+});
+
 test("models: parseCodexModelList carries supportedReasoningEfforts and defaultReasoningEffort", () => {
   const stdout = JSON.stringify({
     id: 2,
