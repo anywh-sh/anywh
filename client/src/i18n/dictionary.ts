@@ -1351,6 +1351,17 @@ export interface Dictionary {
         willPair: string;
         format: string;
         submit: string;
+        /** The two ways in: a pairing code, or a relay's address typed
+         * directly (a machine on the same network or tailnet). */
+        modeCode: string;
+        modeAddress: string;
+        hostLabel: string;
+        hostPlaceholder: string;
+        portLabel: string;
+        /** Shown for a host that can't be an address. */
+        hostInvalid: string;
+        /** The address mode's submit. */
+        connect: string;
       };
       /** The blocking dialog that runs while a paired machine is turned
        * into a working profile. */

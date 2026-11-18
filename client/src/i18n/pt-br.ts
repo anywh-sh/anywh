@@ -580,7 +580,7 @@ export const ptBr: Dictionary = {
       },
       pair: {
         title: "Adicionar máquina remota",
-        description: "Cole o código de pareamento gerado pela máquina que você quer alcançar.",
+        description: "Cole o código de pareamento gerado pela máquina que você quer alcançar, ou digite o endereço dela se este aparelho a alcança diretamente.",
         nameLabel: "nome",
         namePlaceholder: "Ex.: Servidor de casa",
         codeLabel: "código de pareamento",
@@ -588,6 +588,13 @@ export const ptBr: Dictionary = {
         willPair: "Vai parear com {origin}",
         format: "O código tem o formato CÓDIGO@servidor.",
         submit: "Parear",
+        modeCode: "Código de pareamento",
+        modeAddress: "Endereço",
+        hostLabel: "endereço",
+        hostPlaceholder: "192.168.0.10 ou meu-servidor.local",
+        portLabel: "porta",
+        hostInvalid: "Isso não parece um endereço.",
+        connect: "Conectar",
       },
       setup: {
         progress: "Progresso da conexão",
