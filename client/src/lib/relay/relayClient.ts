@@ -138,16 +138,56 @@ export async function fetchControlProfiles(host: string, port: number, token?: s
   return body.profiles ?? [];
 }
 
+/** Where a profile being created keeps its agent accounts: a draft's own
+ * config folders (`draftId`, from `createProfileDraft`), or a legacy custom
+ * `$HOME` (`home`). Neither means the machine's real `$HOME`. */
+export interface NewProfileAccount {
+  draftId?: string;
+  home?: string;
+}
+
+/** What a new profile keeps from the machine's own agent configuration
+ * (relay `host/profileSharing.ts`). The account itself never is. */
+export type SharingMode = "separate" | "shared" | "copy";
+export interface ProfileSharing {
+  instructions: SharingMode;
+  preferences: SharingMode;
+  mcp: SharingMode;
+}
+
+/** Reserves an id and private agent config folders for a profile about to
+ * be created on `host`, so its agents can be signed in before it exists.
+ * Drop it with `discardProfileDraft` if the profile is never created. */
+export async function createProfileDraft(host: string, port: number, label: string): Promise<{ id: string }> {
+  const response = await fetch(`http://${host}:${port}/control/profiles/draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label }),
+  });
+  const body = (await response.json().catch(() => ({}))) as { id?: string; error?: string };
+  if (!response.ok || !body.id) throw new Error(body.error ?? `failed to start the profile (${String(response.status)})`);
+  return { id: body.id };
+}
+
+/** Best effort: a draft left behind only costs an empty folder on the host. */
+export async function discardProfileDraft(host: string, port: number, id: string): Promise<void> {
+  await fetch(`http://${host}:${port}/control/profiles/draft/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => undefined);
+}
+
 /** Checks whether `homeOverride` (or the real `$HOME` if omitted) is
  * already logged into Claude Code, and whether it collides with a profile
  * this host already has. Always resolves with a body to interpret (`loggedIn`,
  * `collidesWith`) rather than throwing for those cases — only a genuine
  * failure to run the check (the relay's own 502) throws. */
-export async function validateProfile(host: string, port: number, homeOverride?: string, runtimeId?: string): Promise<ProfileValidation> {
+export async function validateProfile(host: string, port: number, account: NewProfileAccount, runtimeId?: string): Promise<ProfileValidation> {
   const response = await fetch(`http://${host}:${port}/control/profiles/validate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...(homeOverride ? { homeOverride } : {}), ...(runtimeId ? { runtimeId } : {}) }),
+    body: JSON.stringify({
+      ...(account.home ? { homeOverride: account.home } : {}),
+      ...(account.draftId ? { draftId: account.draftId } : {}),
+      ...(runtimeId ? { runtimeId } : {}),
+    }),
   });
   const body = (await response.json().catch(() => ({}))) as ProfileValidation & { error?: string };
   if (!response.ok) {
@@ -161,11 +201,23 @@ export async function validateProfile(host: string, port: number, homeOverride?:
  * re-validates login/collision itself before provisioning, so a stale
  * `validateProfile` result from earlier in the dialog can't create a
  * profile that would actually fail. */
-export async function createProfile(host: string, port: number, label: string, homeOverride?: string, runtimeId?: string): Promise<CreatedProfile> {
+export async function createProfile(
+  host: string,
+  port: number,
+  label: string,
+  account: NewProfileAccount & { sharing?: ProfileSharing },
+  runtimeId?: string,
+): Promise<CreatedProfile> {
   const response = await fetch(`http://${host}:${port}/control/profiles`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ label, ...(homeOverride ? { home: homeOverride } : {}), ...(runtimeId ? { runtimeId } : {}) }),
+    body: JSON.stringify({
+      label,
+      ...(account.home ? { home: account.home } : {}),
+      ...(account.draftId ? { draftId: account.draftId } : {}),
+      ...(account.draftId && account.sharing ? { sharing: account.sharing } : {}),
+      ...(runtimeId ? { runtimeId } : {}),
+    }),
   });
   const body = (await response.json().catch(() => ({}))) as CreatedProfile & { error?: string };
   if (!response.ok) {
@@ -251,19 +303,21 @@ export type AgentLoginFrame =
   | { type: "done"; account?: string; plan?: string }
   | { type: "error"; reason: AgentLoginErrorReason; detail?: string };
 
-export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "bad-home" | "start-failed" | "failed" | "not-signed-in" | "superseded";
+export type AgentLoginErrorReason = "unknown-runtime" | "unsupported" | "bad-home" | "unknown-profile" | "start-failed" | "failed" | "not-signed-in" | "superseded";
 
 /** Opens the socket that signs `runtimeId` in on `profile`'s machine — the
  * agent's own sign-in, run by that profile's relay under its own `$HOME`.
  * The one frame in is `{type:"code", value}`, the code the person pasted.
  * Resolved through `resolveConnection`, like every socket that has to work
- * over a tailnet. Closing the socket ends the login. `home` is only for a
- * profile being created, whose own relay doesn't exist yet: the sign-in
- * then runs on `profile`'s relay, under the new profile's home. */
-export async function openAgentLogin(profile: Profile, runtimeId: string, home?: string): Promise<WebSocket> {
+ * over a tailnet. Closing the socket ends the login. `account` is only for
+ * a profile being created, whose own relay doesn't exist yet: the sign-in
+ * then runs on `profile`'s relay, into the new profile's draft folders (or
+ * its legacy home). */
+export async function openAgentLogin(profile: Profile, runtimeId: string, account: NewProfileAccount = {}): Promise<WebSocket> {
   const { host, port, token } = await resolveConnection(profile);
   const params = new URLSearchParams({ runtime: runtimeId });
-  if (home) params.set("home", home);
+  if (account.draftId) params.set("profile", account.draftId);
+  else if (account.home) params.set("home", account.home);
   if (token) params.set("token", token);
   return new WebSocket(`ws://${host}:${String(port)}/agent-login?${params.toString()}`);
 }

@@ -1238,7 +1238,31 @@ export interface Dictionary {
         namePlaceholder: string;
         homeLabel: string;
         homePlaceholder: string;
-        verify: string;
+        /** Under the custom folder: what typing one means (the older,
+         * whole-`$HOME` isolation) and that the default needs none. */
+        homeHint: string;
+        /** Toggles the custom folder field. */
+        advanced: string;
+        /** Under the agent picker: it is the agent signed in now, not the
+         * only one the profile can use. */
+        runtimeHint: string;
+        /** What a new profile keeps from this machine's own agent
+         * configuration. The account is never part of it. */
+        sharing: {
+          title: string;
+          description: string;
+          categories: { instructions: string; preferences: string; mcp: string };
+          separate: string;
+          shared: string;
+          copy: string;
+          /** The per-agent exceptions (Codex's single config file, Kimi's
+           * config holding its account). */
+          agentNotes: string;
+        };
+        continue: string;
+        back: string;
+        /** The sign-in step. `{agent}` — the agent picked. */
+        accountDescription: string;
         verifying: string;
         creating: string;
         /** `{agent}` — the agent picked above, whose login was checked. */

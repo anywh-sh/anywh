@@ -15,8 +15,10 @@ export interface AgentLoginTarget {
   /** The profile whose machine — and so whose account — the sign-in is for. */
   profile: Profile;
   runtimeId: string;
-  /** A profile being created: its home, signed in through `profile`'s relay
-   * before the new profile's own relay exists. */
+  /** A profile being created, signed in through `profile`'s relay before
+   * the new profile's own relay exists: its draft id (its own config
+   * folders), or a legacy custom home. */
+  draftId?: string;
   home?: string;
 }
 
@@ -103,7 +105,7 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
   // sign-in on every render.
   const targetRef = useRef(target);
   targetRef.current = target;
-  const targetKey = target ? `${target.profile.id}\0${target.runtimeId}\0${target.home ?? ""}` : null;
+  const targetKey = target ? `${target.profile.id}\0${target.runtimeId}\0${target.draftId ?? ""}\0${target.home ?? ""}` : null;
 
   const agent = target ? agentName(dict.chat.composer.agentNames, target.runtimeId) : "";
   const fill = (text: string): string => text.split("{agent}").join(agent);
@@ -121,7 +123,7 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
       setState((previous) => (previous.step === "connecting" ? { ...previous, showOutput: true } : previous));
     }, RAW_OUTPUT_AFTER_MS);
 
-    openAgentLogin(target.profile, target.runtimeId, target.home).then(
+    openAgentLogin(target.profile, target.runtimeId, { draftId: target.draftId, home: target.home }).then(
       (opened) => {
         if (cancelled) {
           opened.close();
@@ -331,6 +333,7 @@ function errorText(reason: AgentLoginErrorReason | "unreachable", copy: ReturnTy
     case "unknown-runtime":
     case "unsupported":
     case "bad-home":
+    case "unknown-profile":
     case "start-failed":
       return copy.startFailed;
   }
