@@ -23,13 +23,22 @@ const TWO_AGENTS = {
     { id: "codex", capabilities: {} },
   ],
 };
+// Shaped like the real probes: Claude's aliases plus superseded exact versions
+// and no default effort; Codex's with a default effort of its own.
 const CATALOG: ModelCatalog = {
   options: [
     { id: "opus", label: "Opus 5.5", efforts: [{ id: "low" }, { id: "high" }] },
-    { id: "haiku", label: "Haiku 4.5" },
+    { id: "sonnet", label: "Sonnet 5.5", efforts: [{ id: "low" }, { id: "high" }] },
+    { id: "haiku", label: "Haiku 5.5" },
+    { id: "claude-opus-4-8", label: "Opus 4.8", superseded: true, efforts: [{ id: "low" }] },
   ],
   defaultId: "opus",
 };
+const CODEX_CATALOG: ModelCatalog = {
+  options: [{ id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: [{ id: "low" }, { id: "medium" }, { id: "high" }], defaultEffort: "medium" }],
+  defaultId: "gpt-5.6-terra",
+};
+const copy = en.chat.composer;
 
 function renderButton(overrides: Partial<React.ComponentProps<typeof AgentModelEffortButton>> = {}) {
   const props = {
@@ -68,46 +77,98 @@ describe("AgentModelEffortButton", () => {
     expect(trigger).toHaveTextContent("high");
   });
 
-  it("one menu carries the three choices", async () => {
+  it("the top level lists the current line-up; superseded models sit under More models", async () => {
     vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
     const user = userEvent.setup();
     const props = renderButton();
     await user.click(await screen.findByRole("button"));
 
-    await user.click(await screen.findByRole("menuitem", { name: new RegExp(en.chat.composer.agentNames.codex) }));
-    expect(props.onChangeAgent).toHaveBeenCalledWith("codex");
+    expect(await screen.findByText(copy.menu.modelHeader)).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Sonnet 5.5" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Opus 4\.8/ })).not.toBeInTheDocument();
 
-    await user.click(await screen.findByRole("button"));
-    await user.click(await screen.findByRole("menuitem", { name: "Haiku 4.5" }));
-    expect(props.onChangeModel).toHaveBeenCalledWith("haiku");
+    await user.click(screen.getByRole("menuitem", { name: copy.menu.moreModels }));
+    await user.click(await screen.findByRole("menuitem", { name: /Opus 4\.8/ }));
+    expect(props.onChangeModel).toHaveBeenCalledWith("claude-opus-4-8");
+  });
 
+  it("picking the model the session is already on sends nothing", async () => {
+    vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
+    const user = userEvent.setup();
+    const props = renderButton();
     await user.click(await screen.findByRole("button"));
-    await user.click(await screen.findByRole("menuitem", { name: "High" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Opus 5.5" }));
+    expect(props.onChangeModel).not.toHaveBeenCalled();
+  });
+
+  it("a session on a superseded model names it on the More models row", async () => {
+    vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
+    const user = userEvent.setup();
+    renderButton({ model: "claude-opus-4-8" });
+    await user.click(await screen.findByRole("button"));
+    expect(await screen.findByRole("menuitem", { name: `${copy.menu.moreModels} Opus 4.8` })).toBeInTheDocument();
+  });
+
+  it("effort is a submenu: a level, or Default when the CLI has none of its own", async () => {
+    vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
+    const user = userEvent.setup();
+    const props = renderButton();
+    await user.click(await screen.findByRole("button"));
+    await user.click(await screen.findByRole("menuitem", { name: `${copy.menu.effort} ${copy.effortDefault}` }));
+    expect(await screen.findByText(copy.menu.effortHint)).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "High" }));
     expect(props.onChangeEffort).toHaveBeenCalledWith("high");
 
     await user.click(await screen.findByRole("button"));
-    await user.click(await screen.findByRole("menuitem", { name: en.chat.composer.effortDefault }));
+    await user.click(await screen.findByRole("menuitem", { name: new RegExp(`^${copy.menu.effort}`) }));
+    await user.click(await screen.findByRole("menuitem", { name: copy.effortDefault }));
     expect(props.onChangeEffort).toHaveBeenLastCalledWith(null);
   });
 
-  it("a model with no efforts has no effort section", async () => {
+  it("an agent with a default effort of its own badges it instead of offering Default", async () => {
+    vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
+    const user = userEvent.setup();
+    renderButton({ agentId: "codex", catalog: CODEX_CATALOG });
+    await user.click(await screen.findByRole("button"));
+    expect(screen.queryByRole("menuitem", { name: copy.menu.moreModels })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("menuitem", { name: `${copy.menu.effort} Medium` }));
+    expect(await screen.findByRole("menuitem", { name: `Medium ${copy.effortDefault}` })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: copy.effortDefault })).not.toBeInTheDocument();
+  });
+
+  it("the agent is a submenu of the relay's other runtimes", async () => {
+    vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
+    const user = userEvent.setup();
+    const props = renderButton();
+    await user.click(await screen.findByRole("button"));
+    await user.click(await screen.findByRole("menuitem", { name: new RegExp(`^${copy.menu.agent}`) }));
+    await user.click(await screen.findByRole("menuitem", { name: new RegExp(copy.agentNames.codex) }));
+    expect(props.onChangeAgent).toHaveBeenCalledWith("codex");
+  });
+
+  it("a model with no efforts has no effort row", async () => {
     vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
     const user = userEvent.setup();
     renderButton({ model: "haiku" });
     await user.click(await screen.findByRole("button"));
-    await screen.findByRole("menuitem", { name: "Haiku 4.5" });
-    expect(screen.queryByText(en.chat.composer.menu.effort)).not.toBeInTheDocument();
+    await screen.findByRole("menuitem", { name: /Haiku 5\.5/ });
+    expect(screen.queryByRole("menuitem", { name: new RegExp(`^${copy.menu.effort}`) })).not.toBeInTheDocument();
   });
 
-  it("locked: the model is fixed and another agent can't be picked", async () => {
+  it("locked: model and agent are fixed, effort still changes", async () => {
     vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
     const user = userEvent.setup();
-    renderButton({ locked: true });
+    const props = renderButton({ locked: true });
     await user.click(await screen.findByRole("button"));
 
-    expect(await screen.findByRole("menuitem", { name: new RegExp(en.chat.composer.agentNames.codex) })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.queryByRole("menuitem", { name: "Haiku 4.5" })).not.toBeInTheDocument();
-    expect(screen.getByText(en.chat.composer.menu.fixedInSession)).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: new RegExp(`^${copy.menu.agent}`) })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("menuitem", { name: /Sonnet/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: copy.menu.moreModels })).not.toBeInTheDocument();
+    expect(screen.getByText(copy.menu.fixedInSession)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("menuitem", { name: new RegExp(`^${copy.menu.effort}`) }));
+    await user.click(await screen.findByRole("menuitem", { name: "Low" }));
+    expect(props.onChangeEffort).toHaveBeenCalledWith("low");
   });
 
   it("is disabled until the first agent_state arrives", async () => {

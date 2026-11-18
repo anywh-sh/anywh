@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { TurnHost, UserInputAnswer } from "../types.js";
-import { ACP_CANCELLED_OUTCOME, acpApprovalRequest, acpConfigOptions, acpModelChoices, acpModelOption, answerAcpApproval, answerAcpQuestion, isAcpSessionGoneError } from "./acp.js";
+import { ACP_CANCELLED_OUTCOME, acpApprovalRequest, acpCatalog, acpConfigOptions, acpModelChoices, acpModelOption, answerAcpApproval, answerAcpQuestion, isAcpSessionGoneError } from "./acp.js";
 
 // Shapes recorded from Kimi Code CLI 2.6.0 (`kimi acp`).
 const BASH_PERMISSION = {
@@ -86,4 +86,27 @@ test("configOptions: the model picker becomes the catalog, each model with the l
 test("only an unknown session id means the session is gone", () => {
   assert.equal(isAcpSessionGoneError("Invalid params: Unknown sessionId: session_x"), true);
   assert.equal(isAcpSessionGoneError("Authentication required: Your current subscription does not have access to k"), false);
+});
+
+// The model names Kimi Code 2.6.0 lists, in its own order.
+test("acpCatalog: older generations than the newest listed are superseded", () => {
+  const labels = ["K2.8 Preview", "K2.7 Code Highspeed", "K3-256k", "K3.1 Pro Highspeed 2x Usage Cost", "K3", "K3.1 Pro"];
+  const catalog = acpCatalog(labels.map((label) => ({ id: label, label })), "K2.8 Preview");
+  assert.deepEqual(
+    catalog.options.filter((option) => option.superseded !== true).map((option) => option.label),
+    ["K3.1 Pro Highspeed 2x Usage Cost", "K3.1 Pro"],
+  );
+  assert.equal(catalog.defaultId, "K2.8 Preview");
+});
+
+test("acpCatalog: compares versions numerically, not as text", () => {
+  const catalog = acpCatalog([{ id: "a", label: "M 2.10" }, { id: "b", label: "M 2.9" }], undefined);
+  assert.deepEqual(catalog.options.map((option) => option.superseded === true), [false, true]);
+});
+
+test("acpCatalog: a name with no version, or a single generation, marks nothing", () => {
+  const unnamed = acpCatalog([{ id: "a", label: "Fast" }, { id: "b", label: "Model 2" }], undefined);
+  assert.equal(unnamed.options[0]?.superseded, undefined);
+  const single = acpCatalog([{ id: "a", label: "X 3 Pro" }, { id: "b", label: "X 3 Lite" }], undefined);
+  assert.equal(single.options.some((option) => option.superseded), false);
 });

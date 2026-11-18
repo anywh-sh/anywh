@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDict } from "@/i18n";
 
 /**
@@ -9,5 +10,5 @@ import { useDict } from "@/i18n";
  */
 export function TitleSkeleton({ className }: { className?: string }) {
   const dict = useDict();
-  return <span role="status" aria-label={dict.common.generatingTitle} className={cn("inline-block h-[0.7em] w-28 max-w-full animate-pulse bg-border align-middle", className)} />;
+  return <Skeleton aria-hidden={false} role="status" aria-label={dict.common.generatingTitle} className={cn("h-[0.7em] w-28 max-w-full", className)} />;
 }

@@ -6,16 +6,22 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuPortal,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";
-import { getHostInfo, type SelectableAgentInfo } from "@/lib/relay/filesClient";
+import { getHostInfo } from "@/lib/relay/filesClient";
 import type { Profile } from "@/lib/profiles/profiles";
-import type { ModelCatalog, ModelChoice } from "@/lib/relay/relayClient";
-import { effectiveModel, labelForModel } from "@/lib/composer/modelCatalog";
+import type { ModelCatalog, ModelChoice, ModelOption } from "@/lib/relay/relay-types";
+import { effectiveModel, labelForModel, splitModelOptions } from "@/lib/composer/modelCatalog";
 import { effectiveEffort, effectiveModelOption, labelForEffort } from "@/lib/composer/effortCatalog";
 import { cn } from "@/lib/utils";
 
@@ -35,13 +41,54 @@ function AgentTile({ agentId, dim }: { agentId: string; dim?: boolean }) {
   );
 }
 
+/** A submenu row: label, then its hint against the primitive's chevron. The
+ * label takes the slack (`flex-1`) so the chevron always ends the row, with
+ * or without a hint; the chevron's own auto margin then has nothing left. */
+const SUB_ROW = "[&>svg:last-child]:ml-1.5";
+
+function SubRowLabel({ children }: { children: React.ReactNode }) {
+  return <span className="min-w-0 flex-1 truncate">{children}</span>;
+}
+
+/** The Agent row's hint: the session's agent, logo and name. */
+function AgentHint({ agentId, name }: { agentId: string | null; name: string }) {
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 pl-4 text-text-faint">
+      {agentId !== null && <AgentTile agentId={agentId} dim />}
+      <span className="font-mono text-[length:calc(11px*var(--chrome-scale))]">{name}</span>
+    </span>
+  );
+}
+
+/** A submenu row's hint: sits right before the chevron. */
+function SubHint({ children }: { children: React.ReactNode }) {
+  return <span className="shrink-0 pl-4 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint">{children}</span>;
+}
+
 /** A section's right-hand note: where the row says what the choice does. */
 function Hint({ children }: { children: React.ReactNode }) {
   return <span className="ml-auto shrink-0 pl-4 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint">{children}</span>;
 }
 
-interface AgentModelEffortButtonProps {
-  profile: Profile;
+/** The check on a row's right end, held in place (invisible) on the others
+ * so labels don't shift as the pick moves. */
+function RowCheck({ current }: { current: boolean }) {
+  return <Check className={cn("ml-auto size-3.5 shrink-0 text-foreground", !current && "invisible")} />;
+}
+
+function ModelRow({ entry, current, onSelect }: { entry: ModelOption; current: boolean; onSelect: () => void }) {
+  return (
+    <DropdownMenuItem onSelect={onSelect} title={entry.description} className={cn(current && "text-foreground")}>
+      <span className="truncate">{entry.label}</span>
+      <RowCheck current={current} />
+    </DropdownMenuItem>
+  );
+}
+
+interface AgentModelEffortMenuProps {
+  /** The agents this relay can run, in its own order. The agent row only
+   * shows with more than one. */
+  agents: readonly string[];
   /** This session's own agent, from `agent_state` — `null` in the brief
    * window before the first one arrives. Deliberately NOT derived from
    * `/host-info` (that's per-relay, not per-session). */
@@ -62,21 +109,38 @@ interface AgentModelEffortButtonProps {
    * model are fixed from then on (switching would make the CLI re-read the
    * whole history under the new one). Effort is per turn and never locks. */
   locked: boolean;
+  /** Opens the menu on mount — for stories and screenshots only. */
+  defaultOpen?: boolean;
+  /** Which submenu `defaultOpen` also opens — stories only. */
+  defaultSubmenu?: Submenu;
 }
+
+type Submenu = "effort" | "more" | "agent";
 
 /**
  * The composer's one control for agent, model and reasoning effort: a trigger
- * reading "[logo] Opus 4.6 default" that opens a menu with the three choices as
- * sections. They used to be three triggers in a row, which crowded a toolbar
- * that has a permission mode, attach, voice and send to fit as well.
+ * reading "[logo] Opus 5.5 high" that opens a short menu shaped like the
+ * agents' own pickers —
+ *
+ *   Model · this session
+ *     the CLI's current line-up, one model per purpose
+ *   Effort ›        the levels, with what they cost
+ *   More models ›   the models a newer one replaces (`superseded`)
+ *   Agent ›         the other runtimes this relay has
+ *
+ * The frequent choice (model) is one click; the rest are one hover away, so
+ * a catalog of thirteen models or a relay with three agents doesn't turn the
+ * menu into a wall. Rows that have nothing to offer don't render: no "More
+ * models" while nothing in the catalog is superseded, no Effort for a model
+ * that takes none, no Agent row on a relay with one.
  *
  * `modal={false}` as on every dropdown here — Radix traps focus/pointer-events
  * on the body while a modal one is open, and restoration fails on Tauri's
  * WKWebView on macOS. Every model and effort name comes from the session's
  * agent's own CLI (`catalog`); nothing here knows which agent that is.
  */
-export function AgentModelEffortButton({
-  profile,
+export function AgentModelEffortMenu({
+  agents,
   agentId,
   onChangeAgent,
   model,
@@ -86,25 +150,33 @@ export function AgentModelEffortButton({
   onChangeEffort,
   disabled,
   locked,
-}: AgentModelEffortButtonProps) {
+  defaultOpen = false,
+  defaultSubmenu,
+}: AgentModelEffortMenuProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(defaultOpen);
   const dict = useDict().chat.composer;
-  const [agents, setAgents] = useState<SelectableAgentInfo[]>([]);
-
+  const [submenu, setSubmenu] = useState<Submenu | null>(null);
+  // A story's pre-opened submenu opens a tick after the root menu: the root
+  // focuses itself on open, and a submenu already open then reads that as
+  // focus leaving it and closes.
   useEffect(() => {
-    let cancelled = false;
-    getHostInfo(profile)
-      .then((info) => {
-        if (!cancelled) setAgents(info.agents ?? []);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [profile]);
+    if (!defaultOpen || !defaultSubmenu) return;
+    const timer = setTimeout(() => setSubmenu(defaultSubmenu));
+    return () => clearTimeout(timer);
+  }, [defaultOpen, defaultSubmenu]);
+  const subProps = (key: Submenu) => ({
+    open: submenu === key,
+    onOpenChange: (next: boolean) => setSubmenu((current) => (next ? key : current === key ? null : current)),
+  });
 
   const currentModel = effectiveModel(catalog, model);
-  const modelLabel = currentModel !== null ? labelForModel(catalog, currentModel) : dict.pending;
+  // Until the session's agent and its catalog land there's no name to show:
+  // the trigger holds their place with skeletons, the label says it's loading.
+  const pending = currentModel === null;
+  const modelLabel = currentModel !== null ? labelForModel(catalog, currentModel) : dict.menu.loadingModels;
+  const { primary, more } = splitModelOptions(catalog);
+  const currentInMore = more.find((entry) => entry.id === currentModel);
   const option = effectiveModelOption(catalog, model);
   const efforts = option?.efforts ?? [];
   const currentEffort = effectiveEffort(option, effort);
@@ -115,9 +187,17 @@ export function AgentModelEffortButton({
 
   const name = agentId !== null ? agentName(dict.agentNames, agentId) : "";
   const label = dict.agentMenuLabel.replace("{agent}", name).replace("{model}", modelLabel).replace("{effort}", effortLabel ?? dict.effortDefault);
+  const pickModel = (id: ModelChoice) => id !== currentModel && onChangeModel(id);
 
   return (
-    <DropdownMenu modal={false} onOpenChange={(open) => !open && triggerRef.current?.blur()}>
+    <DropdownMenu
+      modal={false}
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) triggerRef.current?.blur();
+      }}
+    >
       <DropdownMenuTrigger asChild disabled={disabled}>
         <Button
           ref={triggerRef}
@@ -127,42 +207,24 @@ export function AgentModelEffortButton({
           title={label}
           aria-label={effortLabel !== null ? label : `${name} · ${modelLabel}`}
           // Disabled still takes the pointer, so the title still names the model.
-          className="gap-[7px] disabled:pointer-events-auto disabled:cursor-default"
+          // While loading, the skeletons already say "not yet": the disabled
+          // fade on top would leave them barely visible.
+          className={cn("gap-[7px] disabled:pointer-events-auto disabled:cursor-default", pending && "disabled:opacity-100")}
+          aria-busy={pending || undefined}
         >
-          {agentId !== null && <AgentTile agentId={agentId} />}
-          <span className="truncate text-foreground">{modelLabel}</span>
+          {agentId !== null ? <AgentTile agentId={agentId} /> : <Skeleton className="size-[calc(14px*var(--chrome-scale))] shrink-0" />}
+          {pending ? <Skeleton className="h-[0.75em] w-[calc(64px*var(--chrome-scale))]" /> : <span className="truncate text-foreground">{modelLabel}</span>}
           {effortLabel !== null && <span className="shrink-0 text-text-faint">{effortLabel.toLowerCase()}</span>}
           <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="min-w-[calc(300px*var(--chrome-scale))]">
-        {agents.length > 1 && (
-          <>
-            <DropdownMenuLabel>{dict.menu.agent}</DropdownMenuLabel>
-            {agents.map((agent) => {
-              const current = agent.id === agentId;
-              return (
-                <DropdownMenuItem
-                  key={agent.id}
-                  disabled={locked && !current}
-                  onSelect={() => !current && onChangeAgent(agent.id)}
-                  className={cn("gap-2.5", current && "text-foreground")}
-                >
-                  <AgentTile agentId={agent.id} dim={!current} />
-                  <span className="truncate">{agentName(dict.agentNames, agent.id)}</span>
-                  <Hint>{current ? dict.menu.thisSession : dict.menu.newSession}</Hint>
-                  <Check className={cn("size-3.5 text-foreground", !current && "opacity-0")} />
-                </DropdownMenuItem>
-              );
-            })}
-            <DropdownMenuSeparator />
-          </>
-        )}
-
+      <DropdownMenuContent
+        align="start"
+        className="min-w-[calc(220px*var(--chrome-scale))]">
         {catalog && (
           <>
-            <DropdownMenuLabel>{dict.menu.model}</DropdownMenuLabel>
+            <DropdownMenuLabel>{dict.menu.modelHeader}</DropdownMenuLabel>
             {locked ? (
               <DropdownMenuItem disabled className="text-foreground opacity-100" title={dict.modelLocked}>
                 <span className="truncate">{modelLabel}</span>
@@ -170,35 +232,110 @@ export function AgentModelEffortButton({
                 <Lock className="size-3 shrink-0" />
               </DropdownMenuItem>
             ) : (
-              catalog.options.map((entry) => (
-                <DropdownMenuItem key={entry.id} onSelect={() => onChangeModel(entry.id)} title={entry.description} className={cn(entry.id === currentModel && "text-foreground")}>
-                  <span className="flex-1 truncate text-left">{entry.label}</span>
-                  <Check className={cn("size-3.5 shrink-0 text-foreground", entry.id !== currentModel && "opacity-0")} />
-                </DropdownMenuItem>
-              ))
+              primary.map((entry) => <ModelRow key={entry.id} entry={entry} current={entry.id === currentModel} onSelect={() => pickModel(entry.id)} />)
             )}
           </>
         )}
 
+        {(efforts.length > 0 || (!locked && more.length > 0)) && <DropdownMenuSeparator />}
+
         {efforts.length > 0 && (
+          <DropdownMenuSub {...subProps("effort")}>
+            <DropdownMenuSubTrigger className={SUB_ROW}>
+              <SubRowLabel>{dict.menu.effort}</SubRowLabel>
+              <SubHint>{effortLabel}</SubHint>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent sideOffset={6} className="w-[calc(260px*var(--chrome-scale))]">
+                <p className="px-3 pt-1 pb-2 text-[length:calc(12px*var(--chrome-scale))] leading-snug text-text-faint">{dict.menu.effortHint}</p>
+                {offersDefaultEffort && (
+                  <DropdownMenuItem onSelect={() => onChangeEffort(null)} className={cn(currentEffort === null && "text-foreground")}>
+                    <span className="truncate">{dict.effortDefault}</span>
+                    <RowCheck current={currentEffort === null} />
+                  </DropdownMenuItem>
+                )}
+                {efforts.map((entry) => (
+                  <DropdownMenuItem key={entry.id} onSelect={() => onChangeEffort(entry.id)} title={entry.description} className={cn(entry.id === currentEffort && "text-foreground")}>
+                    <span className="truncate">{labelForEffort(dict.effortLabels, entry.id)}</span>
+                    {entry.id === option?.defaultEffort && <Badge>{dict.effortDefault}</Badge>}
+                    <RowCheck current={entry.id === currentEffort} />
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
+        )}
+
+        {!locked && more.length > 0 && (
+          <DropdownMenuSub {...subProps("more")}>
+            <DropdownMenuSubTrigger className={cn(SUB_ROW, currentInMore && "text-foreground")}>
+              <SubRowLabel>{dict.menu.moreModels}</SubRowLabel>
+              {currentInMore && <SubHint>{currentInMore.label}</SubHint>}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent sideOffset={6} className="scrollbar-thin max-h-(--radix-dropdown-menu-content-available-height) min-w-[calc(180px*var(--chrome-scale))] overflow-y-auto">
+                {more.map((entry) => (
+                  <ModelRow key={entry.id} entry={entry} current={entry.id === currentModel} onSelect={() => pickModel(entry.id)} />
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
+        )}
+
+        {agents.length > 1 && (
           <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>{dict.menu.effort}</DropdownMenuLabel>
-            {offersDefaultEffort && (
-              <DropdownMenuItem onSelect={() => onChangeEffort(null)} className={cn(currentEffort === null && "text-foreground")}>
-                <span className="flex-1 truncate text-left">{dict.effortDefault}</span>
-                <Check className={cn("size-3.5 shrink-0 text-foreground", currentEffort !== null && "opacity-0")} />
+            {(catalog || efforts.length > 0) && <DropdownMenuSeparator />}
+            {locked ? (
+              <DropdownMenuItem disabled className="opacity-100" title={dict.modelLocked}>
+                <span className="min-w-0 flex-1 truncate">{dict.menu.agent}</span>
+                <AgentHint agentId={agentId} name={name} />
+                <Lock className="size-3 shrink-0" />
               </DropdownMenuItem>
+            ) : (
+              <DropdownMenuSub {...subProps("agent")}>
+                <DropdownMenuSubTrigger className={SUB_ROW}>
+                  <SubRowLabel>{dict.menu.agent}</SubRowLabel>
+                  <AgentHint agentId={agentId} name={name} />
+                </DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent sideOffset={6} className="min-w-[calc(220px*var(--chrome-scale))]">
+                    {agents.map((id) => {
+                      const current = id === agentId;
+                      return (
+                        <DropdownMenuItem key={id} onSelect={() => !current && onChangeAgent(id)} className={cn("gap-2.5", current && "text-foreground")}>
+                          <AgentTile agentId={id} dim={!current} />
+                          <span className="truncate">{agentName(dict.agentNames, id)}</span>
+                          {current ? <Check className="ml-auto size-3.5 shrink-0 text-foreground" /> : <Hint>{dict.menu.newSession}</Hint>}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
             )}
-            {efforts.map((entry) => (
-              <DropdownMenuItem key={entry.id} onSelect={() => onChangeEffort(entry.id)} title={entry.description} className={cn(entry.id === currentEffort && "text-foreground")}>
-                <span className="flex-1 truncate text-left">{labelForEffort(dict.effortLabels, entry.id)}</span>
-                <Check className={cn("size-3.5 shrink-0 text-foreground", entry.id !== currentEffort && "opacity-0")} />
-              </DropdownMenuItem>
-            ))}
           </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/** The menu wired to the relay: reads which agents it can run from
+ * `/host-info`, everything else from the session. */
+export function AgentModelEffortButton({ profile, ...props }: Omit<AgentModelEffortMenuProps, "agents" | "defaultOpen" | "defaultSubmenu"> & { profile: Profile }) {
+  const [agents, setAgents] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getHostInfo(profile)
+      .then((info) => {
+        if (!cancelled) setAgents((info.agents ?? []).map((agent) => agent.id));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [profile]);
+
+  return <AgentModelEffortMenu agents={agents} {...props} />;
 }

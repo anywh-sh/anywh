@@ -1,0 +1,20 @@
+[
+  {
+    "deviceId": "8674b5e7-d0f7-4a08-b330-6c12d9529ffa",
+    "gatewayUrl": "https://api.anywh.sh/push/v1/notify",
+    "pushKey": "AdtXoiSG7e0pW8bwpYsjqKYBR-oqthuKDfcQvuzRZ0s",
+    "data": {
+      "profileId": "trabalho"
+    },
+    "updatedAt": 1793108271680
+  },
+  {
+    "deviceId": "a0d50a8a-3018-4c9b-9f5d-fe76cb7180ed",
+    "gatewayUrl": "https://api.anywh.sh/push/v1/notify",
+    "pushKey": "AdtXoiSG7e0pW8bwpYsjqKYBR-oqthuKDfcQvuzRZ0s",
+    "data": {
+      "profileId": "trabalho"
+    },
+    "updatedAt": 1795009102127
+  }
+]

@@ -19,6 +19,15 @@ function effortsOf(entry: ClaudeModelInfo): EffortOption[] {
   return entry.supportedEffortLevels.filter((level): level is string => typeof level === "string" && level.length > 0).map((id) => ({ id }));
 }
 
+/** An entry naming one exact model (`claude-opus-4-8`, which resolves to
+ * itself) rather than an alias the CLI moves to each new release (`opus`,
+ * which resolves to `claude-opus-5-5` today) — the CLI's own line between
+ * its current line-up (one alias per family) and the older versions it
+ * still offers, which is what `superseded` means. */
+function isExactVersion(entry: ClaudeModelInfo & { value: string }): boolean {
+  return typeof entry.resolvedModel === "string" && entry.resolvedModel === entry.value;
+}
+
 /**
  * Reads the `control_response` to `initialize` out of stream-json stdout.
  * `undefined` until that line has arrived whole (the probe engine calls
@@ -58,6 +67,7 @@ export function parseClaudeModelCatalog(stdout: string): ModelCatalog | undefine
         label: entry.displayName,
         ...(typeof entry.description === "string" && entry.description.length > 0 ? { description: entry.description } : {}),
         ...(efforts.length > 0 ? { efforts } : {}),
+        ...(isExactVersion(entry) ? { superseded: true as const } : {}),
       };
     });
     const defaultId =

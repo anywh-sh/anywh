@@ -103,8 +103,37 @@ export function acpModelChoices(options: readonly AcpConfigOption[]): { readonly
   return { models: model?.options ?? [], ...(model?.currentValue ? { defaultId: model.currentValue } : {}) };
 }
 
+/** The first version number in a model's name ("K3.1 Pro" → [3, 1]),
+ * `undefined` when it has none. */
+function versionInName(label: string): number[] | undefined {
+  const match = /\d+(?:\.\d+)*/.exec(label);
+  return match ? match[0].split(".").map(Number) : undefined;
+}
+
+function compareVersions(a: readonly number[], b: readonly number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * ACP's model option carries a name and nothing else — no alias, no
+ * upgrade pointer — so "a newer one exists" is read off the names: every
+ * model of an older generation than the newest one listed is `superseded`
+ * (Kimi Code 2.6.0: K3.1 Pro and K3.1 Pro Highspeed stay on top, K3,
+ * K3-256k and the K2.x ones don't). A name with no number is never marked:
+ * nothing says it's older.
+ */
 export function acpCatalog(options: readonly ModelOption[], defaultId: string | undefined): ModelCatalog {
-  return { options, ...(defaultId ? { defaultId } : {}) };
+  const versions = options.map((option) => versionInName(option.label));
+  const newest = versions.reduce<number[] | undefined>((max, version) => (version && (!max || compareVersions(version, max) > 0) ? version : max), undefined);
+  const marked = options.map((option, index) => {
+    const version = versions[index];
+    return newest && version && compareVersions(version, newest) < 0 ? { ...option, superseded: true as const } : option;
+  });
+  return { options: marked, ...(defaultId ? { defaultId } : {}) };
 }
 
 // ---------------------------------------------------------------------------
