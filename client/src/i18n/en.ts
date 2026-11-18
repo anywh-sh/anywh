@@ -528,7 +528,7 @@ export const en: Dictionary = {
         accountDescription: "Sign in to {agent} with the account this profile will use.",
         verifying: "Checking…",
         creating: "Creating…",
-        notLoggedIn: "{agent} isn't signed in under this folder yet.",
+        notLoggedIn: "{agent} isn't signed in on this profile yet.",
         connect: "Connect",
         collides: "That path already belongs to the profile \"{profile}\" — it is already in the profile picker.",
         confirmed: "Account confirmed",

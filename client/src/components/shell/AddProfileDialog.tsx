@@ -350,7 +350,7 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
             )}
 
             <div className="flex flex-col gap-2">
-              <TextButton className="self-start" aria-expanded={advanced} onClick={() => setAdvanced((value) => !value)}>
+              <TextButton className="self-start text-xs" aria-expanded={advanced} onClick={() => setAdvanced((value) => !value)}>
                 {copy.advanced}
               </TextButton>
               {advanced && (

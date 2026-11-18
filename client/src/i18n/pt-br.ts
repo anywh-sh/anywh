@@ -528,7 +528,7 @@ export const ptBr: Dictionary = {
         accountDescription: "Entre no {agent} com a conta que este perfil vai usar.",
         verifying: "Verificando…",
         creating: "Criando…",
-        notLoggedIn: "O {agent} ainda não está conectado nesta pasta.",
+        notLoggedIn: "O {agent} ainda não está conectado neste perfil.",
         connect: "Conectar",
         collides: "Esse caminho já pertence ao perfil \"{profile}\" — ele já está no seletor de perfis.",
         confirmed: "Conta confirmada",
