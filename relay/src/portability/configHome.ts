@@ -3,6 +3,7 @@ import { dirname, join, posix, sep } from "node:path";
 import { listDeclaredServers, mergeDeclaration, parseDeclaration, pickPortableKeys } from "./declaration.js";
 import { findAbsolutePathValues, isSafeRelativePath, type ApplicableBundle, type PortabilityBundle, type PortabilityWarning, type PortableFile } from "./manifest.js";
 import type { AgentRuntimeDef } from "../runtimes/types.js";
+import { resolveAgentPath } from "../host/agentConfigDirs.js";
 
 // Reads and writes one runtime's config home — the plumbing half of
 // carrying a setup somewhere else. The def says *which* paths matter
@@ -33,6 +34,8 @@ function fromManifestPath(manifestPath: string): string {
 }
 
 interface WalkState {
+  /** Whose config-dir variables decide where `.claude/…` lives. */
+  env: NodeJS.ProcessEnv;
   readonly files: PortableFile[];
   readonly warnings: PortabilityWarning[];
   totalBytes: number;
@@ -43,7 +46,7 @@ interface WalkState {
  * had authored it. `lstatSync` is what makes that a skip rather than a
  * silent read-through. */
 function walk(home: string, relativePath: string, state: WalkState): void {
-  const absolute = join(home, relativePath);
+  const absolute = resolveAgentPath(home, relativePath, state.env);
   let stats;
   try {
     stats = lstatSync(absolute);
@@ -117,8 +120,10 @@ function walk(home: string, relativePath: string, state: WalkState): void {
  * file — which is precisely why "copy the config home" isn't what this
  * does.
  */
-export function readBundle(def: AgentRuntimeDef, home: string): PortabilityBundle {
-  const state: WalkState = { files: [], warnings: [], totalBytes: 0 };
+/** `env` is the target profile's environment: its config-dir variables
+ * decide where a manifest path such as `.claude/skills` is read from. */
+export function readBundle(def: AgentRuntimeDef, home: string, env: NodeJS.ProcessEnv = process.env): PortabilityBundle {
+  const state: WalkState = { env, files: [], warnings: [], totalBytes: 0 };
   for (const authoredPath of def.portability.authoredPaths) {
     walk(home, fromManifestPath(authoredPath), state);
   }
@@ -131,7 +136,7 @@ export function readBundle(def: AgentRuntimeDef, home: string): PortabilityBundl
   const { declaration } = mcp;
   let declarationText = "";
   try {
-    declarationText = readFileSync(join(home, fromManifestPath(declaration.path)), "utf8");
+    declarationText = readFileSync(resolveAgentPath(home, fromManifestPath(declaration.path), env), "utf8");
   } catch {
     // No declaration file yet — a runtime the user never added a server
     // to. Their authored files still travel.
@@ -171,7 +176,7 @@ export interface ApplyResult {
  * whatever the local CLI wrote before anyone thought about carrying
  * anything.
  */
-export function applyBundle(def: AgentRuntimeDef, home: string, bundle: ApplicableBundle): ApplyResult {
+export function applyBundle(def: AgentRuntimeDef, home: string, bundle: ApplicableBundle, env: NodeJS.ProcessEnv = process.env): ApplyResult {
   const written: string[] = [];
   const rejected: string[] = [];
 
@@ -180,7 +185,7 @@ export function applyBundle(def: AgentRuntimeDef, home: string, bundle: Applicab
       rejected.push(file.path);
       continue;
     }
-    const absolute = join(home, fromManifestPath(file.path));
+    const absolute = resolveAgentPath(home, fromManifestPath(file.path), env);
     mkdirSync(dirname(absolute), { recursive: true });
     writeFileSync(absolute, Buffer.from(file.contents, "base64"));
     // 0o700/0o600 rather than a copy of the source's mode: this is the
@@ -197,7 +202,7 @@ export function applyBundle(def: AgentRuntimeDef, home: string, bundle: Applicab
     // another machine naming its own path is exactly the input that
     // shouldn't get to choose a write target.
     const target = def.portability.mcp.declaration;
-    const absolute = join(home, fromManifestPath(target.path));
+    const absolute = resolveAgentPath(home, fromManifestPath(target.path), env);
     let existing = "";
     try {
       existing = readFileSync(absolute, "utf8");

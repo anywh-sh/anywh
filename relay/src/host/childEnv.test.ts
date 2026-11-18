@@ -18,3 +18,23 @@ test("a child never inherits the agent host's configuration", () => {
     process.env = saved;
   }
 });
+
+test("a profile target replaces the relay's own config dirs; the relay's own home keeps them", () => {
+  const saved = { ...process.env };
+  try {
+    process.env.CLAUDE_CONFIG_DIR = "/mine/claude";
+    process.env.KIMI_CODE_HOME = "/mine/kimi";
+    const own = buildChildEnv("/home/x/.legacy-home", [], () => {});
+    assert.equal(own.HOME, "/home/x/.legacy-home");
+    assert.equal(own.CLAUDE_CONFIG_DIR, "/mine/claude");
+    const other = buildChildEnv({ home: "/home/x/.work-home" }, [], () => {});
+    assert.equal(other.HOME, "/home/x/.work-home");
+    assert.equal("CLAUDE_CONFIG_DIR" in other, false);
+    assert.equal("KIMI_CODE_HOME" in other, false);
+    const draft = buildChildEnv({ configDirs: { claude: "/draft/claude" } }, [], () => {});
+    assert.equal(draft.CLAUDE_CONFIG_DIR, "/draft/claude");
+    assert.equal("KIMI_CODE_HOME" in draft, false);
+  } finally {
+    process.env = saved;
+  }
+});

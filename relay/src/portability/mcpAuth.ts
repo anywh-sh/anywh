@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { join, sep } from "node:path";
 import pty from "node-pty";
 import { listDeclaredServers, parseDeclaration } from "./declaration.js";
 import { buildChildEnv } from "../host/childEnv.js";
+import { resolveAgentPath } from "../host/agentConfigDirs.js";
 import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../runtimes/executables.js";
 import type { AgentRuntimeDef } from "../runtimes/types.js";
 
@@ -38,7 +38,7 @@ export interface McpAuthStatus {
  * runtime says need signing in. Never throws: a missing declaration file,
  * a missing signal file and a malformed one all read as "nothing to
  * report", which is what they mean. */
-export function readMcpAuthStatus(def: AgentRuntimeDef, home: string): McpAuthStatus {
+export function readMcpAuthStatus(def: AgentRuntimeDef, home: string, env: NodeJS.ProcessEnv = process.env): McpAuthStatus {
   const { mcp } = def.portability;
   if (mcp.kind === "none") {
     return { runtimeId: def.identity.id, supported: false, signal: "none", loginDriver: "none", servers: [] };
@@ -47,7 +47,7 @@ export function readMcpAuthStatus(def: AgentRuntimeDef, home: string): McpAuthSt
   const { declaration, needsAuthSignal } = mcp;
   let declared: string[] = [];
   try {
-    const text = readFileSync(join(home, declaration.path.split("/").join(sep)), "utf8");
+    const text = readFileSync(resolveAgentPath(home, declaration.path, env), "utf8");
     declared = listDeclaredServers(parseDeclaration(text, declaration.format), declaration.serversKey);
   } catch {
     // No declaration file: a home where no server was ever added.
@@ -56,7 +56,7 @@ export function readMcpAuthStatus(def: AgentRuntimeDef, home: string): McpAuthSt
   let needing: readonly string[] = [];
   if (needsAuthSignal.kind === "file") {
     try {
-      needing = needsAuthSignal.parse(readFileSync(join(home, needsAuthSignal.path.split("/").join(sep)), "utf8"));
+      needing = needsAuthSignal.parse(readFileSync(resolveAgentPath(home, needsAuthSignal.path, env), "utf8"));
     } catch {
       // The file only exists once the CLI has had a reason to write it.
     }

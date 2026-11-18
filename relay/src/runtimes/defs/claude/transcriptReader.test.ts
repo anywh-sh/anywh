@@ -390,3 +390,18 @@ test("a person's text that merely contains the card marker is left alone", () =>
     assert.equal(user.text, "see [anywh-card] {not json}\nmore");
   });
 });
+
+test("a profile with CLAUDE_CONFIG_DIR keeps its transcripts there, not under $HOME/.claude", () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const cwd = mkdtempSync(join(tmpdir(), "anywh-transcript-cwd-"));
+  try {
+    process.env.CLAUDE_CONFIG_DIR = "/profiles/work/claude";
+    const file = transcriptPath("/home/u", cwd, "s-1");
+    assert.ok(file.startsWith("/profiles/work/claude/projects/"), file);
+    assert.ok(file.endsWith("/s-1.jsonl"));
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
