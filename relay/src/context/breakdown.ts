@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { countTokens } from "./tokenizer.js";
-import { listAssetFilesAcross, readFrontmatterDescription } from "./agentAssets.js";
+import { resolveAgentPath } from "../host/agentConfigDirs.js";
+import { type AssetDirResolver, listAssetFilesAcross, readFrontmatterDescription } from "./agentAssets.js";
 import type { ContextAccounting, ContextRuleAccounting, ContextSkillAccounting, ContextSubagentAccounting } from "../runtimes/types.js";
 
 /** Pure: the calibrated formula itself, against a raw token count already in
@@ -82,8 +83,8 @@ export async function readRuleTokens(cwd: string, ruleFileName: string, accounti
  * description to `descriptionMaxTokens`, and applies the formula. `undefined`
  * with zero skills found — same "category doesn't exist right now" shape as
  * `readRuleTokens`'s missing-file case, not zero-with-a-header. */
-export async function readSkillTokens(roots: readonly string[], accounting: ContextSkillAccounting): Promise<{ tokens: number; count: number } | undefined> {
-  const files = listAssetFilesAcross(roots, accounting.dirs, "skill-folders");
+export async function readSkillTokens(roots: readonly string[], accounting: ContextSkillAccounting, resolve?: AssetDirResolver): Promise<{ tokens: number; count: number } | undefined> {
+  const files = listAssetFilesAcross(roots, accounting.dirs, "skill-folders", resolve);
   if (files.length === 0) return undefined;
   const capped: number[] = [];
   for (const file of files) {
@@ -97,8 +98,8 @@ export async function readSkillTokens(roots: readonly string[], accounting: Cont
 /** Boundary: the Claude-shaped mirror of `readSkillTokens` — flat `.md`
  * files instead of a skill's own subfolder, full descriptions (no
  * truncation), `cl100k_base` instead of `o200k_base`. */
-export async function readSubagentTokens(roots: readonly string[], accounting: ContextSubagentAccounting): Promise<{ tokens: number; count: number } | undefined> {
-  const files = listAssetFilesAcross(roots, accounting.dirs, "flat-md");
+export async function readSubagentTokens(roots: readonly string[], accounting: ContextSubagentAccounting, resolve?: AssetDirResolver): Promise<{ tokens: number; count: number } | undefined> {
+  const files = listAssetFilesAcross(roots, accounting.dirs, "flat-md", resolve);
   if (files.length === 0) return undefined;
   const counts: number[] = [];
   for (const file of files) {
@@ -173,18 +174,24 @@ export async function computeContextBreakdown(opts: {
   readonly ruleFileName: string;
   readonly accounting: ContextAccounting;
   readonly baselineTokens?: number;
+  /** Where the agent's config-dir variables come from; defaults to this
+   * relay's own environment. */
+  readonly env?: NodeJS.ProcessEnv;
 }): Promise<ContextBreakdown> {
   // Deduped: a session whose cwd IS the agent's home directory (opening a
   // session directly in `~`) would otherwise scan the same asset directory
   // twice and double-count every skill/subagent found there.
   const roots = [...new Set([opts.cwd, opts.home])];
+  // The home's asset dirs follow the agent's config-dir variable; a
+  // project's `.claude/agents` never does.
+  const resolve: AssetDirResolver = (root, relDir) => (root === opts.home ? resolveAgentPath(root, relDir, opts.env) : join(root, relDir));
   const rulesTokens = await readRuleTokens(opts.cwd, opts.ruleFileName, opts.accounting);
   const rules = rulesTokens !== undefined ? { tokens: rulesTokens, estimated: true as const } : undefined;
 
-  const skillsResult = opts.accounting.skills ? await readSkillTokens(roots, opts.accounting.skills) : undefined;
+  const skillsResult = opts.accounting.skills ? await readSkillTokens(roots, opts.accounting.skills, resolve) : undefined;
   const skills = skillsResult ? { ...skillsResult, estimated: true as const } : undefined;
 
-  const subagentsResult = opts.accounting.subagents ? await readSubagentTokens(roots, opts.accounting.subagents) : undefined;
+  const subagentsResult = opts.accounting.subagents ? await readSubagentTokens(roots, opts.accounting.subagents, resolve) : undefined;
   const subagents = subagentsResult ? { ...subagentsResult, estimated: true as const } : undefined;
 
   const emptyDirectory =

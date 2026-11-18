@@ -114,6 +114,22 @@ export async function readUserMcpServers(home: string, cwd?: string, env: NodeJS
   return selectServers(await readUserMcpConfig(join(configDir, ".claude.json")), cwd);
 }
 
+/** Names another `.claude.json` whose user-scope servers this profile
+ * shares: the machine's own `~/.claude.json`, for a profile that has its own
+ * `CLAUDE_CONFIG_DIR` (its own account) but chose to keep the machine's MCP
+ * servers. Claude keeps those servers in the same file as the account, so
+ * they can't be shared by linking the file: they are read here, at every
+ * spawn, and passed through `--mcp-config` like an agent worker's. */
+export const SHARED_MCP_ENV = "ANYWH_CLAUDE_SHARED_MCP";
+
+/** The shared servers, or none when the profile shares nothing. Never
+ * throws, like `readUserMcpServers`. */
+export async function readSharedMcpServers(cwd?: string, env: NodeJS.ProcessEnv = process.env): Promise<McpServerEntries> {
+  const path = env[SHARED_MCP_ENV]?.trim();
+  if (!path) return {};
+  return selectServers(await readUserMcpConfig(path), cwd);
+}
+
 /** One `--mcp-config` payload carrying the user's servers plus the relay's
  * bridges. A bridge wins a name clash, so a user entry can never replace the
  * relay's own `anywh-choice`/`anywh-permission`. Other top-level keys of the
@@ -199,8 +215,14 @@ export async function writePersistentMcpConfig(
   agentWorker: boolean,
   home: string,
   cwd: string,
+  includeShared = true,
 ): Promise<AgentWorkerMcpFile | undefined> {
   await sweepStaleAgentWorkerMcpFiles();
-  const json = agentWorker ? mergeAgentWorkerMcpConfig(bridgeConfigJson, await readUserMcpServers(home, cwd)) : bridgeConfigJson;
+  // The profile's own servers win a name clash with the shared ones.
+  const extra = {
+    ...(includeShared ? await readSharedMcpServers(cwd) : {}),
+    ...(agentWorker ? await readUserMcpServers(home, cwd) : {}),
+  };
+  const json = mergeAgentWorkerMcpConfig(bridgeConfigJson, extra);
   return json ? writeAgentWorkerMcpFile(json) : undefined;
 }

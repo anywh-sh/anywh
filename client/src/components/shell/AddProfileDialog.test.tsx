@@ -24,7 +24,8 @@ interface RelayState {
 
 let relay: RelayState;
 let applied: { home: string | null; bundleFiles: number } | null;
-let createdWith: { label: string; home?: string; runtimeId?: string } | null;
+let createdWith: { label: string; home?: string; draftId?: string; sharing?: unknown; runtimeId?: string } | null;
+let discarded: string[];
 
 function jsonResponse(body: unknown): Response {
   return { ok: true, status: 200, json: () => Promise.resolve(body) } as Response;
@@ -41,6 +42,7 @@ beforeEach(() => {
   relay = { agents: ["claude", "codex"], loggedIn: true, snapshotFound: true, applyFails: false };
   applied = null;
   createdWith = null;
+  discarded = [];
   vi.stubGlobal(
     "fetch",
     vi.fn((input: string, init?: { body?: string }) => {
@@ -61,11 +63,18 @@ beforeEach(() => {
         const full = url.searchParams.get("full") === "1";
         return Promise.resolve(jsonResponse(full ? { ...snapshot, files: files.map((file) => ({ ...file, contents: "eA==", executable: false })) } : snapshot));
       }
+      if (url.pathname === "/control/profiles/draft") {
+        return Promise.resolve(jsonResponse({ id: "client-x" }));
+      }
+      if (url.pathname.startsWith("/control/profiles/draft/")) {
+        discarded.push(url.pathname.slice("/control/profiles/draft/".length));
+        return Promise.resolve(jsonResponse({ ok: true }));
+      }
       if (url.pathname === "/control/profiles/validate") {
         return Promise.resolve(jsonResponse({ loggedIn: relay.loggedIn, account: "user@example.com", plan: "max" }));
       }
       if (url.pathname === "/control/profiles") {
-        createdWith = JSON.parse(init?.body ?? "{}") as { label: string; home?: string; runtimeId?: string };
+        createdWith = JSON.parse(init?.body ?? "{}") as { label: string; home?: string; draftId?: string; sharing?: unknown; runtimeId?: string };
         return Promise.resolve(jsonResponse({ id: "client-x", label: createdWith.label, host: "127.0.0.1", port: 8790, colorIndex: 2 }));
       }
       if (url.pathname === "/control/portability/apply") {
@@ -93,126 +102,160 @@ function body() {
   return within(document.body);
 }
 
-async function fillAndVerify(user: ReturnType<typeof userEvent.setup>, home: string) {
+/** Name (and optionally a custom home under Advanced), then Continue: the
+ * dialog reserves a draft (or uses the home) and checks the sign-in. */
+async function fillAndContinue(user: ReturnType<typeof userEvent.setup>, home = "") {
   await user.type(body().getByLabelText(copy.nameLabel), "Client X");
-  if (home) await user.type(body().getByLabelText(copy.homeLabel), home);
-  await user.click(body().getByRole("button", { name: copy.verify }));
-  await screen.findByText(/Account confirmed/);
+  if (home) {
+    await user.click(body().getByRole("button", { name: copy.advanced }));
+    await user.type(body().getByLabelText(copy.homeLabel), home);
+  }
+  await user.click(body().getByRole("button", { name: copy.continue }));
+}
+
+function stubWebSocket(): string[] {
+  const opened: string[] = [];
+  vi.stubGlobal(
+    "WebSocket",
+    class {
+      readonly OPEN = 1;
+      readyState = 1;
+      onmessage = null;
+      onclose = null;
+      constructor(url: string) {
+        opened.push(url);
+      }
+      send() {}
+      close() {}
+    },
+  );
+  return opened;
 }
 
 describe("AddProfileDialog", () => {
-  it("offers every agent the host reports, and validates against the one picked", async () => {
+  it("creates a profile with its own config folders: a draft, a sign-in check there, then the choices", async () => {
+    const onOpenChange = vi.fn();
+    const user = userEvent.setup();
+    render(<AddProfileDialog open onOpenChange={onOpenChange} activeProfile={activeProfile} />);
+
+    // Nothing to type but a name: no path field until Advanced is opened.
+    expect(body().queryByLabelText(copy.homeLabel)).not.toBeInTheDocument();
+    await user.click(within(body().getByRole("radiogroup", { name: copy.sharing.categories.instructions })).getByRole("radio", { name: copy.sharing.shared }));
+    await fillAndContinue(user);
+    await screen.findByText(/Account confirmed: user@example.com/);
+
+    const validateCall = fetchCalls().find(([url]) => url.includes("/control/profiles/validate"));
+    expect(JSON.parse(validateCall?.[1].body ?? "{}")).toMatchObject({ draftId: "client-x", runtimeId: "claude" });
+
+    await user.click(body().getByRole("button", { name: en.common.create }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(createdWith).toMatchObject({
+      label: "Client X",
+      draftId: "client-x",
+      sharing: { instructions: "shared", preferences: "separate", mcp: "separate" },
+    });
+    expect(createdWith?.home).toBeUndefined();
+    // Created: the dialog closing must not drop the profile's folders.
+    expect(discarded).toEqual([]);
+  });
+
+  it("defaults every category to separate", async () => {
+    const user = userEvent.setup();
+    render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);
+    for (const category of ["instructions", "preferences", "mcp"] as const) {
+      const group = body().getByRole("radiogroup", { name: copy.sharing.categories[category] });
+      expect(within(group).getByRole("radio", { name: copy.sharing.separate })).toHaveAttribute("aria-checked", "true");
+    }
+    await fillAndContinue(user);
+    await screen.findByText(/Account confirmed/);
+    await user.click(body().getByRole("button", { name: en.common.create }));
+    await waitFor(() => expect(createdWith).toMatchObject({ sharing: { instructions: "separate", preferences: "separate", mcp: "separate" } }));
+  });
+
+  it("offers every agent the host reports, with its logo, and checks the one picked", async () => {
     const user = userEvent.setup();
     render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);
 
     await user.click(await body().findByRole("button", { name: copy.runtimeLabel }));
-    await user.click(await body().findByRole("menuitem", { name: /Codex/ }));
-    await fillAndVerify(user, "/home/user/.anywh-client-x");
+    const codex = await body().findByRole("menuitem", { name: /Codex/ });
+    expect(codex.querySelector("svg")).not.toBeNull();
+    await user.click(codex);
+    await fillAndContinue(user);
+    await screen.findByText(/Account confirmed/);
 
     const validateCall = fetchCalls().find(([url]) => url.includes("/control/profiles/validate"));
     expect(JSON.parse(validateCall?.[1].body ?? "{}")).toMatchObject({ runtimeId: "codex" });
   });
 
-  it("offers to sign the picked agent in under the typed folder, through the active relay", async () => {
+  it("signs the picked agent in straight into the draft's folders, through the active relay", async () => {
     relay.loggedIn = false;
-    const opened: string[] = [];
-    vi.stubGlobal(
-      "WebSocket",
-      class {
-        readonly OPEN = 1;
-        readyState = 1;
-        onmessage = null;
-        onclose = null;
-        constructor(url: string) {
-          opened.push(url);
-        }
-        send() {}
-        close() {}
-      },
-    );
+    const opened = stubWebSocket();
     const user = userEvent.setup();
     render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);
 
-    await user.click(await body().findByRole("button", { name: copy.runtimeLabel }));
-    await user.click(await body().findByRole("menuitem", { name: /Codex/ }));
-    await user.type(body().getByLabelText(copy.homeLabel), "/home/user/.anywh-client-x");
-    await user.click(body().getByRole("button", { name: copy.verify }));
-
-    expect(await screen.findByText(copy.notLoggedIn.replace("{agent}", "Codex"))).toBeInTheDocument();
-    expect(screen.queryByText(/codex login/)).not.toBeInTheDocument();
+    await fillAndContinue(user);
+    expect(await screen.findByText(copy.notLoggedIn.replace("{agent}", "Claude Code"))).toBeInTheDocument();
     await user.click(body().getByRole("button", { name: copy.connect }));
     await waitFor(() => expect(opened).toHaveLength(1));
-    expect(opened[0]).toBe(`ws://127.0.0.1:8788/agent-login?runtime=codex&home=${encodeURIComponent("/home/user/.anywh-client-x")}`);
+    expect(opened[0]).toBe("ws://127.0.0.1:8788/agent-login?runtime=claude&profile=client-x");
   });
 
-  it("offers the copy only once a separate config path exists to copy into", async () => {
+  it("drops the draft when the dialog closes without creating", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);
+    await fillAndContinue(user);
+    await screen.findByText(/Account confirmed/);
+    rerender(<AddProfileDialog open={false} onOpenChange={() => {}} activeProfile={activeProfile} />);
+    await waitFor(() => expect(discarded).toEqual(["client-x"]));
+  });
+
+  it("keeps the custom home under Advanced: no draft, the home is checked and signed in instead, and no sharing choices", async () => {
+    relay.loggedIn = false;
+    const opened = stubWebSocket();
     const user = userEvent.setup();
     render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);
 
-    // With no config path the new profile shares the machine's default
-    // account — the very configuration being read — so there is nothing to
-    // carry anywhere.
-    expect(body().queryByText(copy.copyLabel)).not.toBeInTheDocument();
-
+    await user.click(body().getByRole("button", { name: copy.advanced }));
     await user.type(body().getByLabelText(copy.homeLabel), "/home/user/.anywh-client-x");
-    expect(await body().findByText(copy.copyLabel)).toBeInTheDocument();
-    expect(body().getByText("Files: 2 · MCP servers: 1")).toBeInTheDocument();
-    expect(body().getByText(copy.copyServersNote)).toBeInTheDocument();
-    expect(body().getByText("Settings naming a path that may not exist here: 1")).toBeInTheDocument();
+    expect(body().queryByText(copy.sharing.title)).not.toBeInTheDocument();
+    await user.type(body().getByLabelText(copy.nameLabel), "Client X");
+    await user.click(body().getByRole("button", { name: copy.continue }));
+
+    await user.click(await body().findByRole("button", { name: copy.connect }));
+    await waitFor(() => expect(opened).toHaveLength(1));
+    expect(opened[0]).toBe(`ws://127.0.0.1:8788/agent-login?runtime=claude&home=${encodeURIComponent("/home/user/.anywh-client-x")}`);
+    expect(fetchCalls().some(([url]) => url.endsWith("/control/profiles/draft"))).toBe(false);
   });
 
-  it("says nothing about copying when the host has nothing configured", async () => {
-    relay.snapshotFound = false;
-    const user = userEvent.setup();
-    render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);
-
-    await user.type(body().getByLabelText(copy.homeLabel), "/home/user/.anywh-client-x");
-    await waitFor(() => expect(fetchCalls().some(([url]) => url.includes("/control/portability"))).toBe(true));
-    expect(body().queryByText(copy.copyLabel)).not.toBeInTheDocument();
-  });
-
-  it("writes the configuration into the new profile's home before closing the dialog", async () => {
+  it("with a custom home, offers the one-time copy and writes it into that home before closing", async () => {
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
     render(<AddProfileDialog open onOpenChange={onOpenChange} activeProfile={activeProfile} />);
 
+    await user.click(body().getByRole("button", { name: copy.advanced }));
     await user.type(body().getByLabelText(copy.homeLabel), "/home/user/.anywh-client-x");
-    await body().findByText(copy.copyLabel);
-    await fillAndVerify(user, "");
+    expect(await body().findByText(copy.copyLabel)).toBeInTheDocument();
+    expect(body().getByText("Files: 2 · MCP servers: 1")).toBeInTheDocument();
+    expect(body().getByText("Settings naming a path that may not exist here: 1")).toBeInTheDocument();
+    await user.type(body().getByLabelText(copy.nameLabel), "Client X");
+    await user.click(body().getByRole("button", { name: copy.continue }));
+    await screen.findByText(/Account confirmed/);
     await user.click(body().getByRole("button", { name: en.common.create }));
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(createdWith).toMatchObject({ label: "Client X", home: "/home/user/.anywh-client-x", runtimeId: "claude" });
-    // The destination is the *new* profile's home, and what's sent is the
-    // full bundle (contents included), not the summary.
+    expect(createdWith?.draftId).toBeUndefined();
     expect(applied).toEqual({ home: "/home/user/.anywh-client-x", bundleFiles: 2 });
   });
 
-  it("skips the copy when the checkbox is cleared, and still creates the profile", async () => {
-    const onOpenChange = vi.fn();
-    const user = userEvent.setup();
-    render(<AddProfileDialog open onOpenChange={onOpenChange} activeProfile={activeProfile} />);
-
-    await user.type(body().getByLabelText(copy.homeLabel), "/home/user/.anywh-client-x");
-    await user.click(await body().findByRole("checkbox"));
-    await fillAndVerify(user, "");
-    await user.click(body().getByRole("button", { name: en.common.create }));
-
-    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(applied).toBeNull();
-  });
-
   it("keeps the created profile and reports the failure when only the copy fails", async () => {
-    // Rolling back a profile the user asked for because an optional copy
-    // failed would be the worse outcome — the copy can be redone by hand.
     relay.applyFails = true;
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
     render(<AddProfileDialog open onOpenChange={onOpenChange} activeProfile={activeProfile} />);
 
-    await user.type(body().getByLabelText(copy.homeLabel), "/home/user/.anywh-client-x");
-    await body().findByText(copy.copyLabel);
-    await fillAndVerify(user, "");
+    await fillAndContinue(user, "/home/user/.anywh-client-x");
+    await screen.findByText(/Account confirmed/);
     await user.click(body().getByRole("button", { name: en.common.create }));
 
     expect(await screen.findByText(/disk full/)).toBeInTheDocument();

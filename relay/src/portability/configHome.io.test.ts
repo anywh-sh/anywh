@@ -219,3 +219,24 @@ test("applyBundle: written config is owner-only — this may be a machine someon
   });
   assert.equal(statSync(join(destination, ".fixture/skills/x.md")).mode & 0o077, 0);
 });
+
+test("readBundle/applyBundle: a profile's config-dir variable decides where its files live, not $HOME", () => {
+  const root = mkdtempSync(join(tmpdir(), "anywh-config-dir-"));
+  const home = join(root, "home");
+  const source = join(root, "source-claude");
+  const target = join(root, "target-claude");
+  mkdirSync(join(source, "skills", "deploy"), { recursive: true });
+  writeFileSync(join(source, "skills", "deploy", "SKILL.md"), "deploy");
+  // The real ~/.claude, which neither profile should touch.
+  mkdirSync(join(home, ".claude", "skills", "personal"), { recursive: true });
+  writeFileSync(join(home, ".claude", "skills", "personal", "SKILL.md"), "personal");
+
+  const def = fixtureDef([".claude/skills"], { kind: "none" });
+  const bundle = readBundle(def, home, { CLAUDE_CONFIG_DIR: source });
+  // Manifest paths stay home-relative, so the bundle is portable to a home of either model.
+  assert.deepEqual(bundle.files.map((f) => f.path), [".claude/skills/deploy/SKILL.md"]);
+
+  applyBundle(def, home, { files: bundle.files }, { CLAUDE_CONFIG_DIR: target });
+  assert.equal(readFileSync(join(target, "skills", "deploy", "SKILL.md"), "utf8"), "deploy");
+  assert.throws(() => statSync(join(home, ".claude", "skills", "deploy")));
+});

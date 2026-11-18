@@ -63,11 +63,21 @@ export function listAssetFiles(dir: string, shape: "skill-folders" | "flat-md"):
  * knows about (its own `cwd` for a project-level asset, and the agent's
  * home directory for a user-level one) and every relative dir the def
  * declares (Codex's skills split across `.codex/skills`/`.agents/skills`). */
-export function listAssetFilesAcross(roots: readonly string[], relDirs: readonly string[], shape: "skill-folders" | "flat-md"): string[] {
+export type AssetDirResolver = (root: string, relDir: string) => string;
+
+/** `resolve` turns a root and a declared dir into the folder to list: plain
+ * `join` for a project, while the agent's home goes through its config-dir
+ * variable (`CLAUDE_CONFIG_DIR` moves `~/.claude/agents`). */
+export function listAssetFilesAcross(
+  roots: readonly string[],
+  relDirs: readonly string[],
+  shape: "skill-folders" | "flat-md",
+  resolve: AssetDirResolver = join,
+): string[] {
   const out: string[] = [];
   for (const root of roots) {
     for (const relDir of relDirs) {
-      out.push(...listAssetFiles(join(root, relDir), shape));
+      out.push(...listAssetFiles(resolve(root, relDir), shape));
     }
   }
   return out;
