@@ -1,4 +1,4 @@
-import type { ModelCatalog, ModelChoice } from "@/lib/relay/relay-types";
+import type { ModelCatalog, ModelChoice, ModelOption } from "@/lib/relay/relay-types";
 
 /** Every installed agent's model catalog, from the most recent
  * `model_catalogs_state` seen from ANY profile's relay connection
@@ -61,4 +61,16 @@ export function catalogsFromLegacyDefaultModelState(label: string, available: st
   if (options.length === 0) return {};
   const defaultId = options.find((option) => option.id.toLowerCase() === label.toLowerCase())?.id;
   return { claude: { options, ...(defaultId ? { defaultId } : {}) } };
+}
+
+/** The catalog split the way the picker shows it: the CLI's current line-up
+ * at the top level, the exact versions it also offers (`pinnedVersion`) under
+ * "More models". A catalog that marks nothing — every agent but Claude, and a
+ * relay from before the flag — is all top level; so is one that marks
+ * everything, rather than leaving the top level empty. */
+export function splitModelOptions(catalog: ModelCatalog | null | undefined): { primary: ModelOption[]; more: ModelOption[] } {
+  const options = catalog?.options ?? [];
+  const primary = options.filter((option) => option.pinnedVersion !== true);
+  if (primary.length === 0) return { primary: options, more: [] };
+  return { primary, more: options.filter((option) => option.pinnedVersion === true) };
 }

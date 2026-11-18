@@ -854,6 +854,9 @@ export interface Dictionary {
         thisSession: string;
         newSession: string;
         fixedInSession: string;
+        modelHeader: string;
+        moreModels: string;
+        effortHint: string;
       };
       context: {
         label: string;

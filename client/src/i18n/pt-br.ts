@@ -276,7 +276,7 @@ export const ptBr: Dictionary = {
       effortDefault: "Padrão",
       effortAriaLabel: "Esforço de raciocínio",
       agentMenuLabel: "{agent} · {model} · esforço {effort}",
-      menu: { agent: "Agente", model: "Modelo", effort: "Esforço", thisSession: "desta sessão", newSession: "numa nova sessão", fixedInSession: "fixo na sessão" },
+      menu: { agent: "Agente", model: "Modelo", effort: "Esforço", thisSession: "desta sessão", newSession: "numa nova sessão", fixedInSession: "fixo na sessão", modelHeader: "Modelo · esta sessão", moreModels: "Mais modelos", effortHint: "Mais esforço dá respostas mais completas, mas demora mais e consome seus limites mais rápido." },
       context: {
         label: "Janela de contexto",
         ariaLabel: "Janela de contexto: {percent}% usada",

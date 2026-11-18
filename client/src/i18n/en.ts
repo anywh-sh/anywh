@@ -276,7 +276,7 @@ export const en: Dictionary = {
       effortDefault: "Default",
       effortAriaLabel: "Reasoning effort",
       agentMenuLabel: "{agent} · {model} · {effort} effort",
-      menu: { agent: "Agent", model: "Model", effort: "Effort", thisSession: "this session", newSession: "in a new session", fixedInSession: "fixed in the session" },
+      menu: { agent: "Agent", model: "Model", effort: "Effort", thisSession: "this session", newSession: "in a new session", fixedInSession: "fixed in the session", modelHeader: "Model · this session", moreModels: "More models", effortHint: "Higher effort means more thorough responses, but takes longer and uses your limits faster." },
       context: {
         label: "Context window",
         ariaLabel: "Context window: {percent}% used",

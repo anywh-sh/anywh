@@ -46,17 +46,21 @@ async function openConversation() {
 }
 
 describe("reasoning effort in the composer", () => {
-  it("picking a level from the dropdown sends set_effort, and Default sends null", async () => {
+  it("picking a level from the Effort submenu sends set_effort, and Default sends null", async () => {
     const user = userEvent.setup();
     const trigger = await openConversation();
     await vi.waitFor(() => expect(trigger).toBeEnabled());
     expect(trigger).toHaveTextContent(en.chat.composer.effortDefault.toLowerCase());
 
-    await user.click(trigger);
+    const openEffort = async () => {
+      await user.click(trigger);
+      await user.click(await screen.findByRole("menuitem", { name: new RegExp(`^${en.chat.composer.menu.effort}`) }));
+    };
+    await openEffort();
     await user.click(await screen.findByRole("menuitem", { name: "High" }));
     expect(sentMessages()).toContainEqual({ type: "set_effort", effort: "high" });
 
-    await user.click(trigger);
+    await openEffort();
     await user.click(await screen.findByRole("menuitem", { name: en.chat.composer.effortDefault }));
     const picks = sentMessages().filter((m) => m.type === "set_effort");
     expect(picks[picks.length - 1]).toEqual({ type: "set_effort", effort: null });

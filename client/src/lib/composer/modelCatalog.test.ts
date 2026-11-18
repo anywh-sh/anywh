@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogsFromLegacyDefaultModelState } from "./modelCatalog";
+import { catalogsFromLegacyDefaultModelState, splitModelOptions } from "./modelCatalog";
 
 // The message verbatim from a relay built before per-agent catalogs — what
 // the production relay was still sending when a client updated ahead of it
@@ -26,5 +26,27 @@ describe("catalogsFromLegacyDefaultModelState", () => {
 
   it("yields no catalog at all for an empty alias list", () => {
     expect(catalogsFromLegacyDefaultModelState("Opus", ["default"])).toEqual({});
+  });
+});
+
+describe("splitModelOptions", () => {
+  const opus = { id: "opus", label: "Opus 5.5" };
+  const pinned = { id: "claude-opus-4-8", label: "Opus 4.8", pinnedVersion: true as const };
+
+  it("puts pinned versions under More models, in the CLI's order", () => {
+    expect(splitModelOptions({ options: [opus, pinned] })).toEqual({ primary: [opus], more: [pinned] });
+  });
+
+  it("keeps everything at the top level when nothing is pinned (every other agent, an older relay)", () => {
+    const gpt = { id: "gpt-5.6-terra", label: "GPT-5.6-Terra" };
+    expect(splitModelOptions({ options: [gpt] })).toEqual({ primary: [gpt], more: [] });
+  });
+
+  it("never leaves the top level empty when everything is pinned", () => {
+    expect(splitModelOptions({ options: [pinned] })).toEqual({ primary: [pinned], more: [] });
+  });
+
+  it("is empty without a catalog", () => {
+    expect(splitModelOptions(null)).toEqual({ primary: [], more: [] });
   });
 });
