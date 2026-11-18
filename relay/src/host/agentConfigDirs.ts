@@ -100,3 +100,19 @@ export function resolveTarget(target: ProfileTarget, realHome: string, env: Node
   const targetEnv = envForTarget(env, target);
   return { home: target.home || realHome, env: targetEnv };
 }
+
+/** The folders a profile created with its own config root gets, one per
+ * agent CLI. Fixed names, so the root alone says where everything is. */
+export function configDirsForRoot(root: string): Required<AgentConfigDirs> {
+  return { claude: join(root, "claude"), codex: join(root, "codex"), kimi: join(root, "kimi") };
+}
+
+/** Where each agent's account lives for a profile: its config-dir variable,
+ * else the folder under the profile's home (the real one, or a legacy
+ * `RELAY_HOME_OVERRIDE`). Two profiles with any of these in common share
+ * that agent's account. */
+export function effectiveConfigDirs(home: string, configDirs: AgentConfigDirs): Record<ConfigDirAgent, string> {
+  const out = {} as Record<ConfigDirAgent, string>;
+  for (const agent of CONFIG_DIR_AGENTS) out[agent] = configDirs[agent] ?? join(home, CONFIG_DIR_RULES[agent].homeDir);
+  return out;
+}

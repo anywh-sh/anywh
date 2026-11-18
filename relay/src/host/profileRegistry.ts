@@ -2,6 +2,7 @@ import { connect, createServer } from "node:net";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { CONFIG_DIR_AGENTS, configDirsFromEnv, effectiveConfigDirs, type ProfileTarget } from "./agentConfigDirs.js";
 
 // Host-side registry of relay profiles — every profile this
 // machine can run, independent of which one the current process happens to
@@ -12,6 +13,16 @@ import { dirname, join, resolve } from "node:path";
 // Mirror of ENV_DIR in infra/lib.sh — keep both in sync (systemd's
 // `EnvironmentFile` can't share this constant across the language boundary).
 export const ENV_DIR = process.env.ANYWH_ENV_DIR ?? join(homedir(), ".config/anywh/env");
+
+/** Where a profile created with its own config root keeps it: one folder
+ * per profile, holding one folder per agent CLI (`claude`, `codex`, `kimi`)
+ * and the profile's room files. Under the real user's home for the same
+ * reason as `ENV_DIR`. */
+export const PROFILES_DIR = process.env.ANYWH_PROFILES_DIR ?? join(homedir(), ".anywh", "profiles");
+
+export function profileConfigRoot(id: string, profilesDir: string = PROFILES_DIR): string {
+  return join(profilesDir, id);
+}
 
 const PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -180,15 +191,34 @@ function isEnvRunning(env: Record<string, string>): Promise<boolean> {
  * is hidden from `GET /control/profiles`, so naming it would block a new
  * profile on one the user can neither see nor delete. */
 export async function findHomeOverrideCollision(homeOverride: string | undefined, envDir: string = ENV_DIR): Promise<string | undefined> {
-  const target = normalizeHomeOverride(homeOverride);
+  return findProfileCollision({ home: homeOverride }, envDir);
+}
+
+/** Which profile already holds an account this target would use — any
+ * agent whose config folder (its variable, else the folder under the
+ * profile's home) is the same. A profile with its own config dirs never
+ * collides with the real `$HOME`'s, which is the whole point of them. */
+export async function findProfileCollision(target: ProfileTarget, envDir: string = ENV_DIR): Promise<string | undefined> {
+  const wanted = effectiveConfigDirs(normalizeHomeOverride(target.home), normalizeDirs(target.configDirs ?? {}));
   const registeredIds = registeredProfileIds(envDir);
   for (const id of listEnvIds(envDir)) {
     const env = readEnvFile(id, envDir);
-    if (!env || normalizeHomeOverride(env.RELAY_HOME_OVERRIDE) !== target) continue;
+    if (!env) continue;
+    const theirs = effectiveConfigDirs(normalizeHomeOverride(env.RELAY_HOME_OVERRIDE), normalizeDirs(configDirsFromEnv(env)));
+    if (!CONFIG_DIR_AGENTS.some((agent) => theirs[agent] === wanted[agent])) continue;
     if (await isOrphanDefault(id, registeredIds, () => isEnvRunning(env))) continue;
     return id;
   }
   return undefined;
+}
+
+function normalizeDirs(dirs: ReturnType<typeof configDirsFromEnv>): ReturnType<typeof configDirsFromEnv> {
+  const out: ReturnType<typeof configDirsFromEnv> = {};
+  for (const agent of CONFIG_DIR_AGENTS) {
+    const dir = dirs[agent];
+    if (dir) out[agent] = normalizeHomeOverride(dir);
+  }
+  return out;
 }
 
 /** The only keys `ensureSelfRegistered` ever writes. `add-profile.sh` writes
