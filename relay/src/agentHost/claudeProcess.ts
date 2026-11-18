@@ -146,7 +146,7 @@ export class ClaudeProcess {
   static async spawn(options: ClaudeProcessOptions): Promise<ClaudeProcess> {
     const { spec } = options;
     // A strict agent gets the relay's bridges only, never the user's servers.
-    const mcpFile = await writePersistentMcpConfig(spec.mcpConfigJson, spec.agentWorker && spec.strictMcp !== true, options.home, spec.cwd);
+    const mcpFile = await writePersistentMcpConfig(spec.mcpConfigJson, spec.agentWorker && spec.strictMcp !== true, options.home, spec.cwd, spec.strictMcp !== true);
     const args = buildPersistentArgs(spec, { mcpConfigPath: mcpFile?.path, resumeSessionId: options.resumeSessionId });
     const env = buildChildEnv(options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, {
       ...persistentEnvOverrides(spec.agentWorker),
