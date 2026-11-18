@@ -24,13 +24,13 @@ const REAL_REPLY = JSON.stringify({
   },
 });
 
-test("parseClaudeModelCatalog: every concrete model with the CLI's own name, the default pseudo-entry folded into defaultId, exact versions marked pinned", () => {
+test("parseClaudeModelCatalog: every concrete model with the CLI's own name, the default pseudo-entry folded into defaultId, exact versions marked superseded", () => {
   assert.deepEqual(parseClaudeModelCatalog(`${REAL_REPLY}\n`), {
     options: [
       { id: "opus", label: "Opus 5.5", description: "For complex work and everyday tasks" },
-      { id: "claude-fable-5-1", label: "Fable 5.1", description: "For your toughest challenges", pinnedVersion: true },
+      { id: "claude-fable-5-1", label: "Fable 5.1", description: "For your toughest challenges", superseded: true },
       { id: "sonnet", label: "Sonnet 5.5", description: "Most efficient for simpler tasks" },
-      { id: "claude-opus-4-8", label: "Opus 4.8", description: "Best for everyday, complex tasks", pinnedVersion: true },
+      { id: "claude-opus-4-8", label: "Opus 4.8", description: "Best for everyday, complex tasks", superseded: true },
     ],
     defaultId: "opus",
   });

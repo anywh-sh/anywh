@@ -106,12 +106,12 @@ export interface ModelOption {
   /** The level the CLI runs when none was picked. Absent when the CLI
    * doesn't say (Claude), in which case the UI offers an explicit "Default". */
   readonly defaultEffort?: string;
-  /** A specific, dated version the CLI also lists next to its moving aliases
-   * (Claude's `claude-opus-4-8` beside `opus`). The UI tucks these under
-   * "More models" so the top level shows only the current line-up. Absent on
-   * every entry of a CLI that draws no such line (Codex, ACP agents): all of
-   * them are shown at the top level. */
-  readonly pinnedVersion?: true;
+  /** A newer model of the same line exists in this catalog — the UI tucks
+   * these under "More models" so the top level shows only the current
+   * line-up (one model per purpose: Claude's Opus/Fable/Sonnet/Haiku). Each
+   * def decides from what its CLI says: Claude's exact versions beside its
+   * moving aliases, Codex's `upgrade`, an ACP agent's older generations. */
+  readonly superseded?: true;
 }
 
 /** One reasoning-effort level. `id` is opaque to everything but the def's

@@ -330,6 +330,9 @@ interface CodexModel {
   description?: unknown;
   hidden?: unknown;
   isDefault?: unknown;
+  /** The id of the model that replaces this one, `null` while it's current
+   * (`Model.upgrade: string | null` in the generated bindings). */
+  upgrade?: unknown;
   supportedReasoningEfforts?: unknown;
   defaultReasoningEffort?: unknown;
 }
@@ -351,7 +354,8 @@ function codexEfforts(model: CodexModel): EffortOption[] {
 /** Picks `model/list`'s reply out of the app-server's JSON-RPC stdout
  * (interleaved with the `initialize` reply and unsolicited notifications),
  * `undefined` until it has arrived whole. `hidden` models are left out —
- * the same ones Codex's own picker leaves out by default. */
+ * the same ones Codex's own picker leaves out by default — and one Codex
+ * names an `upgrade` for is `superseded`. */
 export function parseCodexModelList(stdout: string): ModelCatalog | undefined {
   for (const line of stdout.split("\n")) {
     let parsed: { id?: unknown; result?: { data?: unknown } };
@@ -375,6 +379,7 @@ export function parseCodexModelList(stdout: string): ModelCatalog | undefined {
         ...(efforts.length > 0 && typeof model.defaultReasoningEffort === "string" && model.defaultReasoningEffort.length > 0
           ? { defaultEffort: model.defaultReasoningEffort }
           : {}),
+        ...(typeof model.upgrade === "string" && model.upgrade.length > 0 ? { superseded: true as const } : {}),
       };
     });
     const defaultId = models.find((model) => model.isDefault === true)?.id;
