@@ -1,6 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 
@@ -68,4 +69,32 @@ test("validating and creating from a draft use its config folders, and the profi
 
 test("a body naming a draft and a home at once is refused", async () => {
   assert.equal((await post("/control/profiles", { label: "Both", draftId: "x", home: "/tmp/x" })).status, 400);
+});
+
+test("creating with shared categories links the machine's own config and keeps Claude's MCP servers through the .env", async () => {
+  // The machine's $HOME, for the relay's homedir() and the script alike.
+  const machineHome = mkdtempSync(join(tmpdir(), "anywh-machine-home-"));
+  mkdirSync(join(machineHome, ".claude"), { recursive: true });
+  writeFileSync(join(machineHome, ".claude", "CLAUDE.md"), "be terse");
+  writeFileSync(join(machineHome, ".claude.json"), JSON.stringify({ mcpServers: { sentry: { command: "s" } } }));
+  const savedHome = process.env.HOME;
+  process.env.HOME = machineHome;
+  try {
+    const draft = (await (await post("/control/profiles/draft", { label: "Shared bits" })).json()) as { id: string };
+    const created = await post("/control/profiles", {
+      label: "Shared bits",
+      draftId: draft.id,
+      sharing: { instructions: "shared", preferences: "separate", mcp: "shared" },
+    });
+    assert.equal(created.status, 200, await created.clone().text());
+    const root = join(server.profilesDir, draft.id);
+    assert.equal(readlinkSync(join(root, "claude", "CLAUDE.md")), join(machineHome, ".claude", "CLAUDE.md"));
+    assert.equal(existsSync(join(root, "claude", "settings.json")), false, "preferences stayed separate");
+    const env = readFileSync(join(server.envDir, `${draft.id}.env`), "utf8");
+    assert.match(env, new RegExp(`^ANYWH_CLAUDE_SHARED_MCP=${join(machineHome, ".claude.json")}$`, "m"));
+    assert.equal((await post("/control/profiles", { label: "Bad", sharing: { instructions: "everything" } })).status, 400);
+  } finally {
+    process.env.HOME = savedHome;
+    rmSync(machineHome, { recursive: true, force: true });
+  }
 });

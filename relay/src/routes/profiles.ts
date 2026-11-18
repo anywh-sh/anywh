@@ -6,7 +6,9 @@ import { applyEnvFileContent } from "../host/envFile.js";
 import { isCreateProfileBody, isPatchProfileBody } from "../protocol/guards.js";
 import { readJsonBody, readOptionalJsonBody } from "../protocol/httpBody.js";
 import { resolveShipped } from "../host/paths.js";
-import type { ProfileTarget } from "../host/agentConfigDirs.js";
+import { homedir } from "node:os";
+import { effectiveConfigDirs, type ProfileTarget } from "../host/agentConfigDirs.js";
+import { applyProfileSharing, SEPARATE_EVERYTHING } from "../host/profileSharing.js";
 import {
   createProfileDraft,
   deleteProfileFiles,
@@ -231,7 +233,20 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
 
         const args = [id, "--label", body.label, "--mode", "prod"];
         if (homeOverride) args.push("--home", homeOverride);
-        if (draftId !== undefined) args.push("--config-root", profileConfigRoot(draftId));
+        if (draftId !== undefined) {
+          args.push("--config-root", profileConfigRoot(draftId));
+          // What the profile keeps from this machine's own configuration:
+          // links and copies go into the draft's folders now, and whatever
+          // can't be a file (Claude's MCP servers) into its .env.
+          const realHome = homedir();
+          const runtimeEnv = applyProfileSharing(
+            body.sharing ?? SEPARATE_EVERYTHING,
+            effectiveConfigDirs(realHome, target.configDirs ?? {}),
+            effectiveConfigDirs(realHome, {}),
+            join(realHome, ".claude.json"),
+          );
+          for (const [key, value] of Object.entries(runtimeEnv)) args.push("--env", `${key}=${String(value)}`);
+        }
 
         // Argv array, no shell: `id` is derived from user-supplied `label`
         // text and becomes a filename and a systemd instance name — a

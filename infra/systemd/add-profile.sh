@@ -27,6 +27,9 @@ Usage: $(basename "$0") <id> [options]
                         config folder under <path> (claude/, codex/, kimi/,
                         plus rooms/) — its own account for each. Excludes
                         --home
+  --env KEY=VALUE      One more line for the profile's .env (repeatable),
+                        kept across --resume like any key this script
+                        doesn't otherwise write
   --port <port>        Relay port (default: first free port found)
   --relay-host <ip>    Host this profile's relay binds/advertises on
                         (default: read from an existing profile's .env)
@@ -52,6 +55,7 @@ shift
 LABEL=""
 PROFILE_HOME=""
 CONFIG_ROOT=""
+EXTRA_ENV=()
 PORT=""
 RELAY_HOST_ARG=""
 MODE="prod"
@@ -63,6 +67,9 @@ while [[ $# -gt 0 ]]; do
     --label) LABEL="$2"; shift 2 ;;
     --home) PROFILE_HOME="$2"; shift 2 ;;
     --config-root) CONFIG_ROOT="$2"; shift 2 ;;
+    --env)
+      if [[ ! "$2" =~ ^[A-Z_][A-Z0-9_]*=.*$ ]]; then echo "error: --env takes KEY=VALUE, got '$2'" >&2; exit 1; fi
+      EXTRA_ENV+=("$2"); shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
     --relay-host) RELAY_HOST_ARG="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
@@ -138,6 +145,10 @@ if [[ -e "$ENV_FILE" ]]; then
       CLAUDE_CONFIG_DIR) EXISTING_CLAUDE_DIR="${line#*=}" ;;
     esac
     key="${line%%=*}"
+    # A key given again with --env takes the new value, written below.
+    for pair in "${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}"; do
+      if [[ "${pair%%=*}" == "$key" ]]; then continue 2; fi
+    done
     if [[ "$MANAGED_KEYS" != *" $key "* ]]; then
       # A config-root key is only this script's while --config-root says
       # so; otherwise it is the operator's and kept like any other.
@@ -304,6 +315,7 @@ trap 'rm -f "$ENV_TMP"' EXIT
     echo "RELAY_ROOM_CONTEXT_DIR=$CONFIG_ROOT/rooms"
   fi
   printf '%s' "$EXTRA_LINES"
+  for pair in "${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}"; do echo "$pair"; done
 } > "$ENV_TMP"
 mv "$ENV_TMP" "$ENV_FILE"
 

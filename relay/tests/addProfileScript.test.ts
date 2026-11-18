@@ -73,3 +73,14 @@ test("--home and --config-root are refused together", () => {
     assert.throws(() => addProfile(home, envDir, ["work", "--home", join(home, "h"), "--config-root", join(home, "c")]), /pass one/);
   });
 });
+
+test("--env adds a line, and giving the key again replaces it instead of duplicating it", () => {
+  withHome((home, envDir) => {
+    addProfile(home, envDir, ["work", "--config-root", join(home, "cfg"), "--env", "ANYWH_CLAUDE_SHARED_MCP=/a/.claude.json"]);
+    addProfile(home, envDir, ["work", "--resume", "--env", "ANYWH_CLAUDE_SHARED_MCP=/b/.claude.json"]);
+    const text = readFileSync(join(envDir, "work.env"), "utf8");
+    assert.equal(text.match(/^ANYWH_CLAUDE_SHARED_MCP=/gm)?.length, 1);
+    assert.equal(readEnv(envDir, "work").ANYWH_CLAUDE_SHARED_MCP, "/b/.claude.json");
+    assert.throws(() => addProfile(home, envDir, ["other", "--env", "not a pair"]), /KEY=VALUE/);
+  });
+});
