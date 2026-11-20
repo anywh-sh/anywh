@@ -9,12 +9,13 @@ const ipc = vi.hoisted(() => ({
   payloads: [] as unknown[],
 }));
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: async (cmd: string, args: { payload: unknown }) => {
+  invoke: (cmd: string, args: { payload: unknown }) => {
     if (cmd === "plugin:native-chrome|set_top_bar_menu") ipc.payloads.push(args.payload);
+    return Promise.resolve();
   },
-  addPluginListener: async (_plugin: string, event: string, cb: (event: unknown) => void) => {
+  addPluginListener: (_plugin: string, event: string, cb: (event: unknown) => void) => {
     ipc.handlers.set(event, cb);
-    return { unregister: async () => ipc.handlers.delete(event) };
+    return Promise.resolve({ unregister: () => Promise.resolve(ipc.handlers.delete(event)) });
   },
 }));
 
