@@ -22,6 +22,12 @@ Events back to JS (`addPluginListener("native-chrome", …)`): `drawerSelect`,
 `drawerProfileChange`, `drawerRetry`, `drawerRename`,
 `drawerDelete`, `topBarNewConversation`.
 
+- `set_top_bar_menu` — the dropdown the pill's center opens: agent, model,
+  permission mode and effort entries, each optional (all absent = a plain
+  label). Picks come back as `topBarAgentSelect` (`{ agentId }`),
+  `topBarModelSelect` (`{ modelId }`), `topBarModeSelect` (`{ modeId }`) and
+  `topBarEffortSelect` (`{ effortId }`).
+
 Corner radius follows the device: `containerConcentric` on iOS 26, the
 display's corner radius (private `_displayCornerRadius` key) with a safe
 default on iOS 18–25.

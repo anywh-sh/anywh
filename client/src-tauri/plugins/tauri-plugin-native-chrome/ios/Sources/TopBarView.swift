@@ -36,7 +36,8 @@ struct TopBarView: View {
     let model = store.menu?.model
     let mode = store.menu?.mode
     let effort = store.menu?.effort
-    if model != nil || mode != nil || effort != nil {
+    let agent = store.menu?.agent
+    if model != nil || mode != nil || effort != nil || agent != nil {
       Menu {
         if let model {
           Menu {
@@ -91,6 +92,22 @@ struct TopBarView: View {
             }
           }
           .disabled(!effort.enabled)
+        }
+        // Last, as in the desktop menu.
+        if let agent {
+          Menu {
+            Picker(selection: Binding(get: { agent.currentId ?? "" }, set: { store.onAgentSelect($0) })) {
+              ForEach(agent.options) { Text($0.label).tag($0.id) }
+            } label: { EmptyView() }
+          } label: {
+            Label {
+              Text(agent.currentLabel)
+              Text(agent.locked ? agent.lockedHint : agent.label)
+            } icon: {
+              Image(systemName: agent.locked ? "lock" : "sparkles")
+            }
+          }
+          .disabled(!agent.enabled)
         }
       } label: {
         titleLabel(args, theme, chevron: true)

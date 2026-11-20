@@ -72,10 +72,24 @@ struct TopBarEffortMenuArgs: Decodable {
   let enabled: Bool
 }
 
+/// Offered only when the relay runs more than one agent; locked exactly when
+/// the model is (after the first turn).
+struct TopBarAgentMenuArgs: Decodable {
+  let label: String
+  let currentId: String?
+  let currentLabel: String
+  let options: [TopBarMenuOption]
+  let locked: Bool
+  let lockedHint: String
+  let enabled: Bool
+}
+
 struct TopBarMenuArgs: Decodable {
   let model: TopBarModelMenuArgs?
   let mode: TopBarModeMenuArgs?
   let effort: TopBarEffortMenuArgs?
+  /// Optional: absent (not just `null`) from a web build older than this entry.
+  let agent: TopBarAgentMenuArgs?
 }
 
 struct DrawerStrings: Decodable {
@@ -149,6 +163,10 @@ struct RenameEvent: Encodable {
   let title: String
 }
 
+struct AgentEvent: Encodable {
+  let agentId: String
+}
+
 struct ModelEvent: Encodable {
   let modelId: String
 }
@@ -200,6 +218,7 @@ extension Color {
 final class TopBarStore: ObservableObject {
   @Published var args: TopBarArgs?
   @Published var menu: TopBarMenuArgs?
+  var onAgentSelect: (String) -> Void = { _ in }
   var onModelSelect: (String) -> Void = { _ in }
   var onModeSelect: (String) -> Void = { _ in }
   var onEffortSelect: (String) -> Void = { _ in }
