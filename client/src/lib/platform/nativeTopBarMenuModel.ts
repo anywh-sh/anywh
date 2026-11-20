@@ -1,4 +1,5 @@
 import type { Dictionary } from "@/i18n";
+import { agentName } from "@/lib/composer/agentName";
 import { effectiveEffort, labelForEffort } from "@/lib/composer/effortCatalog";
 import { effectiveModel, labelForModel } from "@/lib/composer/modelCatalog";
 import type { NativeTopBarMenuPayload } from "@/lib/platform/nativeShell";
@@ -13,8 +14,11 @@ export interface TopBarMenuModelInput {
   connected: boolean;
   permissionMode: PermissionMode | null;
   permissionModes: PermissionModeOption[];
-  /** The session's agent, for a mode whose copy is the agent's own. */
+  /** The session's agent: the agent entry's current pick, and the copy of a
+   * mode whose copy is the agent's own. */
   agentId?: string | null;
+  /** Ids of the agents the relay can run; fewer than two = no agent entry. */
+  agents?: string[];
   /** The explicit effort pick (`null` = the model's default). */
   effort?: string | null;
   /** The effective model's catalog entry; `null`/absent = no effort menu. */
@@ -41,6 +45,7 @@ export function buildTopBarMenuPayload({
   permissionMode,
   permissionModes,
   agentId = null,
+  agents = [],
   effort = null,
   effortCatalogOption = null,
   dict,
@@ -58,6 +63,35 @@ export function buildTopBarMenuPayload({
             enabled: connected && permissionMode !== null,
           },
     effort: buildEffortMenu({ effort, option: effortCatalogOption, connected, dict }),
+    agent: buildAgentMenu({ agents, agentId, locked, connected, dict }),
+  };
+}
+
+/** Same rules as the desktop menu's agent row: offered only with more than
+ * one agent, and fixed with the model once the conversation has had a turn. */
+function buildAgentMenu({
+  agents,
+  agentId,
+  locked,
+  connected,
+  dict,
+}: {
+  agents: string[];
+  agentId: string | null;
+  locked: boolean;
+  connected: boolean;
+  dict: Dictionary;
+}): NativeTopBarMenuPayload["agent"] {
+  if (agents.length < 2) return null;
+  const names = dict.chat.composer.agentNames;
+  return {
+    label: dict.chat.composer.menu.agent,
+    currentId: agentId,
+    currentLabel: agentId !== null ? agentName(names, agentId) : dict.chat.composer.pending,
+    options: agents.map((id) => ({ id, label: agentName(names, id) })),
+    locked,
+    lockedHint: dict.chat.composer.modelLocked,
+    enabled: connected && agentId !== null && !locked,
   };
 }
 
