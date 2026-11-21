@@ -204,12 +204,16 @@ test("memory, soul and schedules through the bot's tools; a scheduled run with n
     // "Run now": the run looks something up and answers NO_REPLY — nothing
     // of it reaches the conversation.
     const scheduleId = bot.schedules[0].id;
-    const turn = collectUntil(socket, isTurnEnded, 30_000).catch(() => []);
+    const shown: Record<string, unknown>[] = [];
+    const listen = (raw: Buffer): void => {
+      shown.push(JSON.parse(raw.toString()) as Record<string, unknown>);
+    };
+    socket.on("message", listen);
     const ran = await fetch(`${base}/bots/${id}/schedules/${scheduleId}/run`, { method: "POST" });
     assert.equal(ran.status, 200, await ran.text());
     await waitFor(async () => (await getBot(id)).bot.schedules[0].runs.length === 1, 20_000, "the run to be recorded");
     assert.equal((await getBot(id)).bot.schedules[0].runs[0].outcome, "silent");
-    const shown = (await Promise.race([turn, new Promise<Record<string, unknown>[]>((r) => setTimeout(() => r([]), 500))])) as Record<string, unknown>[];
+    socket.off("message", listen);
     assert.ok(!shown.some((message) => message.type === "agent_event" && (message.event as { type: string }).type === "tool_started"), "the silent run's lookup is not shown");
 
     // The person edits the memory and pauses the schedule.
