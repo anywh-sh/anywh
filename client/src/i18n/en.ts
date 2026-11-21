@@ -1488,6 +1488,16 @@ export const en: Dictionary = {
       },
     },
     blankSoul: "I help the person with: {purpose}\n\n## Never\n- Change anything before the person says I can.",
+    relayGate: {
+      title: "Bots need a newer relay",
+      body: "Bots arrive with relay {required}. This profile's relay is on {current}: update it and they are here.",
+      bodyUnknown: "This profile's relay predates bots: update it and they are here.",
+      update: "Update the relay",
+      updating: "Updating…",
+      updated: "Downloaded — bots arrive the next time the relay restarts.",
+      brewHint: "Homebrew owns this relay on macOS. On this Mac, run:",
+      manualHint: "This relay runs on another machine. There, run:",
+    },
     settings: {
       title: "{name} · settings",
       soul: "Who it is",

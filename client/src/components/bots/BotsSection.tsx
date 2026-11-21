@@ -9,6 +9,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/component
 import { Mascot } from "@/components/bots/Mascot";
 import { ContextMenuAnchor, useContextMenu } from "@/hooks/platform/useContextMenu";
 import { useRoomChannel } from "@/hooks/sala/useRoomChannel";
+import { lacksFeature, useRelayFeatures } from "@/hooks/relay/useRelayFeatures";
+import { BotsRelayGate } from "@/components/bots/BotsRelayGate";
 import { useDict, useLocale } from "@/i18n";
 import { useBots } from "@/lib/bots/botsStore";
 import { botStatusLine, shortWhen } from "@/lib/bots/botStatusLine";
@@ -47,6 +49,16 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const selectedBot = bots.find((bot) => bot.roomId === selectedSession);
   const expanded = selectedBot?.id ?? expandedId;
+  const relay = useRelayFeatures(profile);
+
+  // A relay older than bots: say what it takes to have them, not "no bots".
+  if (bots.length === 0 && lacksFeature(relay, "bots")) {
+    return (
+      <ScrollArea className="min-h-0 flex-1">
+        <BotsRelayGate profile={profile} relayVersion={relay.version} />
+      </ScrollArea>
+    );
+  }
 
   if (bots.length === 0) {
     return (

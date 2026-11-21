@@ -1995,6 +1995,18 @@ export interface Dictionary {
     };
     templates: Record<"daily-summary" | "pr-review" | "ci-check" | "issue-triage" | "backlog-cleanup", { name: string; line: string; watches: string; does: string; reports: string; example: string; when: string; soul: string; scheduleName: string }>;
     blankSoul: string;
+    /** Shown where bots would be when the profile's relay predates them. */
+    relayGate: {
+      title: string;
+      /** `{required}`, `{current}`. */
+      body: string;
+      bodyUnknown: string;
+      update: string;
+      updating: string;
+      updated: string;
+      brewHint: string;
+      manualHint: string;
+    };
     settings: {
       /** `{name}`. */
       title: string;

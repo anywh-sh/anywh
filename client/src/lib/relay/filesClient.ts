@@ -198,6 +198,11 @@ export interface HostInfo {
    * (server.ts) — empty/absent until the boot-time detection probe
    * resolves. */
   agents?: SelectableAgentInfo[];
+  /** The relay's own version; absent from a relay older than the field. */
+  version?: string;
+  /** Features this relay has that an older one lacks, by name (`bots`);
+   * absent from a relay older than the list, which has none of them. */
+  features?: string[];
 }
 
 /** Whether/how the client can open a file panel path in a local editor —

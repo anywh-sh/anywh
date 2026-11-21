@@ -14,6 +14,8 @@ import { rerollSeed } from "@/lib/bots/mascot";
 import { BOT_TEMPLATES, type BotTemplate } from "@/lib/bots/templates";
 import type { Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
+import { lacksFeature, useRelayFeatures } from "@/hooks/relay/useRelayFeatures";
+import { BotsRelayGate } from "@/components/bots/BotsRelayGate";
 
 /** Agents a bot can run on: the ones a room can (the agent host runs them). */
 const BOT_RUNTIMES = ["claude", "codex"];
@@ -105,16 +107,23 @@ export function NewBotDialog({ profile, open, onOpenChange, onCreated, agents: g
   };
 
   const focusedWords = dict.bots.templates[focusedTemplate.id];
+  const relay = useRelayFeatures(profile);
+  const relayTooOld = lacksFeature(relay, "bots");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl" data-testid="new-bot-dialog">
         <DialogHeader>
           <DialogTitle>
-            {dict.bots.create.title} · {step}/2
+            {dict.bots.create.title}
+            {!relayTooOld && ` · ${String(step)}/2`}
           </DialogTitle>
         </DialogHeader>
-        {step === 1 ? (
+        {relayTooOld ? (
+          <DialogBody>
+            <BotsRelayGate profile={profile} relayVersion={relay.version} />
+          </DialogBody>
+        ) : step === 1 ? (
           <DialogBody className="gap-4">
             <div className="flex flex-col gap-1">
               <h3 className="text-lg font-medium text-foreground">{dict.bots.create.step1}</h3>

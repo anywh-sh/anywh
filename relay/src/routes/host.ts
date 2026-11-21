@@ -38,6 +38,13 @@ export function setSelectableAgents(agents: readonly SelectableAgentInfo[]): voi
 const PACKAGE_JSON_PATH = resolveShipped(import.meta.url, "../../package.json", "package.json");
 const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { version: string }).version;
 
+/** What this relay can do that an older one cannot, by name: how the client
+ * tells "this relay predates the feature, update it" from "the feature is
+ * empty" without guessing from version numbers (a relay from a checkout has
+ * none). A relay that predates the list sends none, which means "none of
+ * them". */
+export const RELAY_FEATURES: readonly string[] = ["bots"];
+
 export const handleHostRoutes: RouteHandler = async (req, res, ctx) => {
   // Tells the client whether/how it can open a file-panel path in a local
   // editor — see editorHostInfo.ts for why locality is declared via env
@@ -52,7 +59,7 @@ export const handleHostRoutes: RouteHandler = async (req, res, ctx) => {
     // it now, ahead of any UI reading it, is what lets that UI eventually
     // warn about drift: every relay already in the field today has none,
     // and it takes an actual round of upgrades before this is useful at all.
-    res.end(JSON.stringify({ hostname: hostname(), platform: process.platform, editor, version: RELAY_VERSION, agents: selectableAgents }));
+    res.end(JSON.stringify({ hostname: hostname(), platform: process.platform, editor, version: RELAY_VERSION, features: RELAY_FEATURES, agents: selectableAgents }));
     return true;
   }
 

@@ -1488,6 +1488,16 @@ export const ptBr: Dictionary = {
       },
     },
     blankSoul: "Ajudo a pessoa com: {purpose}\n\n## Nunca\n- Mudar nada antes de a pessoa dizer que posso.",
+    relayGate: {
+      title: "Os bots precisam de um relay mais novo",
+      body: "Os bots chegam com o relay {required}. O relay deste perfil está na {current}: atualize e eles aparecem.",
+      bodyUnknown: "O relay deste perfil é anterior aos bots: atualize e eles aparecem.",
+      update: "Atualizar o relay",
+      updating: "Atualizando…",
+      updated: "Baixado — os bots aparecem quando o relay reiniciar.",
+      brewHint: "No macOS o relay é do Homebrew. Neste Mac, rode:",
+      manualHint: "Este relay roda em outra máquina. Lá, rode:",
+    },
     settings: {
       title: "{name} · configurações",
       soul: "Quem é",
