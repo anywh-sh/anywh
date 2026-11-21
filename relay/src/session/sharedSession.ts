@@ -1494,12 +1494,16 @@ export class SharedSession implements SessionDriverHost {
    * safe to exit without interrupting anything mid-flight. `turnQueue`
    * never rejects (`runTurn` handles its own errors and never rethrows), so
    * it's fine to return it directly without a try/catch here. */
-  /** Queues a turn behind the ones already waiting. */
-  private enqueue(run: () => Promise<void>): void {
+  /** Queues a turn behind the ones already waiting. `onDiscarded` runs
+   * instead of it if `discardQueuedTurns` drops it before it starts. */
+  private enqueue(run: () => Promise<void>, onDiscarded?: () => void): void {
     const seq = ++this.enqueuedSeq;
     this.turnQueue = this.turnQueue.then(async () => {
       this.dequeuedSeq = seq;
-      if (seq <= this.discardedUpTo) return;
+      if (seq <= this.discardedUpTo) {
+        onDiscarded?.();
+        return;
+      }
       // Between leaving the queue and the turn's own start nothing else says
       // the session is busy.
       this.runningFromQueue = true;
@@ -1589,13 +1593,31 @@ export class SharedSession implements SessionDriverHost {
   submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: { silenced: boolean; failed: boolean }) => void }): void {
     this.clearSuggestion();
     const schedule = turn.kind === "bot_schedule";
-    this.enqueue(() =>
-      this.runTurn(undefined, text, {
-        kind: turn.kind,
-        label: turn.label,
-        ...(schedule ? { silenceOffered: true, toolsAllowed: true } : {}),
-        onSettled: (silenced, failed) => turn.onSettled?.({ silenced, failed: failed === true }),
-      }),
+    // Exactly once, however the turn ends: also when it is dropped from the
+    // queue or fails before it starts (loading the history), which would
+    // otherwise leave a schedule marked as running.
+    let settled = false;
+    const settle = (outcome: { silenced: boolean; failed: boolean }): void => {
+      if (settled) return;
+      settled = true;
+      turn.onSettled?.(outcome);
+    };
+    this.enqueue(
+      async () => {
+        try {
+          await this.runTurn(undefined, text, {
+            kind: turn.kind,
+            label: turn.label,
+            ...(schedule ? { silenceOffered: true, toolsAllowed: true } : {}),
+            onSettled: (silenced, failed) => settle({ silenced, failed: failed === true }),
+          });
+        } catch (error) {
+          console.error(`[relay] bot turn "${turn.label}" failed before it started:`, error);
+        } finally {
+          settle({ silenced: false, failed: true });
+        }
+      },
+      () => settle({ silenced: false, failed: true }),
     );
   }
 

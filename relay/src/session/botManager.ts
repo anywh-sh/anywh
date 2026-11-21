@@ -54,8 +54,8 @@ const SCHEDULER_MAX_WAIT_MS = 60 * 60 * 1000;
 /** How soon a run that could not start (the agent host away) is retried. */
 const SCHEDULER_RETRY_MS = 30 * 1000;
 /** A run older than this, with its bot idle, is over even if its end was never
- * reported (a turn dropped from the queue, a history that failed to load): it
- * must not hold its schedule forever. */
+ * reported. The session always reports it (a dropped or failed turn too), so
+ * this is only a guard against a bug: it must not hold its schedule forever. */
 const RUN_STALE_MS = 60 * 60 * 1000;
 
 /** The live session of a bot's room, as much of it as bots use. */
@@ -180,7 +180,6 @@ function defaultTimer(fn: () => void, ms: number): () => void {
 export class BotManager implements RoomBots {
   private readonly now: () => number;
   private cancelTimer?: () => void;
-  /** Schedules (by `botId:scheduleId`) whose run is under way. */
   /** Schedules (by `botId:scheduleId`) whose run is under way, with when it
    * started. See `isRunning`. */
   private readonly running = new Map<string, number>();
@@ -703,13 +702,16 @@ export class BotManager implements RoomBots {
 
   private fire(bot: BotRecord, schedule: BotSchedule): void {
     const key = `${bot.id}:${schedule.id}`;
-    this.running.set(key, this.now());
     const at = this.now();
+    this.running.set(key, at);
     this.store.touch(bot.id);
     this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botScheduleText(schedule.name, schedule.prompt), {
       kind: "bot_schedule",
       label: schedule.name,
       onSettled: ({ silenced, failed }) => {
+        // A run already taken as stale was recorded then, and a newer one
+        // may hold the key by now.
+        if (this.running.get(key) !== at) return;
         this.running.delete(key);
         if (!this.store.get(bot.id)?.schedules.some((each) => each.id === schedule.id)) return;
         this.recordRun(bot.id, schedule.id, { at, outcome: failed ? "failed" : silenced ? "silent" : "replied" });
@@ -725,6 +727,7 @@ export class BotManager implements RoomBots {
     if (startedAt === undefined) return false;
     if (this.now() - startedAt < RUN_STALE_MS || this.options.sessions.peek(bot.roomId)?.isBusy() === true) return true;
     this.running.delete(key);
+    this.recordRun(bot.id, scheduleId, { at: startedAt, outcome: "failed" });
     return false;
   }
 
