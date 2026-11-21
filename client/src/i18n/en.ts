@@ -1490,7 +1490,7 @@ export const en: Dictionary = {
     blankSoul: "I help the person with: {purpose}\n\n## Never\n- Change anything before the person says I can.",
     relayGate: {
       title: "Bots need a newer relay",
-      body: "Bots arrive with relay {required}. This profile's relay is on {current}: update it and they are here.",
+      body: "This profile's relay is on {current}, which predates bots: update it and they are here.",
       bodyUnknown: "This profile's relay predates bots: update it and they are here.",
       update: "Update the relay",
       updating: "Updating…",

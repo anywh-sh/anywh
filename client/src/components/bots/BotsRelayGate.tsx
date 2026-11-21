@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { useRelayUpdate } from "@/hooks/relay/useRelayUpdate";
 import { useDict } from "@/i18n";
-import { APP_VERSION, isUnreleasedVersion } from "@/lib/install/appVersion";
+import { isUnreleasedVersion } from "@/lib/install/appVersion";
 import type { Profile } from "@/lib/profiles/profiles";
 
 /** The command that updates a relay where the app cannot (another machine). */
@@ -17,14 +17,15 @@ export const RELAY_UPDATE_COMMAND = "curl -fsSL https://anywh.sh/install | sh -s
 export function BotsRelayGate({ profile, relayVersion }: { profile: Profile; relayVersion?: string }) {
   const dict = useDict().bots.relayGate;
   const update = useRelayUpdate(profile);
-  // This app's version is the first one known to bring bots; a build from
-  // source has no release number to name.
-  const known = !isUnreleasedVersion(APP_VERSION) && relayVersion !== undefined && !isUnreleasedVersion(relayVersion);
+  // Only the relay's own version is named: this app's version is not the
+  // first that brings bots, only one that has them. A build from source has
+  // no release number to name.
+  const known = relayVersion !== undefined && !isUnreleasedVersion(relayVersion);
   return (
     <div className="flex flex-col gap-3 px-4 py-6" data-testid="bots-relay-gate">
       <span className="text-sm font-medium text-foreground">{dict.title}</span>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        {known ? dict.body.replace("{required}", `v${APP_VERSION}`).replace("{current}", `v${relayVersion}`) : dict.bodyUnknown}
+        {known ? dict.body.replace("{current}", `v${relayVersion}`) : dict.bodyUnknown}
       </p>
       {update.kind === "in-app" ? (
         update.status === "done" ? (

@@ -1998,7 +1998,7 @@ export interface Dictionary {
     /** Shown where bots would be when the profile's relay predates them. */
     relayGate: {
       title: string;
-      /** `{required}`, `{current}`. */
+      /** `{current}`. */
       body: string;
       bodyUnknown: string;
       update: string;

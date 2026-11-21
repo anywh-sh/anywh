@@ -17,6 +17,11 @@ describe("Bots relay gate stories", () => {
     expect(screen.getByText(RELAY_UPDATE_COMMAND)).toBeInTheDocument();
   });
 
+  it("names the relay's current version, not a minimum", () => {
+    render(<OtherMachine />);
+    expect(screen.getByText(en.bots.relayGate.body.replace("{current}", "v0.2.40"))).toBeInTheDocument();
+  });
+
   it("without a version to compare (a build from source), it says the relay predates bots", () => {
     render(<VersionUnknown />);
     expect(screen.getByText(en.bots.relayGate.bodyUnknown)).toBeInTheDocument();

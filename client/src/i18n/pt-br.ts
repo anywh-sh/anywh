@@ -1490,7 +1490,7 @@ export const ptBr: Dictionary = {
     blankSoul: "Ajudo a pessoa com: {purpose}\n\n## Nunca\n- Mudar nada antes de a pessoa dizer que posso.",
     relayGate: {
       title: "Os bots precisam de um relay mais novo",
-      body: "Os bots chegam com o relay {required}. O relay deste perfil está na {current}: atualize e eles aparecem.",
+      body: "O relay deste perfil está na {current}, anterior aos bots: atualize e eles aparecem.",
       bodyUnknown: "O relay deste perfil é anterior aos bots: atualize e eles aparecem.",
       update: "Atualizar o relay",
       updating: "Atualizando…",
