@@ -5,7 +5,7 @@ import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
-import type { AgentEvent, RoomCard } from "../protocol/agent-event.js";
+import type { AgentEvent, RoomCard, SyntheticTurnKind } from "../protocol/agent-event.js";
 import { withRoomCard } from "../protocol/roomCard.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
@@ -263,7 +263,7 @@ export interface SharedSessionOptions {
   onUsage?: (event: AgentEvent) => void;
   /** A turn began (`startedAt` in epoch ms); `synthetic` is what started it
    * when it was not a person's message or an agent's task. */
-  onTurnStarted?: (startedAt: number, synthetic?: "background_job" | "wakeup" | "approval" | "room_digest") => void;
+  onTurnStarted?: (startedAt: number, synthetic?: SyntheticTurnKind) => void;
   /** The agent called a tool of the MCP server `server`. */
   onMcpServerUsed?: (server: string) => void;
   /** A room agent's note for the model alone on its next turn (news of the
@@ -287,7 +287,7 @@ export interface TurnOutcome {
   readonly error?: string;
   /** What started the turn when it was neither a person's message nor an
    * agent's: the relay's own follow-ups. */
-  readonly synthetic?: "background_job" | "wakeup" | "approval" | "room_digest";
+  readonly synthetic?: SyntheticTurnKind;
 }
 
 /**
@@ -327,6 +327,11 @@ export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarti
 class HeldTurn {
   readonly buffer: BroadcastMessage[] = [];
   released = false;
+  /** A bot's scheduled run may look things up (run a command, read a file)
+   * and still end in silence: tool calls do not release it, only the bot's
+   * own tools that change what the person sees (a task, a delegation, a
+   * schedule, its memory) do. Its last text block alone decides. */
+  constructor(private readonly toolsAllowed = false) {}
   /** Committed top-level text blocks, in order. */
   private readonly committed: string[] = [];
   /** Streaming previews not yet committed, per block index. */
@@ -334,13 +339,14 @@ class HeldTurn {
 
   /** Whether `event` proves the turn is not (only) `NO_REPLY`. */
   shouldRelease(event: AgentEvent): boolean {
+    if (event.type === "tool_started" && this.toolsAllowed) return event.subject?.kind === "mcp" && event.subject.server === "anywh-room" && event.subject.tool !== "bot_status";
     if (event.type === "tool_started" || event.type === "plan" || event.type === "subagent" || event.type === "error") return true;
     if (event.type === "text_delta") {
       this.streaming.set(event.index, (this.streaming.get(event.index) ?? "") + event.text);
       return !this.couldBeNoReply();
     }
     if (event.type === "text") {
-      if (event.parentToolUseId !== undefined) return true;
+      if (event.parentToolUseId !== undefined) return !this.toolsAllowed;
       this.committed.push(event.text);
       this.streaming.clear();
       return !this.couldBeNoReply();
@@ -355,12 +361,15 @@ class HeldTurn {
   /** Text so far is empty or a prefix of what would still normalise to
    * `NO_REPLY` — the streaming-time version of `isNoReply`. */
   private couldBeNoReply(): boolean {
+    // With tools allowed, text before a lookup ("let me check") is not the
+    // answer: only the end of the turn says whether it stays silent.
+    if (this.toolsAllowed) return true;
     const text = this.currentText().trim().replace(/^[`"']+/, "").replace(/[`"'.]+$/, "").trim();
     return text === "" || NO_REPLY.startsWith(text);
   }
 
   isNoReply(): boolean {
-    return isNoReply(this.committed.join("\n"));
+    return isNoReply(this.toolsAllowed ? (this.committed.at(-1) ?? "") : this.committed.join("\n"));
   }
 }
 
@@ -1573,6 +1582,23 @@ export class SharedSession implements SessionDriverHost {
     this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks, undefined, undefined, card));
   }
 
+  /** A turn the relay gives a bot on its own: a schedule firing (offered
+   * silence, and allowed to look things up before answering `NO_REPLY`), or
+   * a note (its creation, the person's answer to a task). `onSettled` says
+   * how it ended. */
+  submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: { silenced: boolean; failed: boolean }) => void }): void {
+    this.clearSuggestion();
+    const schedule = turn.kind === "bot_schedule";
+    this.enqueue(() =>
+      this.runTurn(undefined, text, {
+        kind: turn.kind,
+        label: turn.label,
+        ...(schedule ? { silenceOffered: true, toolsAllowed: true } : {}),
+        onSettled: (silenced, failed) => turn.onSettled?.({ silenced, failed: failed === true }),
+      }),
+    );
+  }
+
   /** `/clear` — same queue as real turns (`turnQueue`), so it
    * never runs in parallel with a turn in progress and risks one of the
    * two overwriting the other's `session_id`/`history` out of order.
@@ -1631,12 +1657,15 @@ export class SharedSession implements SessionDriverHost {
     text: string,
     synthetic?: {
       label?: string;
-      kind: "background_job" | "wakeup" | "approval" | "room_digest";
+      kind: SyntheticTurnKind;
       /** The prompt offered the model the `NO_REPLY` escape: hold the turn's
        * events until it is known whether they will ever be shown. */
       silenceOffered?: boolean;
-      /** Runs once the turn is over, with whether it was silenced. */
-      onSettled?: (silenced: boolean) => void;
+      /** With `silenceOffered`: tool calls do not end the hold (see `HeldTurn`). */
+      toolsAllowed?: boolean;
+      /** Runs once the turn is over, with whether it was silenced and
+       * whether it failed. */
+      onSettled?: (silenced: boolean, failed?: boolean) => void;
     },
     /** Follow a turn already running in the agent host instead of sending one. */
     follow = false,
@@ -1687,7 +1716,7 @@ export class SharedSession implements SessionDriverHost {
     // For a turn that may end up silent (`hold`) nothing below reaches a
     // client or `history` until the turn proves it has something to show —
     // see `HeldTurn`.
-    const hold = synthetic?.silenceOffered ? new HeldTurn() : undefined;
+    const hold = synthetic?.silenceOffered ? new HeldTurn(synthetic.toolsAllowed === true) : undefined;
     const emit = (message: BroadcastMessage): void => {
       if (hold && !hold.released) hold.buffer.push(message);
       else this.broadcast(message);
@@ -1916,7 +1945,7 @@ export class SharedSession implements SessionDriverHost {
       else this.choiceMachine.flushDeferredApprovals(turnId);
       // Before the idle `turn_state` goes out, so a client that sees the turn
       // end already has the failure tray the turn's outcome decided.
-      synthetic?.onSettled?.(silenced);
+      synthetic?.onSettled?.(silenced, turnError !== undefined);
       this.turnStartedAt = null;
       // A sign-in or sign-out landed during the turn: its daemon still holds
       // the old credentials.
