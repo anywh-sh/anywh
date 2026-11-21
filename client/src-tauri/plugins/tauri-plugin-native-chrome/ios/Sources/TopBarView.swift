@@ -104,7 +104,11 @@ struct TopBarView: View {
               Text(agent.currentLabel)
               Text(agent.locked ? agent.lockedHint : agent.label)
             } icon: {
-              Image(systemName: agent.locked ? "lock" : "sparkles")
+              if agent.locked {
+                Image(systemName: "lock")
+              } else {
+                Image(uiImage: AgentIcon.bot())
+              }
             }
           }
           .disabled(!agent.enabled)
