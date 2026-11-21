@@ -390,3 +390,31 @@ test("a person's text that merely contains the card marker is left alone", () =>
     assert.equal(user.text, "see [anywh-card] {not json}\nmore");
   });
 });
+
+const BOT_SCHEDULE = '[anywh-bot] Schedule "CI check" fired.\n\nCheck the CI.\n\nIf, after checking, nothing needs the person\'s attention, answer exactly NO_REPLY and nothing else.';
+function assistantToolUse(id: string, name: string, input: unknown): string {
+  return JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } });
+}
+function toolResult(id: string, content: string): string {
+  return JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content }] } });
+}
+
+test("a bot's scheduled run that looked something up and answered NO_REPLY collapses, as it was silent live", () => {
+  withFixture("bs1", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantText("Let me check."), assistantToolUse("t1", "Bash", { command: "gh run list" }), toolResult("t1", "all green"), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bs1").map((m) => m.event);
+    const note = events.find((e) => e.type === "user_message" && e.synthetic === "bot_schedule");
+    assert.ok(note && note.type === "user_message" && note.label === "CI check");
+    assert.equal(isSilentEvent(note), true);
+    assert.ok(!events.some((e) => e.type === "tool_started" && !isSilentEvent(e)), "the lookup is not shown");
+  });
+});
+
+test("a scheduled run that changed the bot's tasks is shown even if it ends with NO_REPLY, as it was live", () => {
+  withFixture("bs2", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantToolUse("t1", "mcp__anywh-room__task_create", { title: "Fix CI" }), toolResult("t1", '{"task":1}'), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bs2").map((m) => m.event);
+    const note = events.find((e) => e.type === "user_message" && e.synthetic === "bot_schedule");
+    assert.ok(note);
+    assert.equal(isSilentEvent(note), false);
+    assert.ok(events.some((e) => e.type === "tool_started"));
+  });
+});

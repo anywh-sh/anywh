@@ -138,8 +138,11 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
   let turnOffered = false;
   let turnAssistantTexts: string[] = [];
   let turnUsedTool = false;
-  /** A bot's scheduled run: tool calls do not keep it from being silent. */
+  /** A bot's scheduled run: tool calls do not keep it from being silent... */
   let turnToolsAllowed = false;
+  /** ...unless one of them changed what the person sees (a task, a
+   * delegation, a schedule, its memory): live, those release the turn. */
+  let turnBotChange = false;
   // Live, a Stop (`stopped: true`) is never silenced. The transcript has no
   // stop record of its own, only the "[Request interrupted by user]" user
   // line Claude Code appends right after an interrupted turn, so that line
@@ -154,7 +157,7 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
    * `protocol/silentEvents.ts`): one `user_message` + `turn_ended`, so the turn
    * count still matches the transcript's `user` lines. Returns whether it did. */
   function collapseIfSilent(): boolean {
-    if (!turnUserEvent || !turnOffered || (turnUsedTool && !turnToolsAllowed) || turnInterrupted) return false;
+    if (!turnUserEvent || !turnOffered || (turnUsedTool && !turnToolsAllowed) || turnBotChange || turnInterrupted) return false;
     if (!isNoReply(turnToolsAllowed ? (turnAssistantTexts.at(-1) ?? "") : turnAssistantTexts.join("\n"))) return false;
     messages.length = turnStartIdx;
     // A card is the person's notification of the report, so it stays visible
@@ -204,7 +207,11 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
         for (const block of content) {
           if (typeof block !== "object" || block === null) continue;
           const kind = (block as { type?: unknown }).type;
-          if (kind === "tool_use") turnUsedTool = true;
+          if (kind === "tool_use") {
+            turnUsedTool = true;
+            const name = (block as { name?: unknown }).name;
+            if (typeof name === "string" && name.startsWith("mcp__anywh-room__") && name !== "mcp__anywh-room__bot_status") turnBotChange = true;
+          }
           else if (isTextBlock(block)) turnAssistantTexts.push(block.text);
         }
       }
@@ -244,6 +251,7 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       turnAssistantTexts = [];
       turnUsedTool = false;
       turnToolsAllowed = false;
+      turnBotChange = false;
       turnInterrupted = false;
       messages.push({ type: "agent_event", event: { type: "turn_started", ...(lineMs !== undefined ? { startedAt: lineMs } : {}) } });
       // Real timestamp of the line — the client uses this to show
