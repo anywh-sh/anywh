@@ -66,7 +66,9 @@ export function NewBotDialog({ profile, open, onOpenChange, onCreated, agents: g
     if (agents.length > 0 && !agents.includes(agentId)) setAgentId(agents[0]);
   }, [agents, agentId]);
 
-  const seedBase = name.trim() || template?.seed || "bot";
+  // A template keeps its own face whatever it is renamed to; a bot from
+  // scratch takes its face from its name.
+  const seedBase = template?.seed ?? (name.trim() || "bot");
   const seed = rerollSeed(seedBase, attempt);
 
   const startFrom = (picked: BotTemplate | null): void => {

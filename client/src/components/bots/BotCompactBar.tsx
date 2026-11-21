@@ -30,7 +30,7 @@ export function BotCompactBar({ profile, roomId, onOpenSession }: { profile: Pro
         </Button>
       </div>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" className="h-[85dvh] gap-0 p-0">
+        <SheetContent side="bottom" showCloseButton={false} className="h-[85dvh] gap-0 p-0">
           <SheetTitle className="sr-only">{dict.bots.panel.tasks}</SheetTitle>
           <BotPanel
             profile={profile}

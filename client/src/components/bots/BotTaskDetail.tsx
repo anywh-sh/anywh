@@ -97,7 +97,7 @@ export function BotTaskDetail({ profile, bot, task, onBack, onOpenSession }: Bot
             <span className="font-mono text-[11px] text-text-faint">{dict.bots.task.history}</span>
             {[...task.notes].reverse().map((note, index) => (
               <div key={`${String(note.at)}:${String(index)}`} className="flex gap-2.5 text-[12.5px]">
-                <span className="w-12 shrink-0 font-mono text-[10.5px] leading-5 text-text-faint">{shortWhen(note.at, locale)}</span>
+                <span className="w-16 shrink-0 font-mono text-[10.5px] leading-5 whitespace-nowrap text-text-faint">{shortWhen(note.at, locale)}</span>
                 <span className="min-w-0 flex-1 leading-5 text-foreground/85">{note.text}</span>
               </div>
             ))}
