@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { botAnswerText, botKickoffText, botScheduleText, parseDelegateTask, parseRememberArgs, parseScheduleCreateArgs, parseTaskAskArgs, parseTaskUpdateArgs } from "./botTools.js";
+import { botAnswerText, botCancelText, botKickoffText, botScheduleText, parseDelegateTask, parseRememberArgs, parseScheduleCreateArgs, parseTaskAskArgs, parseTaskUpdateArgs } from "./botTools.js";
 import { botTurnKind } from "../protocol/botTurns.js";
 import { promptOffersSilence } from "../protocol/silentEvents.js";
 
@@ -33,4 +33,13 @@ test("remember takes one of three kinds; schedules collapse spaces in the cron; 
   assert.deepEqual(parseScheduleCreateArgs({ name: "n", cron: "0  9 *  * 1-5", prompt: "p" }), { ok: true, value: { name: "n", cron: "0 9 * * 1-5", prompt: "p" } });
   assert.deepEqual(parseDelegateTask({}), { ok: true, value: undefined });
   assert.equal(parseDelegateTask({ task_number: 0 }).ok, false);
+});
+
+test("the cancel note says what came of stopping the task's agents", () => {
+  assert.doesNotMatch(botCancelText(2), /stopped|failed/);
+  assert.match(botCancelText(2, { stopped: 2, notStopped: [] }), /Its agents were stopped\./);
+  const failed = botCancelText(2, { stopped: 1, notStopped: ["w3"] });
+  assert.match(failed, /Stopping agent w3 failed: it may still be working\./);
+  assert.doesNotMatch(failed, /were stopped/);
+  assert.equal(botTurnKind(botCancelText(2))?.kind, "bot_note");
 });

@@ -46,6 +46,8 @@ import type { CreateRoomInput, CreateRoomResult, RoomBots } from "./roomManager.
 import type { SessionStore } from "./sessionStore.js";
 
 const ok = (text: string): RoomToolResult => ({ text, isError: false });
+/** Whether `stopAgent` stopped it (it answers `{ ok }`; anything else is not). */
+const isStopped = (result: unknown): boolean => typeof result === "object" && result !== null && (result as { ok?: unknown }).ok === true;
 const fail = (text: string): RoomToolResult => ({ text, isError: true });
 
 /** The longest a scheduler timer waits before looking again: bounds the
@@ -357,13 +359,25 @@ export class BotManager implements RoomBots {
     }));
     // Nothing keeps working on a task the person called off, and the bot
     // hears it from the relay rather than from a report out of the blue.
-    for (const workerId of task.workerIds) {
+    // The note waits for the stops, so it says what actually happened.
+    const active = task.workerIds.filter((workerId) => {
       const state = this.options.rooms.agentState(workerId);
-      if (state === "working" || state === "queued" || state === "awaiting_user" || state === "waiting") {
-        this.options.rooms.stopAgent(bot.roomId, workerId).catch((error: unknown) => console.warn(`[relay] could not stop agent ${workerId} of a canceled task: ${(error as Error).message}`));
-      }
-    }
-    this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botCancelText(n), { kind: "bot_note", label: `cancel:${n}` });
+      return state === "working" || state === "queued" || state === "awaiting_user" || state === "waiting";
+    });
+    void Promise.all(
+      active.map((workerId) =>
+        this.options.rooms.stopAgent(bot.roomId, workerId).then(
+          (result) => isStopped(result),
+          (error: unknown) => {
+            console.warn(`[relay] could not stop agent ${workerId} of a canceled task: ${(error as Error).message}`);
+            return false;
+          },
+        ),
+      ),
+    ).then((stopped) => {
+      const notStopped = active.filter((_, i) => !stopped[i]);
+      this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botCancelText(n, { stopped: active.length - notStopped.length, notStopped }), { kind: "bot_note", label: `cancel:${n}` });
+    });
     return { ok: true, value: null };
   }
 

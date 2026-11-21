@@ -224,9 +224,16 @@ export function botScheduleText(name: string, prompt: string): string {
   );
 }
 
-/** The message that tells the bot the person canceled one of its tasks. */
-export function botCancelText(taskN: number): string {
-  return `${BOT_TURN_PREFIX} The person canceled task #${taskN}. Its agents were stopped. Do not continue it; if a report about it arrives, only note it.`;
+/** The message that tells the bot the person canceled one of its tasks, and
+ * what came of stopping the agents still working on it. */
+export function botCancelText(taskN: number, agents: { stopped: number; notStopped: readonly string[] } = { stopped: 0, notStopped: [] }): string {
+  const outcome =
+    agents.notStopped.length > 0
+      ? ` Stopping ${agents.notStopped.length === 1 ? "agent" : "agents"} ${agents.notStopped.join(", ")} failed: ${agents.notStopped.length === 1 ? "it may still be" : "they may still be"} working.`
+      : agents.stopped > 0
+        ? " Its agents were stopped."
+        : "";
+  return `${BOT_TURN_PREFIX} The person canceled task #${taskN}.${outcome} Do not continue it; if a report about it arrives, only note it.`;
 }
 
 /** The message that hands the bot the person's answer to a task question. */
