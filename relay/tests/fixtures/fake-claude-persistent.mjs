@@ -44,6 +44,8 @@
 //                        [[gate:<path>]] too, the calls wait for the gate;
 //                        with [[crash-after]], the process exits (code 3)
 //                        right after them
+//   [[look-then-silent]] say "Let me check.", run one command, then answer
+//                        NO_REPLY (a bot's scheduled run with nothing to say)
 //   [[ask:<base64url JSON {tool, input}>]] try that tool call, which needs
 //                        approval: put to the `--permission-prompt-tool` (the
 //                        `anywh-room` server's `approve`) like the CLI does;
@@ -322,6 +324,15 @@ export async function runPersistent(args) {
       // The turn fails after its calls: the report was made, the turn not.
       if (text.includes("[[crash-after]]")) process.exit(3);
       finish(`room: ${last}`);
+      return;
+    }
+    if (text.includes("[[look-then-silent]]")) {
+      // A bot's scheduled run that looks something up and finds nothing:
+      // a command, some text before it, and NO_REPLY as the last word.
+      emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "text", text: "Let me check." }] } });
+      toolCall("toolu_look", "gh pr list");
+      emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_look", content: "no open pull requests" }] } });
+      finish("NO_REPLY");
       return;
     }
     const stale = /\[\[stale-result:([^\]]+)\]\]/.exec(text)?.[1];

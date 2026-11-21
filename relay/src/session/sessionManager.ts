@@ -1,4 +1,4 @@
-import type { AgentEvent } from "../protocol/agent-event.js";
+import type { AgentEvent, SyntheticTurnKind } from "../protocol/agent-event.js";
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import type { Registry } from "../runtimes/registry.js";
@@ -51,11 +51,15 @@ export interface SessionManagerRoomOptions {
   /** A usage event of a member's turn. */
   readonly onUsage?: (sessionId: string, event: AgentEvent) => void;
   /** See `SharedSessionOptions.onTurnStarted`. */
-  readonly onTurnStarted?: (sessionId: string, startedAt: number, synthetic?: "background_job" | "wakeup" | "approval" | "room_digest") => void;
+  readonly onTurnStarted?: (sessionId: string, startedAt: number, synthetic?: SyntheticTurnKind) => void;
   /** Every event of a member's turns, for the card's trail of actions. */
   readonly onActivity?: (sessionId: string, event: AgentEvent) => void;
   /** See `SharedSessionOptions.onMcpServerUsed`. */
   readonly onMcpServerUsed?: (sessionId: string, server: string) => void;
+  /** Whether the session is a bot (the principal of a bot's room): it is
+   * listed with the bots, not with the conversations, and notifies the
+   * person only when it needs them or failed. */
+  readonly isBot?: (sessionId: string) => boolean;
   /** See `SharedSessionOptions.roomTurnNote`. */
   readonly turnNote?: (sessionId: string) => { text: string; commit: () => void } | undefined;
   /** Why a member's card cannot be answered now (the room is full), if so. */
@@ -196,7 +200,7 @@ export class SessionManager {
    * reached through their room and never listed on their own (the store's
    * `listTitled` leaves them out the same way). */
   private announce(event: SessionListEvent): void {
-    if (event.type === "upsert" && this.sessionStore.isHiddenWorker(event.id)) return;
+    if (event.type === "upsert" && (this.sessionStore.isHiddenWorker(event.id) || this.rooms.isBot?.(event.id))) return;
     if (event.type !== "upsert") {
       this.onListChanged?.(event);
       return;
@@ -252,7 +256,8 @@ export class SessionManager {
   }
 
   listTitled(): TitledSession[] {
-    return this.sessionStore.listTitled();
+    const isBot = this.rooms.isBot;
+    return isBot ? this.sessionStore.listTitled().filter((session) => !isBot(session.id)) : this.sessionStore.listTitled();
   }
 
   /** The timestamp to stamp an `upsert` event with. Read back from the store
@@ -586,6 +591,9 @@ export class SessionManager {
           if (draft.kind === "approval_required" || draft.kind === "choice_required") this.rooms.onWorkerPrompted?.(id, watched);
           return;
         }
+        // A bot works on its own all day: a reply or a schedule's run is not
+        // news worth a notification, a question or a failure is.
+        if (this.rooms.isBot?.(id) && (draft.kind === "turn_completed" || draft.kind === "turn_stopped")) return;
         this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched });
       },
       onEvent: (event) => {
