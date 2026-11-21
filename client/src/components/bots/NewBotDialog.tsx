@@ -107,7 +107,7 @@ export function NewBotDialog({ profile, open, onOpenChange, onCreated, agents: g
   };
 
   const focusedWords = dict.bots.templates[focusedTemplate.id];
-  const relay = useRelayFeatures(profile);
+  const relay = useRelayFeatures(profile, "bots");
   const relayTooOld = lacksFeature(relay, "bots");
 
   return (

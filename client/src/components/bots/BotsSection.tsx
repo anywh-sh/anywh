@@ -49,7 +49,7 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const selectedBot = bots.find((bot) => bot.roomId === selectedSession);
   const expanded = selectedBot?.id ?? expandedId;
-  const relay = useRelayFeatures(profile);
+  const relay = useRelayFeatures(profile, "bots");
 
   // A relay older than bots: say what it takes to have them, not "no bots".
   if (bots.length === 0 && lacksFeature(relay, "bots")) {
