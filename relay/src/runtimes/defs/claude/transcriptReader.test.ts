@@ -409,6 +409,21 @@ test("a bot's scheduled run that looked something up and answered NO_REPLY colla
   });
 });
 
+for (const [id, name, input] of [
+  ["bs3", "TodoWrite", { todos: [{ content: "Check CI", status: "in_progress" }] }],
+  ["bs4", "Task", { description: "Look at the failing job", prompt: "..." }],
+  ["bs5", "Agent", { description: "Look at the failing job", prompt: "..." }],
+] as const) {
+  test(`a scheduled run that used ${name} is shown even if it ends with NO_REPLY, as it was live`, () => {
+    withFixture(id, [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantToolUse("t1", name, input), toolResult("t1", "done"), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+      const events = readHistoryFromTranscript(home, home, id).map((m) => m.event);
+      const note = events.find((e) => e.type === "user_message" && e.synthetic === "bot_schedule");
+      assert.ok(note);
+      assert.equal(isSilentEvent(note), false);
+    });
+  });
+}
+
 test("a scheduled run that changed the bot's tasks is shown even if it ends with NO_REPLY, as it was live", () => {
   withFixture("bs2", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantToolUse("t1", "mcp__anywh-room__task_create", { title: "Fix CI" }), toolResult("t1", '{"task":1}'), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
     const events = readHistoryFromTranscript(home, home, "bs2").map((m) => m.event);

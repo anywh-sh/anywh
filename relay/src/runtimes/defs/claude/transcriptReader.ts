@@ -141,7 +141,8 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
   /** A bot's scheduled run: tool calls do not keep it from being silent... */
   let turnToolsAllowed = false;
   /** ...unless one of them changed what the person sees (a task, a
-   * delegation, a schedule, its memory): live, those release the turn. */
+   * delegation, a schedule, its memory, a plan, a native subagent): live,
+   * those release the turn. */
   let turnBotChange = false;
   // Live, a Stop (`stopped: true`) is never silenced. The transcript has no
   // stop record of its own, only the "[Request interrupted by user]" user
@@ -210,7 +211,7 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
           if (kind === "tool_use") {
             turnUsedTool = true;
             const name = (block as { name?: unknown }).name;
-            if (typeof name === "string" && name.startsWith("mcp__anywh-room__") && name !== "mcp__anywh-room__bot_status") turnBotChange = true;
+            if (typeof name === "string" && releasesSilentRun(name)) turnBotChange = true;
           }
           else if (isTextBlock(block)) turnAssistantTexts.push(block.text);
         }
@@ -346,3 +347,13 @@ function backgroundJobPrompt(text: string): { label: string | undefined } | unde
 
 /** Text Claude Code writes as a user line when the user interrupts a turn. */
 const INTERRUPT_MARKER = "[Request interrupted by user";
+
+/** Tool calls that release a bot's held scheduled run live
+ * (`sharedSession.ts`'s `HeldTurn`), by name as the transcript records them:
+ * the bot's own room tools that change something visible, and the built-ins
+ * whose events release it there — `TodoWrite` (a `plan`) and a native
+ * subagent (`Task`, `Agent` in newer CLIs; a `subagent`). */
+function releasesSilentRun(name: string): boolean {
+  if (name === "TodoWrite" || name === "Task" || name === "Agent") return true;
+  return name.startsWith("mcp__anywh-room__") && name !== "mcp__anywh-room__bot_status";
+}
