@@ -1399,6 +1399,7 @@ export const en: Dictionary = {
       schedule: "Scheduled · {name}",
       created: "Bot created",
       answer: "You answered task #{n}",
+      canceled: "You canceled task #{n}",
     },
     create: {
       title: "New bot",

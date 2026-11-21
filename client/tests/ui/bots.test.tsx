@@ -55,12 +55,13 @@ describe("bots in the sidebar", () => {
     renderApp();
     const watch = await watchSocket();
     act(() => {
-      watch.emitMessage({ type: "session_list_snapshot", sessions: [{ id: "room-vigia", title: "Vigia", lastActiveAt: Date.now() }, { id: "chat-1", title: "A conversation", lastActiveAt: Date.now() }] });
+      // The relay lists a bot with the bots, never among the conversations.
+      watch.emitMessage({ type: "session_list_snapshot", sessions: [{ id: "chat-1", title: "A conversation", lastActiveAt: Date.now() }] });
       watch.emitMessage({ type: "bots_state", bots: [vigia] });
     });
 
-    // Conversations open: the bot's own conversation is not one of them, and
-    // the folded Bots heading still shows that a bot needs the person.
+    // Conversations open: the folded Bots heading still shows that a bot
+    // needs the person.
     expect(await screen.findByText("A conversation")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Vigia" })).not.toBeInTheDocument();
     const botsHeading = screen.getByRole("button", { name: new RegExp(en.bots.section) });

@@ -224,6 +224,11 @@ export function botScheduleText(name: string, prompt: string): string {
   );
 }
 
+/** The message that tells the bot the person canceled one of its tasks. */
+export function botCancelText(taskN: number): string {
+  return `${BOT_TURN_PREFIX} The person canceled task #${taskN}. Its agents were stopped. Do not continue it; if a report about it arrives, only note it.`;
+}
+
 /** The message that hands the bot the person's answer to a task question. */
 export function botAnswerText(taskN: number, question: string, answer: string): string {
   return `${BOT_TURN_PREFIX} The person answered your question on task #${taskN}.\n\nQuestion: ${question}\nAnswer: ${answer}`;

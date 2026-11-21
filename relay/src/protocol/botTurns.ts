@@ -7,12 +7,14 @@
 export const BOT_TURN_PREFIX = "[anywh-bot]";
 
 /** What kind of relay turn a bot prompt is, or `undefined` for anything
- * else. `label` is the schedule's name, `answer:<n>` or `created`. */
+ * else. `label` is the schedule's name, `answer:<n>`, `cancel:<n>` or `created`. */
 export function botTurnKind(text: string): { kind: "bot_schedule" | "bot_note"; label: string } | undefined {
   if (!text.startsWith(BOT_TURN_PREFIX)) return undefined;
   const schedule = /^\[anywh-bot\] Schedule "([^\n]*)" fired\./.exec(text);
   if (schedule) return { kind: "bot_schedule", label: schedule[1] };
   const answer = /^\[anywh-bot\] The person answered your question on task #(\d+)\./.exec(text);
   if (answer) return { kind: "bot_note", label: `answer:${answer[1]}` };
+  const cancel = /^\[anywh-bot\] The person canceled task #(\d+)\./.exec(text);
+  if (cancel) return { kind: "bot_note", label: `cancel:${cancel[1]}` };
   return { kind: "bot_note", label: "created" };
 }

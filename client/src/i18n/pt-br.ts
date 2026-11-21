@@ -1399,6 +1399,7 @@ export const ptBr: Dictionary = {
       schedule: "Agendado · {name}",
       created: "Bot criado",
       answer: "Você respondeu a tarefa #{n}",
+      canceled: "Você cancelou a tarefa #{n}",
     },
     create: {
       title: "Novo bot",

@@ -16,7 +16,6 @@ function notify(): void {
 
 export function setBots(profileId: string, bots: readonly BotSummary[]): void {
   byProfile.set(profileId, bots);
-  recomputeRooms();
   notify();
 }
 
@@ -42,26 +41,8 @@ export function useBots(profileId: string): readonly BotSummary[] {
   return useSyncExternalStore(subscribeBots, () => getBots(profileId));
 }
 
-/** The room ids of every known bot, for hiding bots from the conversation
- * list (a relay hides them already; this covers the one announced before it
- * became a bot). A new set only when they change. */
-let rooms: ReadonlySet<string> = new Set();
-
-function recomputeRooms(): void {
-  rooms = new Set([...byProfile.values()].flatMap((bots) => bots.map((bot) => bot.roomId)));
-}
-
-export function botRooms(): ReadonlySet<string> {
-  return rooms;
-}
-
-export function useBotRooms(): ReadonlySet<string> {
-  return useSyncExternalStore(subscribeBots, botRooms);
-}
-
 /** Test seam: forget everything. */
 export function resetBotsStore(): void {
   byProfile.clear();
-  recomputeRooms();
   notify();
 }

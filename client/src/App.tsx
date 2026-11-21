@@ -45,7 +45,7 @@ import { useSessionNames } from "@/hooks/relay/useSessionNames";
 import { useSessionListBootstrap } from "@/hooks/tabs/useSessionListBootstrap";
 import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
 import { useBotActions } from "@/hooks/useBotActions";
-import { useBotRooms, useBots } from "@/lib/bots/botsStore";
+import { useBots } from "@/lib/bots/botsStore";
 import { loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useResizableSidebar } from "@/hooks/tabs/useResizableSidebar";
@@ -158,12 +158,7 @@ function AppShell() {
   const [selectedProfileIds, setSelectedProfileIds] = useState<ReadonlySet<string>>(
     () => new Set(getProfiles().map((profile) => profile.id)),
   );
-  const mergedSessions = useMergedSessions(selectedProfileIds);
-  // A bot's conversation is listed with the bots, never among the
-  // conversations (the relay leaves it out; this covers the one it announced
-  // a moment before it became a bot).
-  const botRooms = useBotRooms();
-  const sessions = useMemo(() => (botRooms.size === 0 ? mergedSessions : mergedSessions.filter((session) => !botRooms.has(session.id))), [mergedSessions, botRooms]);
+  const sessions = useMergedSessions(selectedProfileIds);
   const isCompact = useIsCompactViewport();
   const resizable = useResizableSidebar();
   const tabsState = useTabs();

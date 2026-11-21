@@ -1960,6 +1960,8 @@ export interface Dictionary {
       created: string;
       /** `{n}`. */
       answer: string;
+      /** `{n}`. */
+      canceled: string;
     };
     create: {
       title: string;

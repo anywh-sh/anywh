@@ -231,8 +231,64 @@ test("memory, soul and schedules through the bot's tools; a scheduled run with n
 test("deleting a bot deletes its room and its files", async () => {
   const { id, roomId } = await createBot({ name: "Efêmero" });
   await waitFor(async () => !((await (await fetch(`${base}/bots`)).json()) as { bots: { id: string; busy: boolean }[] }).bots.find((each) => each.id === id)?.busy, 20_000, "the kickoff to end");
+  // A soul the person writes ends the bot's first run.
+  assert.equal((await getBot(id)).bot.firstRun, true);
+  const patched = await fetch(`${base}/bots/${id}`, { method: "PATCH", body: JSON.stringify({ soul: "I tidy up." }) });
+  assert.equal(patched.status, 200);
+  assert.equal((await getBot(id)).bot.firstRun, false);
   const res = await fetch(`${base}/bots/${id}`, { method: "DELETE" });
   assert.equal(res.status, 200);
   assert.equal((await fetch(`${base}/bots/${id}`)).status, 404);
   assert.equal((await fetch(`${base}/rooms/${roomId}`)).status, 404);
+});
+
+const askMarker = (call: unknown): string => `[[ask:${Buffer.from(JSON.stringify(call)).toString("base64url")}]]`;
+
+test("a bot just created puts a tool call needing approval to the person, and is never listed as a conversation", async () => {
+  const watch = await connectSessionListWatch(relay.port);
+  const listed: string[] = [];
+  watch.on("message", (raw: Buffer) => {
+    const message = JSON.parse(raw.toString()) as { type: string; id?: string; sessions?: { id: string }[] };
+    if (message.type === "session_list_upsert" && message.id) listed.push(message.id);
+    for (const session of message.sessions ?? []) listed.push(session.id);
+  });
+  try {
+    // Asks before writing: its tool calls need the person.
+    const { id, roomId } = await createBot({ name: "Cauteloso", permissionMode: "default" });
+    await waitFor(async () => !((await (await fetch(`${base}/bots`)).json()) as { bots: { id: string; busy: boolean }[] }).bots.find((each) => each.id === id)?.busy, 20_000, "the kickoff to end");
+    const socket = await connectSession(relay.port, roomId);
+    try {
+      // Without deferred approval the turn would hang open on a person.
+      const done = collectUntil(socket, isTurnEnded, 20_000);
+      sendUserMessage(socket, `write it ${askMarker({ tool: "Write", input: { file_path: join(host.dir, "x.txt"), content: "x" } })}`);
+      await done;
+    } finally {
+      socket.close();
+    }
+    await waitFor(async () => ((await getBot(id)).bot as BotView & { conversationNeedsYou: boolean }).conversationNeedsYou, 10_000, "the approval card");
+    assert.ok(!listed.includes(roomId), "the bot's conversation was never announced as a conversation");
+  } finally {
+    watch.close();
+  }
+});
+
+test("canceling a task stops its agent and tells the bot", async () => {
+  const { id, roomId } = await createBot({ name: "Cancela" });
+  await waitFor(async () => !((await (await fetch(`${base}/bots`)).json()) as { bots: { id: string; busy: boolean }[] }).bots.find((each) => each.id === id)?.busy, 20_000, "the kickoff to end");
+  const gate = join(host.dir, `never-${id}`);
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const delegated = await botTurn(socket, `go ${marker("task_create", { title: "Long job" })} ${marker("delegate", { name: "Slow", purpose: "slow", task: `work [[gate:${gate}]]`, runtime: "claude", model: "haiku", task_number: 1 })}`);
+    const { agentId } = JSON.parse(delegated.last) as { agentId: string };
+    await waitFor(async () => (await getBot(id)).bot.tasks[0].workers[0]?.state === "working", 20_000, "the agent at work");
+    const notes: Record<string, unknown>[] = [];
+    socket.on("message", (raw: Buffer) => notes.push(JSON.parse(raw.toString()) as Record<string, unknown>));
+    const res = await fetch(`${base}/bots/${id}/tasks/1/cancel`, { method: "POST" });
+    assert.equal(res.status, 200);
+    await waitFor(async () => (await getBot(id)).bot.tasks[0].workers.find((worker) => worker.agentId === agentId)?.state === "stopped", 20_000, "the agent stopped");
+    assert.equal((await getBot(id)).bot.tasks[0].status, "canceled");
+    await waitFor(() => notes.some((m) => m.type === "agent_event" && (m.event as { synthetic?: string; label?: string }).synthetic === "bot_note" && (m.event as { label?: string }).label === "cancel:1"), 20_000, "the bot told");
+  } finally {
+    socket.close();
+  }
 });

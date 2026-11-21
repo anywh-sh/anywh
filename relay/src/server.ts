@@ -298,9 +298,7 @@ sessionStore.onRoomChange((_sessionId, roomId) => {
   if (botStore.isBotRoom(roomId)) botsChanged();
 });
 // The bots, as the sidebar lists them, go to every `/sessions/watch` socket
-// whenever one changes (coalesced: a bot's turn touches it many times). A new
-// bot's conversation leaves the conversation list it was announced in.
-const knownBotRooms = new Set(botStore.list().map((bot) => bot.roomId));
+// whenever one changes (coalesced: a bot's turn touches it many times).
 let botsTimer: NodeJS.Timeout | undefined;
 function sendBots(socket: WebSocket): void {
   socket.send(JSON.stringify({ type: "bots_state", bots: botManager.summaries() }));
@@ -313,15 +311,8 @@ function botsChanged(): void {
   }, 300);
   botsTimer.unref();
 }
-botStore.onChange((bot, _id) => {
-  if (bot) {
-    roomChannel.touch(bot.roomId);
-    if (!knownBotRooms.has(bot.roomId)) {
-      knownBotRooms.add(bot.roomId);
-      const removed = JSON.stringify({ type: "session_list_removed", id: bot.roomId });
-      for (const watcher of sessionListWatchers) if (watcher.readyState === watcher.OPEN) watcher.send(removed);
-    }
-  }
+botStore.onChange((bot) => {
+  if (bot) roomChannel.touch(bot.roomId);
   botsChanged();
 });
 botManager.start();

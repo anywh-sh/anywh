@@ -55,6 +55,21 @@ export class BotStore {
     return this.bots.some((each) => each.roomId === roomId);
   }
 
+  /** Whether a task of the bot of `roomId` that is not over holds the worker.
+   * Read in place (no copy): it runs for every member of every snapshot. */
+  hasOpenTaskFor(roomId: string, workerId: string): boolean {
+    const bot = this.bots.find((each) => each.roomId === roomId);
+    return bot?.tasks.some((task) => task.status !== "done" && task.status !== "canceled" && task.workerIds.includes(workerId)) ?? false;
+  }
+
+  /** Tells the listeners the bot changed outside this file (its soul or
+   * memory, a run starting) without rewriting the file. */
+  touch(id: string): void {
+    const bot = this.get(id);
+    if (!bot) return;
+    for (const listener of this.listeners) listener(bot, id);
+  }
+
   /** Writes `bot` (new or replacing the one with its id). */
   put(bot: BotRecord): void {
     const index = this.bots.findIndex((each) => each.id === bot.id);

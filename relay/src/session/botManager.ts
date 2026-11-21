@@ -27,6 +27,7 @@ import type { BotStore } from "./botStore.js";
 import {
   BOT_FIRST_RUN_NOTE,
   botAnswerText,
+  botCancelText,
   botInstructions,
   botKickoffText,
   botScheduleText,
@@ -52,6 +53,10 @@ const fail = (text: string): RoomToolResult => ({ text, isError: true });
 const SCHEDULER_MAX_WAIT_MS = 60 * 60 * 1000;
 /** How soon a run that could not start (the agent host away) is retried. */
 const SCHEDULER_RETRY_MS = 30 * 1000;
+/** A run older than this, with its bot idle, is over even if its end was never
+ * reported (a turn dropped from the queue, a history that failed to load): it
+ * must not hold its schedule forever. */
+const RUN_STALE_MS = 60 * 60 * 1000;
 
 /** The live session of a bot's room, as much of it as bots use. */
 export interface BotSession {
@@ -67,6 +72,8 @@ export interface BotManagerOptions {
   readonly rooms: {
     createRoom(input: CreateRoomInput): CreateRoomResult;
     agentState(id: string): RoomAgentState | undefined;
+    /** Stops one worker of the room (the person's Stop). */
+    stopAgent(roomId: string, agentId: string): Promise<unknown>;
   };
   readonly sessions: {
     getOrCreate(id: string): BotSession;
@@ -174,7 +181,9 @@ export class BotManager implements RoomBots {
   private readonly now: () => number;
   private cancelTimer?: () => void;
   /** Schedules (by `botId:scheduleId`) whose run is under way. */
-  private readonly running = new Set<string>();
+  /** Schedules (by `botId:scheduleId`) whose run is under way, with when it
+   * started. See `isRunning`. */
+  private readonly running = new Map<string, number>();
   private started = false;
 
   constructor(private readonly options: BotManagerOptions) {
@@ -197,15 +206,14 @@ export class BotManager implements RoomBots {
     const schedules = this.parseInitialSchedules(input.schedules);
     if (!schedules.ok) return schedules;
     if (!this.options.hostConnected()) return { ok: false, status: 503, error: "the agent host is not running, so a bot cannot start now" };
-    const room = this.options.rooms.createRoom({ agentId: input.agentId, model: input.model, effort: input.effort, permissionMode: input.permissionMode, cwd: input.cwd, title: name });
-    if (!room.ok) return { ok: false, status: 400, error: room.error };
     const id = randomUUID();
+    const roomId = randomUUID();
     const at = this.now();
     const bot: BotRecord = {
       id,
       name,
       mascot: { seed },
-      roomId: room.roomId,
+      roomId,
       ...(typeof input.templateId === "string" ? { templateId: input.templateId } : {}),
       paused: false,
       firstRun: true,
@@ -214,9 +222,18 @@ export class BotManager implements RoomBots {
       tasks: [],
       schedules: schedules.value.map((each) => ({ ...each, id: this.scheduleId(), createdAt: at, runs: [] })),
     };
+    // Registered before its room exists: the room's session is born knowing
+    // it is a bot (approvals put to the person, kept off the conversation
+    // list), with nothing to patch up afterwards.
     this.options.files.create(id, input.soul);
     this.store.put(bot);
-    this.options.sessions.getOrCreate(room.roomId).submitBotTurn(botKickoffText(), { kind: "bot_note", label: "created" });
+    const room = this.options.rooms.createRoom({ agentId: input.agentId, model: input.model, effort: input.effort, permissionMode: input.permissionMode, cwd: input.cwd, title: name, roomId });
+    if (!room.ok) {
+      this.store.delete(id);
+      this.options.files.remove(id);
+      return { ok: false, status: 400, error: room.error };
+    }
+    this.options.sessions.getOrCreate(roomId).submitBotTurn(botKickoffText(), { kind: "bot_note", label: "created" });
     this.arm();
     return { ok: true, value: this.summary(this.store.get(id)!) };
   }
@@ -275,6 +292,8 @@ export class BotManager implements RoomBots {
       name,
       ...(typeof input.mascotSeed === "string" ? { mascot: { seed: input.mascotSeed } } : {}),
       ...(typeof input.paused === "boolean" ? { paused: input.paused } : {}),
+      // A soul the person wrote is the bot's soul: its first run is over.
+      ...(typeof input.soul === "string" ? { firstRun: false } : {}),
     }))!;
     if (name !== bot.name) this.options.sessions.renameTitle(bot.roomId, name);
     this.arm();
@@ -293,7 +312,7 @@ export class BotManager implements RoomBots {
     if (!this.store.get(id)) return false;
     const done = this.options.files.editLine(id, index, text);
     // The memory is part of the bot's state as clients see it.
-    if (done) this.store.update(id, (bot) => bot);
+    if (done) this.store.touch(id);
     return done;
   }
 
@@ -337,6 +356,15 @@ export class BotManager implements RoomBots {
         }),
       ),
     }));
+    // Nothing keeps working on a task the person called off, and the bot
+    // hears it from the relay rather than from a report out of the blue.
+    for (const workerId of task.workerIds) {
+      const state = this.options.rooms.agentState(workerId);
+      if (state === "working" || state === "queued" || state === "awaiting_user" || state === "waiting") {
+        this.options.rooms.stopAgent(bot.roomId, workerId).catch((error: unknown) => console.warn(`[relay] could not stop agent ${workerId} of a canceled task: ${(error as Error).message}`));
+      }
+    }
+    this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botCancelText(n), { kind: "bot_note", label: `cancel:${n}` });
     return { ok: true, value: null };
   }
 
@@ -366,7 +394,7 @@ export class BotManager implements RoomBots {
     const bot = this.store.get(id);
     const schedule = bot?.schedules.find((each) => each.id === scheduleId);
     if (!bot || !schedule) return { ok: false, status: 404, error: "schedule not found" };
-    if (this.running.has(`${id}:${scheduleId}`)) return { ok: false, status: 409, error: "that schedule is already running" };
+    if (this.isRunning(bot, scheduleId)) return { ok: false, status: 409, error: "that schedule is already running" };
     if (!this.options.hostConnected()) return { ok: false, status: 503, error: "the agent host is not running" };
     this.fire(bot, schedule);
     return { ok: true, value: null };
@@ -410,7 +438,7 @@ export class BotManager implements RoomBots {
   }
 
   hasOpenTask(roomId: string, workerId: string): boolean {
-    return this.store.byRoom(roomId)?.tasks.some((task) => !isClosed(task.status) && task.workerIds.includes(workerId)) ?? false;
+    return this.store.hasOpenTaskFor(roomId, workerId);
   }
 
   status(roomId: string): Record<string, unknown> {
@@ -452,7 +480,7 @@ export class BotManager implements RoomBots {
         const parsed = parseRememberArgs(args);
         if (!parsed.ok) return Promise.resolve(fail(parsed.error));
         const { added } = this.options.files.remember(bot.id, { ...parsed.value, source: "conversation" });
-        this.store.update(bot.id, (current) => current);
+        this.store.touch(bot.id);
         return Promise.resolve(ok(added ? "Remembered." : "That is already in your memory."));
       }
       case "forget": {
@@ -461,7 +489,7 @@ export class BotManager implements RoomBots {
         const gone = this.options.files.forget(bot.id, parsed.value.text);
         if (gone < 0) return Promise.resolve(fail(`${-gone} lines contain that text; give the exact line.`));
         if (gone === 0) return Promise.resolve(fail("No line of your memory matches that text."));
-        this.store.update(bot.id, (current) => current);
+        this.store.touch(bot.id);
         return Promise.resolve(ok(`Forgot ${gone} line${gone === 1 ? "" : "s"}.`));
       }
       case "set_soul": {
@@ -629,7 +657,7 @@ export class BotManager implements RoomBots {
           soonest = Math.min(soonest ?? Infinity, schedule.nextRunAt);
           continue;
         }
-        if (decision === "run" && (bot.paused || this.running.has(`${bot.id}:${schedule.id}`))) {
+        if (decision === "run" && (bot.paused || this.isRunning(bot, schedule.id))) {
           // Nothing to do this time (a paused bot, or the last run still
           // going): the next occurrence is armed.
           this.advance(bot.id, schedule.id, now);
@@ -675,9 +703,9 @@ export class BotManager implements RoomBots {
 
   private fire(bot: BotRecord, schedule: BotSchedule): void {
     const key = `${bot.id}:${schedule.id}`;
-    this.running.add(key);
+    this.running.set(key, this.now());
     const at = this.now();
-    this.store.update(bot.id, (current) => current);
+    this.store.touch(bot.id);
     this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botScheduleText(schedule.name, schedule.prompt), {
       kind: "bot_schedule",
       label: schedule.name,
@@ -687,6 +715,17 @@ export class BotManager implements RoomBots {
         this.recordRun(bot.id, schedule.id, { at, outcome: failed ? "failed" : silenced ? "silent" : "replied" });
       },
     });
+  }
+
+  /** Whether a run of the schedule is under way. One that started long ago
+   * while the bot is idle is taken as over and forgotten. */
+  private isRunning(bot: BotRecord, scheduleId: string): boolean {
+    const key = `${bot.id}:${scheduleId}`;
+    const startedAt = this.running.get(key);
+    if (startedAt === undefined) return false;
+    if (this.now() - startedAt < RUN_STALE_MS || this.options.sessions.peek(bot.roomId)?.isBusy() === true) return true;
+    this.running.delete(key);
+    return false;
   }
 
   private scheduleId(): string {
@@ -774,7 +813,7 @@ export class BotManager implements RoomBots {
         prompt: schedule.prompt,
         paused: schedule.paused,
         ...(schedule.nextRunAt !== undefined && !schedule.paused ? { nextRunAt: schedule.nextRunAt } : {}),
-        running: this.running.has(`${bot.id}:${schedule.id}`),
+        running: this.isRunning(bot, schedule.id),
         runs: schedule.runs,
       })),
     };

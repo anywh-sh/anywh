@@ -193,6 +193,10 @@ export interface CreateRoomInput {
   cwd?: unknown;
   title?: unknown;
   firstMessage?: unknown;
+  /** The principal's session id, chosen by the caller (a bot registers itself
+   * under it first, so the session is born knowing it is a bot). A fresh one
+   * when absent. */
+  roomId?: string;
 }
 
 export type CreateRoomResult = { ok: true; roomId: string } | { ok: false; error: string };
@@ -432,7 +436,8 @@ export class RoomManager implements RoomToolHost {
     if (input.firstMessage !== undefined && !(typeof input.firstMessage === "string" && input.firstMessage.trim() !== "" && input.firstMessage.length <= ROOM_TASK_MAX)) {
       return { ok: false, error: "firstMessage must be a non-empty string" };
     }
-    const roomId = randomUUID();
+    if (input.roomId !== undefined && (input.roomId === "" || this.store.has(input.roomId))) return { ok: false, error: "roomId is taken" };
+    const roomId = input.roomId ?? randomUUID();
     this.store.recordId(roomId);
     this.store.setAgentId(roomId, agentId);
     if (cwd) this.store.setCwd(roomId, cwd);
