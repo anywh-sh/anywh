@@ -45,7 +45,8 @@ import { useSessionNames } from "@/hooks/relay/useSessionNames";
 import { useSessionListBootstrap } from "@/hooks/tabs/useSessionListBootstrap";
 import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
 import { useBotActions } from "@/hooks/useBotActions";
-import { useBotRooms } from "@/lib/bots/botsStore";
+import { useBotRooms, useBots } from "@/lib/bots/botsStore";
+import { loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useResizableSidebar } from "@/hooks/tabs/useResizableSidebar";
 import { useIsCompactViewport } from "@/hooks/platform/useIsCompactViewport";
@@ -544,6 +545,14 @@ function AppShell() {
   };
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  // The iOS drawer's sections (the desktop sidebar keeps its own, in the same
+  // place on disk).
+  const activeBots = useBots(activeProfile.id);
+  const [drawerSection, setDrawerSection] = useState<SidebarSection>(loadSidebarSection);
+  const changeDrawerSection = useCallback((section: SidebarSection) => {
+    setDrawerSection(section);
+    saveSidebarSection(section);
+  }, []);
   const { botActions, dialogs: botDialogs } = useBotActions({ activeProfile, tabsState, onNavigated: closeDrawer });
 
   const sidebarProps = {
@@ -743,6 +752,11 @@ function AppShell() {
     onRenameSession: handleRenameSession,
     onDeleteSession: handleDeleteSession,
     onNewConversation: handleNewConversation,
+    bots: activeBots,
+    section: drawerSection,
+    onSelectBot: botActions.onSelectBot,
+    onNewBot: botActions.onNewBot,
+    onSection: changeDrawerSection,
   });
 
   if (isIOS()) {

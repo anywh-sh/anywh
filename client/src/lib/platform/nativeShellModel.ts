@@ -3,7 +3,11 @@ import type { Locale } from "@/i18n";
 import { formatRelativeTime } from "@/lib/format/relativeTime";
 import { groupSessionsByRecency, type MergedSession } from "@/lib/format/sessionGrouping";
 import type { Profile } from "@/lib/profiles/profiles";
+import type { BotSummary } from "@/lib/bots/botTypes";
+import { botStatusLine, shortWhen } from "@/lib/bots/botStatusLine";
+import { MASCOT_FACE, mascotBitmap, mascotParts, mascotStateOf, mascotTone } from "@/lib/bots/mascot";
 import type {
+  NativeDrawerBots,
   NativeDrawerPayload,
   NativeDrawerSession,
   NativeShellTheme,
@@ -55,6 +59,41 @@ export interface DrawerModelInput {
   profileCssColor: (profileId: string) => string;
   resolve: ResolveColor;
   now?: number;
+  /** The active profile's bots, and which section is open. */
+  bots?: readonly BotSummary[];
+  section?: "bots" | "conversations";
+}
+
+/** The Bots section of the drawer: every bot's face drawn, its line written. */
+export function buildDrawerBots(input: { bots: readonly BotSummary[]; section: "bots" | "conversations"; selectedSessionId: string | null; dict: Dictionary; locale: Locale; now?: number }): NativeDrawerBots {
+  const { dict } = input;
+  const waiting = input.bots.filter((bot) => bot.needsYou > 0).length;
+  return {
+    section: input.section,
+    botsLabel: dict.bots.section,
+    conversationsLabel: dict.bots.conversations,
+    newBotLabel: dict.bots.newBot,
+    emptyTitle: dict.bots.emptyTitle,
+    emptyBody: dict.bots.emptyBody,
+    waitingLabel: waiting > 0 ? dict.bots.collapsedNeedsYou.replace("{count}", String(waiting)) : "",
+    items: input.bots.map((bot) => {
+      const state = mascotStateOf(bot);
+      const parts = mascotParts(bot.mascot.seed);
+      const line = botStatusLine(bot, dict, (at) => shortWhen(at, input.locale, input.now));
+      return {
+        id: bot.id,
+        roomId: bot.roomId,
+        name: bot.name,
+        line: line.text,
+        tone: line.tone,
+        mascot: mascotBitmap(parts, state),
+        mascotColor: mascotTone(parts, state),
+        faceColor: MASCOT_FACE,
+        badge: state === "idle" || state === "setup" ? null : state,
+        selected: input.selectedSessionId === bot.roomId,
+      };
+    }),
+  };
 }
 
 /**
@@ -125,6 +164,7 @@ export function buildDrawerPayload(input: DrawerModelInput): NativeDrawerPayload
       label: `${sidebar.groups[group.id]} ${String(group.sessions.length)}`,
       sessions: group.sessions.map(toRow),
     })),
+    ...(input.bots ? { bots: buildDrawerBots({ bots: input.bots, section: input.section ?? "conversations", selectedSessionId: input.selectedSessionId, dict, locale, ...(input.now !== undefined ? { now: input.now } : {}) }) } : {}),
   };
 }
 

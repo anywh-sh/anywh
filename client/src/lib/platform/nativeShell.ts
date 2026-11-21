@@ -115,6 +115,37 @@ export interface NativeDrawerGroup {
   sessions: NativeDrawerSession[];
 }
 
+/** A bot as the drawer's Bots section lists it. Its face arrives drawn: 144
+ * characters, row by row, `#` body, `o` face, `.` empty (see `mascot.ts`). */
+export interface NativeDrawerBot {
+  id: string;
+  roomId: string;
+  name: string;
+  /** Pre-formatted status line. */
+  line: string;
+  tone: "attention" | "fail" | "normal";
+  mascot: string;
+  mascotColor: string;
+  faceColor: string;
+  /** The corner mark: `needsYou`, `failed`, `working`, `paused`, or none. */
+  badge: string | null;
+  selected: boolean;
+}
+
+/** The drawer's two sections: Bots and Conversations take turns, the open one
+ * on top, the other folded to its heading at the bottom. */
+export interface NativeDrawerBots {
+  section: "bots" | "conversations";
+  botsLabel: string;
+  conversationsLabel: string;
+  newBotLabel: string;
+  emptyTitle: string;
+  emptyBody: string;
+  /** Shown on the folded Bots heading when some bot needs the person; empty otherwise. */
+  waitingLabel: string;
+  items: NativeDrawerBot[];
+}
+
 export interface NativeDrawerPayload {
   theme: NativeShellTheme;
   strings: NativeDrawerStrings;
@@ -125,6 +156,8 @@ export interface NativeDrawerPayload {
   /** More sessions exist than the groups carry. */
   hasMore: boolean;
   groups: NativeDrawerGroup[];
+  /** Absent for a build without bots: the drawer is the conversations alone. */
+  bots?: NativeDrawerBots;
 }
 
 /** Events the native shell sends back. Native only captures input and draws;
@@ -135,6 +168,9 @@ export interface NativeShellHandlers {
   drawerRetry: () => void;
   drawerRename: (event: { sessionId: string; profileId: string; title: string }) => void;
   drawerDelete: (event: { sessionId: string; profileId: string }) => void;
+  drawerSelectBot: (event: { botId: string }) => void;
+  drawerNewBot: () => void;
+  drawerSection: (event: { section: string }) => void;
   topBarNewConversation: () => void;
   contextMenuSelect: (event: { targetId: string; itemId: string }) => void;
 }
