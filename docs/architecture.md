@@ -82,7 +82,11 @@ relay/src/
   session/                turn orchestration, broadcast, approval/choice
                            state machine, history paging — drives whichever
                            `AgentSessionDriver` `createSessionDriver.ts`
-                           handed it, never an agent's identity directly
+                           handed it, never an agent's identity directly.
+                           Rooms (`room*.ts`: a principal that delegates to
+                           workers) and bots on top of them (`bot*.ts`: a
+                           room that never ends, with an identity, a task
+                           list, a memory and cron schedules) live here too
   push/                    remote push: the registry of push addresses clients
                            handed this relay, and turning session events
                            into notifications sent to those addresses' gateway —
