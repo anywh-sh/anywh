@@ -1872,4 +1872,149 @@ export interface Dictionary {
       saveFailed: string;
     };
   };
+  bots: {
+    section: string;
+    conversations: string;
+    newBot: string;
+    emptyTitle: string;
+    emptyBody: string;
+    emptyCta: string;
+    /** Shown beside a folded Bots section: `{count}` bots need the person. */
+    collapsedNeedsYou: string;
+    status: {
+      /** `{count}`. */
+      needsYou: string;
+      /** `{count}`. */
+      working: string;
+      busy: string;
+      paused: string;
+      setup: string;
+      failed: string;
+      /** `{name}`, `{time}`. */
+      next: string;
+      idle: string;
+    };
+    conversation: string;
+    /** `{count}`. */
+    workers: string;
+    menu: { settings: string; pause: string; resume: string; delete: string };
+    panel: {
+      open: string;
+      close: string;
+      tasks: string;
+      groups: { needs_you: string; working: string; planned: string; done: string };
+      noTasks: string;
+      /** `{name}`. */
+      noTasksBody: string;
+      automations: string;
+      /** `{name}`. */
+      noAutomations: string;
+      runNow: string;
+      pause: string;
+      resume: string;
+      remove: string;
+      paused: string;
+      running: string;
+      /** `{time}`. */
+      nextRun: string;
+      lastRun: { replied: string; silent: string; failed: string; missed: string };
+      conversationNeedsYou: string;
+      actionFailed: string;
+    };
+    task: {
+      back: string;
+      doneMeans: string;
+      workers: string;
+      openConversation: string;
+      history: string;
+      cancel: string;
+      recommended: string;
+      answerPlaceholder: string;
+      answer: string;
+      answerFailed: string;
+      workerAsks: string;
+      status: { planned: string; working: string; needs_you: string; done: string; canceled: string };
+      worker: { working: string; waiting: string; done: string; failed: string; stopped: string; gone: string };
+    };
+    activity: {
+      /** `{n}`. */
+      created: string;
+      /** `{n}`. */
+      updated: string;
+      /** `{n}`. */
+      asked: string;
+      delegated: string;
+      remembered: string;
+      forgot: string;
+      soul: string;
+      scheduled: string;
+      scheduleChanged: string;
+      scheduleRemoved: string;
+      status: string;
+      messaged: string;
+      stopped: string;
+    };
+    turn: {
+      /** `{name}`. */
+      schedule: string;
+      created: string;
+      /** `{n}`. */
+      answer: string;
+    };
+    create: {
+      title: string;
+      step1: string;
+      step1Body: string;
+      describePlaceholder: string;
+      fromScratch: string;
+      orTemplate: string;
+      watches: string;
+      does: string;
+      reports: string;
+      example: string;
+      useTemplate: string;
+      step2: string;
+      name: string;
+      mascot: string;
+      reroll: string;
+      soul: string;
+      soulHint: string;
+      agent: string;
+      profile: string;
+      startsWith: string;
+      readOnly: string;
+      schedulesOff: string;
+      back: string;
+      /** `{name}`. */
+      create: string;
+      creating: string;
+      failed: string;
+      noHost: string;
+    };
+    templates: Record<"daily-summary" | "pr-review" | "ci-check" | "issue-triage" | "backlog-cleanup", { name: string; line: string; watches: string; does: string; reports: string; example: string; when: string; soul: string; scheduleName: string }>;
+    blankSoul: string;
+    settings: {
+      /** `{name}`. */
+      title: string;
+      soul: string;
+      memory: string;
+      memoryEmpty: string;
+      kinds: { rule: string; preference: string; fact: string };
+      edit: string;
+      remove: string;
+      save: string;
+      cancel: string;
+      automations: string;
+      bot: string;
+      rename: string;
+      pause: string;
+      resume: string;
+      pauseHint: string;
+      delete: string;
+      /** `{name}`. */
+      deleteConfirm: string;
+      saved: string;
+      saveFailed: string;
+    };
+  };
 }

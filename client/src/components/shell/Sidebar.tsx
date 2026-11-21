@@ -3,6 +3,8 @@ import { RowButton } from "@/components/ui/row-button";
 import { Plus, Search } from "lucide-react";
 import { KbdShortcut } from "@/components/ui/kbd";
 import { SessionList } from "@/components/shell/SessionList";
+import { BotsSection, type BotsSectionActions } from "@/components/bots/BotsSection";
+import { SidebarSectionHeading, loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { ProfileSwitcher } from "@/components/shell/ProfileSwitcher";
 import { useDict } from "@/i18n";
@@ -38,6 +40,9 @@ export interface SidebarProps {
   onNewConversation: () => void;
   onRenameSession: (session: MergedSession, title: string) => void;
   onDeleteSession: (session: MergedSession) => void;
+  /** What the Bots section does; one object with a stable identity (the
+   * sidebar is memoized). */
+  botActions: BotsSectionActions;
 }
 
 /**
@@ -74,9 +79,18 @@ export const Sidebar = memo(function Sidebar({
   onNewConversation,
   onRenameSession,
   onDeleteSession,
+  botActions,
 }: SidebarProps) {
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ session: MergedSession; title: string } | null>(null);
+  // Bots and conversations take turns: the open section fills the column,
+  // the other folds to its heading at the bottom.
+  const [section, setSection] = useState<SidebarSection>(loadSidebarSection);
+  const toggle = (): void => {
+    const next = section === "bots" ? "conversations" : "bots";
+    setSection(next);
+    saveSidebarSection(next);
+  };
   const allProfilesShown = selectedProfileIds.size >= profiles.length;
 
   return (
@@ -104,22 +118,35 @@ export const Sidebar = memo(function Sidebar({
         </RowButton>
       </div>
 
-      <SessionList
-        sessions={sessions}
-        profiles={profiles}
-        selectedProfileCount={selectedProfileIds.size}
-        loading={sessionsLoading}
-        error={sessionsError}
-        onRetry={onRetrySessions}
-        selected={selectedSession}
-        running={runningSessions}
-        backgroundJobSessions={backgroundJobSessions}
-        onSelect={onSelectSession}
-        onRename={(session) => setRenaming({ session, title: session.title })}
-        onDelete={onDeleteSession}
-        onClearFilter={onClearProfileFilter}
-        onOpenSearch={onOpenSearch}
-      />
+      {section === "bots" ? (
+        <>
+          <SidebarSectionHeading section="bots" open profileId={activeProfile.id} onToggle={toggle} onAdd={botActions.onNewBot} />
+          <BotsSection profile={activeProfile} selectedSession={selectedSession} {...botActions} />
+          <SidebarSectionHeading section="conversations" open={false} profileId={activeProfile.id} onToggle={toggle} />
+        </>
+      ) : (
+        <>
+          <SidebarSectionHeading section="conversations" open profileId={activeProfile.id} onToggle={toggle} />
+          <SessionList
+            sessions={sessions}
+            profiles={profiles}
+            selectedProfileCount={selectedProfileIds.size}
+            loading={sessionsLoading}
+            error={sessionsError}
+            onRetry={onRetrySessions}
+            selected={selectedSession}
+            running={runningSessions}
+            backgroundJobSessions={backgroundJobSessions}
+            onSelect={onSelectSession}
+            onRename={(session) => setRenaming({ session, title: session.title })}
+            onDelete={onDeleteSession}
+            onClearFilter={onClearProfileFilter}
+            onOpenSearch={onOpenSearch}
+          />
+
+          <SidebarSectionHeading section="bots" open={false} profileId={activeProfile.id} onToggle={toggle} onAdd={botActions.onNewBot} />
+        </>
+      )}
 
       <RenameSessionDialog
         open={renaming !== null}

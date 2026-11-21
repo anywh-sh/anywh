@@ -5,6 +5,8 @@ import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/l
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
 import { removeCachedSession, setCachedSessions, upsertCachedSession } from "@/lib/format/sessionListCache";
 import { markProfileVerified } from "@/lib/profiles/profiles";
+import { setBots } from "@/lib/bots/botsStore";
+import { isBotSummary } from "@/lib/bots/botTypes";
 import { useForegroundSync } from "@/hooks/relay/useForegroundSync";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { SessionSummary } from "@/lib/relay/relay-types";
@@ -177,7 +179,7 @@ export function useSessionNames(profile: Profile): {
               return;
             }
             if (typeof parsed !== "object" || parsed === null) return;
-            const { type, id, title, lastActiveAt, sessions, room, titlePending } = parsed as {
+            const { type, id, title, lastActiveAt, sessions, room, titlePending, bots } = parsed as {
               type?: unknown;
               id?: unknown;
               title?: unknown;
@@ -185,6 +187,7 @@ export function useSessionNames(profile: Profile): {
               sessions?: unknown;
               room?: unknown;
               titlePending?: unknown;
+              bots?: unknown;
             };
             if (type === "pong") {
               window.clearTimeout(pongTimer);
@@ -200,6 +203,11 @@ export function useSessionNames(profile: Profile): {
               speaksProbe = true;
               setCachedSessions(profileId, sessions.filter(isSessionSummary));
               markProfileVerified(profileId);
+              return;
+            }
+            // The profile's bots, whole, whenever one changes.
+            if (type === "bots_state" && Array.isArray(bots)) {
+              setBots(profileId, bots.filter(isBotSummary));
               return;
             }
             if (typeof id !== "string") return;
