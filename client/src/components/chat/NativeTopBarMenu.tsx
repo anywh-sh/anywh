@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useDict } from "@/i18n";
 import { catalogHasModel } from "@/lib/composer/modelCatalog";
 import { effortsFor, effectiveModelOption } from "@/lib/composer/effortCatalog";
-import { listenTopBarEffortSelect, listenTopBarModeSelect, listenTopBarModelSelect, setNativeTopBarMenu } from "@/lib/platform/nativeShell";
+import { listenTopBarAgentSelect, listenTopBarEffortSelect, listenTopBarModeSelect, listenTopBarModelSelect, setNativeTopBarMenu } from "@/lib/platform/nativeShell";
 import { buildTopBarMenuPayload, EFFORT_DEFAULT_ROW_ID } from "@/lib/platform/nativeTopBarMenuModel";
 import type { ModelCatalog, ModelChoice, PermissionMode, PermissionModeOption } from "@/lib/relay/relay-types";
 
@@ -19,13 +19,16 @@ interface NativeTopBarMenuProps {
   onChangeEffort: (effort: string | null) => void;
   /** The session's agent, for a mode whose copy is the agent's own. */
   agentId?: string | null;
+  /** Ids of the agents the relay can run; the agent entry needs two or more. */
+  agents?: string[];
+  onChangeAgent?: (agentId: string) => void;
 }
 
-/** Headless: feeds the iOS top bar dropdown the session's models and
- * permission modes and applies the pick. Renders nothing. */
+/** Headless: feeds the iOS top bar dropdown the session's agents, models,
+ * permission modes and efforts and applies the pick. Renders nothing. */
 export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
   const dict = useDict();
-  const { catalog, model, locked, connected, permissionMode, permissionModes, effort, agentId } = props;
+  const { catalog, model, locked, connected, permissionMode, permissionModes, effort, agentId, agents } = props;
   const payload = useMemo(
     () =>
       buildTopBarMenuPayload({
@@ -36,11 +39,12 @@ export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
         permissionMode,
         permissionModes,
         agentId,
+        agents,
         effort,
         effortCatalogOption: effectiveModelOption(catalog, model),
         dict,
       }),
-    [catalog, model, locked, connected, permissionMode, permissionModes, agentId, effort, dict],
+    [catalog, model, locked, connected, permissionMode, permissionModes, agentId, agents, effort, dict],
   );
 
   const lastSentRef = useRef<string | null>(null);
@@ -55,7 +59,7 @@ export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
   useEffect(
     () => () => {
       lastSentRef.current = null;
-      void setNativeTopBarMenu({ model: null, mode: null, effort: null }).catch(() => {});
+      void setNativeTopBarMenu({ model: null, mode: null, effort: null, agent: null }).catch(() => {});
     },
     [],
   );
@@ -77,6 +81,14 @@ export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
         const current = propsRef.current;
         if (current.locked || !catalogHasModel(current.catalog, modelId)) return;
         current.onChangeModel(modelId);
+      }),
+    );
+    void track(
+      listenTopBarAgentSelect(({ agentId: picked }) => {
+        const current = propsRef.current;
+        // Fixed with the model after the first turn; the current agent is a no-op.
+        if (current.locked || picked === current.agentId || !(current.agents ?? []).includes(picked)) return;
+        current.onChangeAgent?.(picked);
       }),
     );
     void track(

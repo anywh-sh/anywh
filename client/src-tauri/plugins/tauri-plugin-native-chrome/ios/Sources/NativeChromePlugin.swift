@@ -76,6 +76,9 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
 
     topBarStore.onMenu = { [weak controller] in controller?.toggle() }
     topBarStore.onNewConversation = { [weak self] in self?.trigger("topBarNewConversation", data: JSObject()) }
+    topBarStore.onAgentSelect = { [weak self] agentId in
+      try? self?.trigger("topBarAgentSelect", data: AgentEvent(agentId: agentId))
+    }
     topBarStore.onModelSelect = { [weak self] modelId in
       try? self?.trigger("topBarModelSelect", data: ModelEvent(modelId: modelId))
     }

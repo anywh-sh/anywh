@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { agentName } from "@/components/chat/AgentModelEffortButton";
+import { agentName, useHostAgents } from "@/components/chat/AgentModelEffortButton";
 import { AgentLoginDialog, type AgentLoginTarget } from "@/components/shell/AgentLoginDialog";
 import { useAgentSignedOut } from "@/hooks/planUsage/useAgentSignedOut";
 import { requestPlanUsageRefresh } from "@/lib/planUsage/signedOutAgents";
@@ -710,6 +710,9 @@ export function ChatPanel({
     return () => clearTimeout(giveUp);
   }, [switchingTo, agentId]);
   const agentPreferenceDone = !isNewConversation || agentSettled;
+  // What the iOS top bar's agent entry offers; the desktop composer's menu
+  // fetches its own.
+  const hostAgents = useHostAgents(profile, isIOS());
 
   const appliedModelPreferenceRef = useRef(false);
   useEffect(() => {
@@ -1209,6 +1212,8 @@ export function ChatPanel({
                   effort={effort}
                   onChangeEffort={setEffort}
                   agentId={agentId}
+                  agents={hostAgents}
+                  onChangeAgent={setAgent}
                 />
                 <NativeComposer
                   ref={composerRef}

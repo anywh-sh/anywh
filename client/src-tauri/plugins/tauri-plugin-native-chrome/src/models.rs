@@ -126,6 +126,20 @@ pub struct TopBarEffortMenu {
   pub enabled: bool,
 }
 
+/// Agent entry of the dropdown: offered only when the relay runs more than one
+/// agent, and locked exactly when the model is (after the first turn).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopBarAgentMenu {
+  pub label: String,
+  pub current_id: Option<String>,
+  pub current_label: String,
+  pub options: Vec<TopBarMenuOption>,
+  pub locked: bool,
+  pub locked_hint: String,
+  pub enabled: bool,
+}
+
 /// Contents of the dropdown the top bar's center opens. Each entry is `None`
 /// when there is nothing to offer for it; with all `None` the bar stays a
 /// plain label.
@@ -135,6 +149,9 @@ pub struct TopBarMenuRequest {
   pub model: Option<TopBarModelMenu>,
   pub mode: Option<TopBarModeMenu>,
   pub effort: Option<TopBarEffortMenu>,
+  /// Absent from a web build older than the agent entry.
+  #[serde(default)]
+  pub agent: Option<TopBarAgentMenu>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -372,8 +389,17 @@ mod tests {
     let effort = request.effort.as_ref().unwrap();
     assert_eq!(effort.current_id.as_deref(), Some("high"));
     assert_eq!(effort.options.len(), 4);
+    let agent = request.agent.as_ref().unwrap();
+    assert_eq!(agent.current_id.as_deref(), Some("claude"));
+    assert_eq!(agent.options.len(), 2);
     let again = serde_json::to_value(&request).unwrap();
     assert_eq!(again, serde_json::from_str::<serde_json::Value>(MENU_FIXTURE).unwrap());
+  }
+
+  #[test]
+  fn top_bar_menu_without_an_agent_entry_still_decodes() {
+    let request: TopBarMenuRequest = serde_json::from_str(r#"{"model":null,"mode":null,"effort":null}"#).unwrap();
+    assert!(request.agent.is_none());
   }
 
   #[test]

@@ -61,6 +61,19 @@ export interface NativeTopBarMenuPayload {
     options: { id: string; label: string }[];
     enabled: boolean;
   } | null;
+  /** The agent the conversation runs on. `null` when the relay reports fewer
+   * than two agents; locked exactly when `model` is (after the first turn).
+   * Optional on the native side, so an older web build that never sends it
+   * still decodes. */
+  agent: {
+    label: string;
+    currentId: string | null;
+    currentLabel: string;
+    options: { id: string; label: string }[];
+    locked: boolean;
+    lockedHint: string;
+    enabled: boolean;
+  } | null;
 }
 
 export interface NativeDrawerStrings {
@@ -157,6 +170,12 @@ export function setNativeTopBarMenu(payload: NativeTopBarMenuPayload): Promise<v
 /** Fires when the user picks a model in the top bar dropdown. */
 export async function listenTopBarModelSelect(handler: (event: { modelId: string }) => void): Promise<() => void> {
   const listener = await addPluginListener("native-chrome", "topBarModelSelect", handler);
+  return () => void listener.unregister();
+}
+
+/** Fires when the user picks an agent in the top bar dropdown. */
+export async function listenTopBarAgentSelect(handler: (event: { agentId: string }) => void): Promise<() => void> {
+  const listener = await addPluginListener("native-chrome", "topBarAgentSelect", handler);
   return () => void listener.unregister();
 }
 
