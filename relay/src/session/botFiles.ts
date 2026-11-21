@@ -104,43 +104,59 @@ export class BotFiles {
     const lines = this.readMemory(botId);
     const key = entry.text.replace(/\s+/g, " ").trim().toLowerCase();
     if (lines.some((line) => line.text.toLowerCase() === key)) return { added: false };
-    this.writeMemory(botId, [...lines.map((line) => line.raw), formatMemoryLine({ ...entry, date: isoDate(this.now()) })]);
+    const content = this.read(botId, "MEMORY.md") || MEMORY_HEADER;
+    this.write(botId, "MEMORY.md", `${content.replace(/\n*$/, "\n")}${formatMemoryLine({ ...entry, date: isoDate(this.now()) })}\n`);
     return { added: true };
   }
 
   /** Removes the lines whose text is `text` (case and spacing ignored), or
-   * that contain it when nothing matches exactly. Returns how many went. */
+   * the one line that contains it when nothing matches exactly. Returns how
+   * many went; minus that count when several contain it and none was taken. */
   forget(botId: string, text: string): number {
     const lines = this.readMemory(botId);
     const key = text.replace(/\s+/g, " ").trim().toLowerCase();
     if (key === "") return 0;
     let gone = lines.filter((line) => line.text.toLowerCase() === key);
-    if (gone.length === 0) gone = lines.filter((line) => line.text.toLowerCase().includes(key));
-    if (gone.length !== 1 && !lines.some((line) => line.text.toLowerCase() === key)) return gone.length > 1 ? -gone.length : 0;
-    const dropped = new Set(gone.map((line) => line.index));
-    this.writeMemory(botId, lines.filter((line) => !dropped.has(line.index)).map((line) => line.raw));
+    if (gone.length === 0) {
+      const containing = lines.filter((line) => line.text.toLowerCase().includes(key));
+      if (containing.length !== 1) return containing.length === 0 ? 0 : -containing.length;
+      gone = containing;
+    }
+    this.rewriteFacts(botId, new Map(gone.map((line) => [line.index, null])));
     return gone.length;
   }
 
   /** The person edits or deletes one line, by index. `false` when there is
    * no such line. */
   editLine(botId: string, index: number, text: string | null): boolean {
-    const lines = this.readMemory(botId);
-    const line = lines[index];
+    const line = this.readMemory(botId)[index];
     if (!line) return false;
-    const next = lines.flatMap((each) => {
-      if (each.index !== index) return [each.raw];
-      if (text === null) return [];
-      const clean = text.replace(/\s+/g, " ").trim();
-      if (clean === "") return [];
-      return [line.kind && line.date ? formatMemoryLine({ kind: line.kind, text: clean, date: line.date, ...(line.source ? { source: line.source } : {}) }) : `- ${clean}`];
-    });
-    this.writeMemory(botId, next);
+    const clean = text?.replace(/\s+/g, " ").trim() ?? "";
+    const replacement = clean === "" ? null : line.kind && line.date ? formatMemoryLine({ kind: line.kind, text: clean, date: line.date, ...(line.source ? { source: line.source } : {}) }) : `- ${clean}`;
+    this.rewriteFacts(botId, new Map([[index, replacement]]));
     return true;
   }
 
-  private writeMemory(botId: string, lines: readonly string[]): void {
-    this.write(botId, "MEMORY.md", MEMORY_HEADER + lines.join("\n") + (lines.length > 0 ? "\n" : ""));
+  /** Replaces (or, with `null`, removes) the facts at the given indexes in the
+   * file as it is, leaving every other line the person wrote (headings,
+   * paragraphs) exactly where it was. */
+  private rewriteFacts(botId: string, changes: ReadonlyMap<number, string | null>): void {
+    let factIndex = -1;
+    const out: string[] = [];
+    for (const raw of this.read(botId, "MEMORY.md").split("\n")) {
+      if (!raw.trim().startsWith("- ")) {
+        out.push(raw);
+        continue;
+      }
+      factIndex++;
+      if (!changes.has(factIndex)) {
+        out.push(raw);
+        continue;
+      }
+      const replacement = changes.get(factIndex);
+      if (replacement !== null && replacement !== undefined) out.push(replacement);
+    }
+    this.write(botId, "MEMORY.md", out.join("\n"));
   }
 
   private read(botId: string, file: string): string {

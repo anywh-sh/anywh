@@ -60,3 +60,23 @@ test("a long memory reaches the prompt cut, saying how much was left out", () =>
   assert.match(memoryForPrompt(lines), /\(5 more lines in MEMORY\.md not loaded\)$/);
   assert.equal(memoryForPrompt([]), "(empty)");
 });
+
+test("the person's headings and paragraphs survive remembering, forgetting and editing", () => {
+  const { files: bot, root } = files();
+  try {
+    bot.create("b1", "s");
+    const own = "# Memory\n\n## Repos\nWe ship from main only.\n\n- 2026-01-02 [rule] never merge · from: conversation\n\n## Notes\n- my own note\n";
+    writeFileSync(join(root, "b1", "MEMORY.md"), own);
+    bot.remember("b1", { kind: "fact", text: "CI runs hourly" });
+    assert.equal(bot.forget("b1", "my own note"), 1);
+    assert.equal(bot.editLine("b1", 0, "never merge to main"), true);
+    const after = readFileSync(join(root, "b1", "MEMORY.md"), "utf8");
+    assert.match(after, /## Repos\nWe ship from main only\.\n/);
+    assert.match(after, /## Notes\n/);
+    assert.match(after, /- 2026-01-02 \[rule\] never merge to main · from: conversation/);
+    assert.match(after, /\[fact\] CI runs hourly/);
+    assert.doesNotMatch(after, /my own note/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
