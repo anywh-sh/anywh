@@ -10,6 +10,7 @@ import { findProfile, type Profile } from "@/lib/profiles/profiles";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { deleteSession, renameSession } from "@/lib/relay/relayClient";
 import { fetchRoomCanvas } from "@/lib/relay/roomClient";
+import { botByRoom } from "@/lib/bots/botsStore";
 
 interface UseSessionActionsArgs {
   activeProfile: Profile;
@@ -95,6 +96,12 @@ export function useSessionActions({
    * currently selected profile". */
   function focusSession(profileId: string, sessionId: string, title: string | null = null, room?: boolean): void {
     setActiveProfileId(profileId);
+    // A bot's conversation (a push about it, a search hit) opens as the bot.
+    const bot = botByRoom(sessionId);
+    if (bot) {
+      tabsState.openTab(profileId, sessionId, bot.name, false, false, true);
+      return;
+    }
     // Search and notifications know a session only by id: the list this
     // device already holds says whether it is a room's principal.
     const known = getCachedSessions(profileId).sessions.find((session) => session.id === sessionId);
@@ -108,7 +115,7 @@ export function useSessionActions({
       if (profile) {
         fetchRoomCanvas(profile, sessionId).then(
           (canvas) => {
-            if (canvas !== null) tabsState.convertToRoom(sessionId, sessionId, title);
+            if (canvas !== null && !botByRoom(sessionId)) tabsState.convertToRoom(sessionId, sessionId, title);
           },
           () => undefined,
         );

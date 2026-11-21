@@ -1,5 +1,6 @@
 import type { Dictionary } from "@/i18n";
 import type { LogEntry, ToolCallEntry } from "@/hooks/relay/useMessageLog";
+import { botActivityOf } from "@/lib/bots/botActivity";
 
 type ActivityDict = Dictionary["chat"]["activity"];
 
@@ -201,6 +202,13 @@ export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> 
   };
   entries.forEach((entry, index) => {
     if (isTaskCall(entry) && !isTaskShown(entry, spawned)) return;
+    // A bot's own tools (its task list, memory, schedules) are lines of their
+    // own, outside the block: the person follows those, not the lookups.
+    if (entry.kind === "tool-call" && botActivityOf(entry)) {
+      settle();
+      items.push({ kind: "single", entry });
+      return;
+    }
     if (entry.kind === "thinking" || isActivityCall(entry)) {
       // Texts before the first activity of a block open it as steps too.
       run.push(...held, entry);

@@ -44,6 +44,8 @@ import { useTabPanelActions } from "@/hooks/useTabPanelActions";
 import { useSessionNames } from "@/hooks/relay/useSessionNames";
 import { useSessionListBootstrap } from "@/hooks/tabs/useSessionListBootstrap";
 import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
+import { useBotActions } from "@/hooks/useBotActions";
+import { useBotRooms } from "@/lib/bots/botsStore";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useResizableSidebar } from "@/hooks/tabs/useResizableSidebar";
 import { useIsCompactViewport } from "@/hooks/platform/useIsCompactViewport";
@@ -155,7 +157,12 @@ function AppShell() {
   const [selectedProfileIds, setSelectedProfileIds] = useState<ReadonlySet<string>>(
     () => new Set(getProfiles().map((profile) => profile.id)),
   );
-  const sessions = useMergedSessions(selectedProfileIds);
+  const mergedSessions = useMergedSessions(selectedProfileIds);
+  // A bot's conversation is listed with the bots, never among the
+  // conversations (the relay leaves it out; this covers the one it announced
+  // a moment before it became a bot).
+  const botRooms = useBotRooms();
+  const sessions = useMemo(() => (botRooms.size === 0 ? mergedSessions : mergedSessions.filter((session) => !botRooms.has(session.id))), [mergedSessions, botRooms]);
   const isCompact = useIsCompactViewport();
   const resizable = useResizableSidebar();
   const tabsState = useTabs();
@@ -536,6 +543,9 @@ function AppShell() {
     planUsage.refresh(undefined, true);
   };
 
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  const { botActions, dialogs: botDialogs } = useBotActions({ activeProfile, tabsState, onNavigated: closeDrawer });
+
   const sidebarProps = {
     activeProfile,
     profiles,
@@ -557,6 +567,7 @@ function AppShell() {
     onNewConversation,
     onRenameSession: onRenameSessionRow,
     onDeleteSession: onDeleteSessionRow,
+    botActions,
   };
 
 
@@ -592,7 +603,7 @@ function AppShell() {
       tab={tab}
       groupId={groupId}
       profile={findProfile(tab.profileId) ?? getProfiles()[0]}
-      dock={sessionDock.getVisibleDock(tab.id, groupId, tab.room ? "agent" : "none")}
+      dock={sessionDock.getVisibleDock(tab.id, groupId, tab.room ? "agent" : tab.bot ? "bot" : "none")}
       // "This tab is the active one of its own group" — drives panel
       // visibility, dock mounting, MessageLog's scroll re-sync and the native
       // drag-drop guard. With a group split, up to one per group can be true
@@ -689,7 +700,7 @@ function AppShell() {
           rightPanelShown={(_groupId, tabId) => tabId !== null && sessionDock.isPanelShown()}
           onToggleRightPanel={(_groupId, tabId) =>
             // A panel with nothing in it opens a room on its agent's conversation, anything else on the "no selection" view.
-            sessionDock.togglePanel(tabId, tabsState.tabs.find((tab) => tab.id === tabId)?.room ? "agent" : "none")
+            sessionDock.togglePanel(tabId, ((tab) => (tab?.room ? "agent" : tab?.bot ? "bot" : "none"))(tabsState.tabs.find((tab) => tab.id === tabId)))
           }
           stripTrailing={windowControls}
           stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
@@ -745,6 +756,7 @@ function AppShell() {
         <RevokedProfileBanners />
         {profileSetupDialog}
         <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
+        {botDialogs}
         {/* `relative` stays for the web stack floating above the native
          * composer (see the comment on the desktop branch); the drawer, top
          * bar and composer are native. */}
@@ -787,6 +799,7 @@ function AppShell() {
       <FirstLaunchBanner />
 
       <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
+        {botDialogs}
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

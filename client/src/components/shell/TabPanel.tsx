@@ -13,6 +13,9 @@ import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
 import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
 import { DockEmptyState } from "@/components/shell/DockEmptyState";
+import { BotPanel } from "@/components/bots/BotPanel";
+import { BotPaneToggleButton } from "@/components/bots/BotPaneToggleButton";
+import { BotCompactBar } from "@/components/bots/BotCompactBar";
 import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
@@ -171,6 +174,7 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
         none: dock.panes.includes("none") ? <DockEmptyState /> : undefined,
         agent: dock.panes.includes("agent") ? roomPanes?.agent : undefined,
         about: dock.panes.includes("about") ? roomPanes?.about : undefined,
+        bot: dock.panes.includes("bot") && tab.bot ? <BotPanel profile={profile} roomId={tab.id} onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)} /> : undefined,
         terminal: dock.panes.includes("terminal") && !background ? (
           <TerminalPanelSlot
             profile={profile}
@@ -195,6 +199,14 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
       }}
     />
   );
+}
+
+/** A bot conversation's extra rail button (its task list), beside the ones
+ * its `ChatPanel` draws. */
+function BotPanelToggle({ groupId, dock, actions, tabId }: { groupId: string | null; dock: DockState; actions: TabPanelActions; tabId: string }) {
+  const slot = usePanelTogglesSlot(groupId);
+  if (!slot) return null;
+  return createPortal(<BotPaneToggleButton open={dock.panes.includes("bot")} onToggle={() => actions.onTogglePane(tabId, "bot")} />, slot);
 }
 
 /** A room's pane buttons, drawn into its group's side panel rail. A
@@ -307,7 +319,15 @@ export const TabPanel = memo(function TabPanel({
     />
   );
 
-  if (isCompact || isIOS()) return chat;
+  if (isCompact || isIOS()) {
+    if (!tab.bot) return chat;
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <BotCompactBar profile={profile} roomId={tab.id} onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)} />
+        <div className="min-h-0 flex-1">{chat}</div>
+      </div>
+    );
+  }
 
   // Embedded terminal and files pane, desktop only.
   // `isVisible` is what implements "switching to another tab in this same
@@ -350,6 +370,7 @@ export const TabPanel = memo(function TabPanel({
        * corrupts the height cache if the container measures size 0 even
        * briefly (which is exactly what would happen when maximizing a pane
        * if the chat were hidden via `display:none`/zero width). */}
+      {tab.bot && isVisible && <BotPanelToggle groupId={groupId} dock={dock} actions={actions} tabId={tab.id} />}
       <div className={cn("min-w-0 flex-1", chatHidden && "invisible absolute inset-0")}>{chat}</div>
       {isVisible && <TabDock tab={tab} profile={profile} groupId={groupId} dock={dock} terminalTabs={terminalTabs} fileTabs={fileTabs} actions={actions} />}
     </div>
