@@ -14,9 +14,22 @@ function notify(): void {
   for (const listener of listeners) listener();
 }
 
+const removalListeners = new Set<(removed: readonly BotSummary[]) => void>();
+
 export function setBots(profileId: string, bots: readonly BotSummary[]): void {
+  const previous = byProfile.get(profileId);
   byProfile.set(profileId, bots);
   notify();
+  // A bot gone from a list already seen was deleted (here or on another
+  // device). The first list of a profile removes nothing.
+  const removed = previous?.filter((bot) => !bots.some((each) => each.id === bot.id)) ?? [];
+  if (removed.length > 0) for (const listener of removalListeners) listener(removed);
+}
+
+/** Calls `listener` with the bots that left a profile's list (deleted). */
+export function subscribeBotRemovals(listener: (removed: readonly BotSummary[]) => void): () => void {
+  removalListeners.add(listener);
+  return () => removalListeners.delete(listener);
 }
 
 export function getBots(profileId: string): readonly BotSummary[] {

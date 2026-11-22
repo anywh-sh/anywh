@@ -4,6 +4,7 @@ import type { useTabs } from "@/hooks/tabs/useTabs";
 import { deleteBot, patchBot } from "@/lib/bots/botClient";
 import { handleBotSettingsRequests, openBotSettings } from "@/lib/bots/botSettingsRequest";
 import type { BotSummary } from "@/lib/bots/botTypes";
+import { subscribeBotRemovals } from "@/lib/bots/botsStore";
 import { botSettingsTabId, newBotTabId } from "@/lib/bots/botTabs";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -23,6 +24,16 @@ interface UseBotActionsArgs {
 export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotActionsArgs): { botActions: BotsSectionActions; openBotTab: (profileId: string, bot: BotSummary) => void } {
   const latest = useRef({ activeProfile, tabsState, onNavigated });
   latest.current = { activeProfile, tabsState, onNavigated };
+
+  /** Every tab of a bot that no longer exists: its conversation and its settings. */
+  const closeBotTabs = (bot: Pick<BotSummary, "id" | "roomId">): void => {
+    latest.current.tabsState.closeTab(bot.roomId);
+    latest.current.tabsState.closeTab(botSettingsTabId(bot.id));
+  };
+
+  // However a bot goes (from here, its settings or another device), its tabs
+  // go with it.
+  useEffect(() => subscribeBotRemovals((removed) => removed.forEach(closeBotTabs)), []);
 
   const botActions = useMemo<BotsSectionActions>(() => {
     const profile = (): Profile => latest.current.activeProfile;
@@ -45,7 +56,7 @@ export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotA
       },
       onDeleteBot: (bot) => {
         deleteBot(profile(), bot.id).then(
-          () => latest.current.tabsState.closeTab(bot.roomId),
+          () => closeBotTabs(bot),
           (error: unknown) => console.error("[anywh] failed to delete the bot", error),
         );
       },

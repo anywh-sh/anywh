@@ -102,6 +102,26 @@ describe("bots in the sidebar", () => {
     expect(screen.getByRole("tab", { name: new RegExp(en.bots.settings.title.replace("{name}", "Vigia")) })).toBeInTheDocument();
   });
 
+  it("a bot that leaves the list (deleted here or elsewhere) takes its conversation and settings tabs with it", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("anywh:sidebar-section", "bots");
+    renderApp();
+    const watch = await watchSocket();
+    act(() => {
+      watch.emitMessage({ type: "bots_state", bots: [vigia] });
+    });
+    await user.click(await screen.findByRole("button", { name: "Vigia" }));
+    await user.pointer({ keys: "[MouseRight]", target: screen.getByRole("button", { name: "Vigia" }) });
+    await user.click(await screen.findByRole("menuitem", { name: en.bots.menu.settings }));
+    expect(await screen.findByTestId("bot-settings-view")).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+
+    act(() => {
+      watch.emitMessage({ type: "bots_state", bots: [] });
+    });
+    await waitFor(() => expect(screen.queryAllByRole("tab")).toHaveLength(0));
+  });
+
   it("the + of the Bots heading opens the new bot as a tab, and opening it again focuses the same tab", async () => {
     const user = userEvent.setup();
     renderApp();
