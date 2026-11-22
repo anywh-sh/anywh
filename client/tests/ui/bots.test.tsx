@@ -115,6 +115,19 @@ describe("bots in the sidebar", () => {
     expect(screen.queryByRole("button", { name: /^CI check/ })).not.toBeInTheDocument();
   });
 
+  it("a bot's conversation open before the bots are known becomes the bot's tab once they are", async () => {
+    localStorage.setItem("anywh:tabs", JSON.stringify([{ id: "room-vigia", profileId: SHELL_TEST_PROFILE.id, title: "Vigia" }]));
+    renderApp();
+    const watch = await watchSocket();
+    act(() => {
+      watch.emitMessage({ type: "bots_state", bots: [vigia] });
+    });
+    await waitFor(() => {
+      const tabs = JSON.parse(localStorage.getItem("anywh:tabs") ?? "[]") as { id: string; bot?: boolean }[];
+      expect(tabs).toContainEqual(expect.objectContaining({ id: "room-vigia", bot: true }));
+    });
+  });
+
   it("a bot's settings, from its row's menu, open in its side panel, on its conversation", async () => {
     const user = userEvent.setup();
     localStorage.setItem("anywh:right-panel-open", "true");

@@ -187,6 +187,16 @@ export function replaceTabWithBot(state: TabsState, tabId: string, roomId: strin
   return normalize({ tabs, groups, focusedGroupId: state.focusedGroupId });
 }
 
+/** The tab as a bot's conversation: a chat with the bot's panel, never a
+ * room's canvas (a bot is a room's principal, which the relay also reports
+ * as a room). */
+function asBotTab(tab: Tab): Tab {
+  if (tab.bot === true && tab.room !== true) return tab;
+  const { room: _room, ...rest } = tab;
+  void _room;
+  return { ...rest, bot: true };
+}
+
 function findGroupOfTab(groups: TabGroup[], tabId: string): TabGroup | undefined {
   return groups.find((group) => group.tabIds.includes(tabId));
 }
@@ -349,6 +359,9 @@ export function useTabs() {
       if (existingGroup) {
         return {
           ...prev,
+          // Opened as a bot, a tab already open becomes the bot's (it may have
+          // opened before the bots were known, even as a room's canvas).
+          tabs: bot ? prev.tabs.map((tab) => (tab.id === id ? asBotTab(tab) : tab)) : prev.tabs,
           groups: prev.groups.map((group) => (group.id === existingGroup.id ? { ...group, activeTabId: id } : group)),
           focusedGroupId: existingGroup.id,
         };
@@ -358,6 +371,12 @@ export function useTabs() {
       const groups = prev.groups.map((group) => (group.id === prev.focusedGroupId ? { ...group, tabIds: [...group.tabIds, id], activeTabId: id } : group));
       return normalize({ tabs, groups, focusedGroupId: prev.focusedGroupId });
     });
+  }, []);
+
+  /** Tabs that turned out to be bots' conversations (opened before the bots
+   * were known) become the bots': their panel is the task list. */
+  const markBots = useCallback((ids: ReadonlySet<string>) => {
+    setState((prev) => (prev.tabs.some((tab) => ids.has(tab.id) && (tab.bot !== true || tab.room === true)) ? { ...prev, tabs: prev.tabs.map((tab) => (ids.has(tab.id) ? asBotTab(tab) : tab)) } : prev));
   }, []);
 
   /** A new-session tab became a room: the same tab, now under the room's id
@@ -606,6 +625,7 @@ export function useTabs() {
     openTab,
     convertToRoom,
     convertToBot,
+    markBots,
     closeTab,
     setActiveTab,
     focusGroup,

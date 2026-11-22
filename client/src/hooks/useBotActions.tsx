@@ -4,7 +4,7 @@ import type { useTabs } from "@/hooks/tabs/useTabs";
 import { deleteBot, patchBot } from "@/lib/bots/botClient";
 import { askPanelSettings, handleBotSettingsRequests, openBotSettings } from "@/lib/bots/botSettingsRequest";
 import type { BotSummary } from "@/lib/bots/botTypes";
-import { subscribeBotRemovals } from "@/lib/bots/botsStore";
+import { botByRoom, subscribeBotRemovals, subscribeBots } from "@/lib/bots/botsStore";
 import { botTemplatesTabId } from "@/lib/bots/botTabs";
 import { openNewBot } from "@/lib/bots/newBotRequest";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -37,6 +37,19 @@ export function useBotActions({ activeProfile, tabsState, onNavigated, openPane 
   // However a bot goes (from here, its settings or another device), its tab
   // goes with it.
   useEffect(() => subscribeBotRemovals((removed) => removed.forEach(closeBotTabs)), []);
+
+  // A bot's conversation opened before the bots were known (a push or a
+  // search hit on a cold start, a tab restored without its mark) becomes the
+  // bot's tab once the list says it is one.
+  const tabIds = tabsState.tabs.map((tab) => tab.id).join(",");
+  useEffect(() => {
+    const mark = (): void => {
+      const rooms = new Set(latest.current.tabsState.tabs.filter((tab) => botByRoom(tab.id) !== undefined).map((tab) => tab.id));
+      if (rooms.size > 0) latest.current.tabsState.markBots(rooms);
+    };
+    mark();
+    return subscribeBots(mark);
+  }, [tabIds]);
 
   const botActions = useMemo<BotsSectionActions>(() => {
     const profile = (): Profile => latest.current.activeProfile;

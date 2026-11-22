@@ -511,4 +511,15 @@ describe("useTabs — new bot", () => {
     act(() => result.current.convertToBot(botTemplatesTabId("p"), "room-b", "Vigia", "q"));
     expect(result.current.tabs.find((tab) => tab.id === "room-b")?.profileId).toBe("q");
   });
+
+  it("opening as a bot a tab already open (even as a room's canvas) makes it the bot's, and markBots does the same", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => result.current.openTab("p", "room-b", "CI", false, true));
+    act(() => result.current.openTab("p", "room-b", "CI", false, false, true));
+    expect(result.current.tabs.find((tab) => tab.id === "room-b")).toMatchObject({ bot: true });
+    expect(result.current.tabs.find((tab) => tab.id === "room-b")?.room).toBeUndefined();
+    act(() => result.current.openTab("p", "room-c", "Docs"));
+    act(() => result.current.markBots(new Set(["room-c"])));
+    expect(result.current.tabs.find((tab) => tab.id === "room-c")).toMatchObject({ bot: true });
+  });
 });
