@@ -63,7 +63,7 @@ export const TASK_ASK_TOOL: RoomToolSpec = {
   name: "task_ask",
   description:
     "Ask the person to decide something about a task. The question waits on the task (they are notified) and their answer comes back to you as a message; " +
-    "end your turn after asking. One decision per question, 2 to 4 options, and mark the one you recommend.",
+    `end your turn after asking. One decision per question, 2 to 4 options (at most ${BOT_OPTIONS_MAX}), and mark the one you recommend.`,
   inputSchema: {
     type: "object",
     properties: {

@@ -1,6 +1,7 @@
 import type { ServerResponse } from "node:http";
 import { readJsonBody } from "../protocol/httpBody.js";
 import type { RouteHandler } from "./context.js";
+import { MEMORY_LINE_MAX } from "../session/botFiles.js";
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
@@ -113,7 +114,7 @@ export const handleBotRoutes: RouteHandler = async (req, res, ctx) => {
       if (req.method === "PATCH") {
         const input = await body();
         if (!input) return true;
-        if (typeof input.text !== "string" || input.text.trim() === "" || input.text.length > 500) {
+        if (typeof input.text !== "string" || input.text.trim() === "" || input.text.length > MEMORY_LINE_MAX) {
           send(res, 400, { error: "text must be a non-empty string of at most 500 characters" });
           return true;
         }

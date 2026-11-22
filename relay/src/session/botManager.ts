@@ -23,7 +23,7 @@ import {
   type BotTask,
   type BotTaskStatus,
 } from "./bot.js";
-import { memoryForPrompt, type BotFiles, type MemoryLine } from "./botFiles.js";
+import { SOUL_MAX, memoryForPrompt, type BotFiles, type MemoryLine } from "./botFiles.js";
 import { checkCron, dueDecision, nextRunAfter } from "./botSchedule.js";
 import type { BotStore } from "./botStore.js";
 import {
@@ -215,7 +215,7 @@ export class BotManager implements RoomBots {
   create(input: CreateBotInput): BotResult<BotSummary> {
     const name = cleanBotName(input.name);
     if (!name) return { ok: false, status: 400, error: "name is required (at most 40 characters)" };
-    if (typeof input.soul !== "string" || input.soul.trim() === "" || input.soul.length > 8000) return { ok: false, status: 400, error: "soul must be a non-empty string" };
+    if (typeof input.soul !== "string" || input.soul.trim() === "" || input.soul.length > SOUL_MAX) return { ok: false, status: 400, error: "soul must be a non-empty string" };
     if (input.templateId !== undefined && (typeof input.templateId !== "string" || input.templateId.length > 64)) return { ok: false, status: 400, error: "templateId must be a string" };
     const mascot = input.mascot === undefined ? defaultMascot(name) : input.mascot;
     if (!isBotMascot(mascot)) return { ok: false, status: 400, error: "mascot must be { character, tone } of known ones" };
@@ -312,7 +312,7 @@ export class BotManager implements RoomBots {
     }
     if (input.mascot !== undefined && !isBotMascot(input.mascot)) return { ok: false, status: 400, error: "mascot must be { character, tone } of known ones" };
     if (input.paused !== undefined && typeof input.paused !== "boolean") return { ok: false, status: 400, error: "paused must be true or false" };
-    if (input.soul !== undefined && (typeof input.soul !== "string" || input.soul.trim() === "" || input.soul.length > 8000)) return { ok: false, status: 400, error: "soul must be a non-empty string" };
+    if (input.soul !== undefined && (typeof input.soul !== "string" || input.soul.trim() === "" || input.soul.length > SOUL_MAX)) return { ok: false, status: 400, error: "soul must be a non-empty string" };
     if (typeof input.soul === "string") this.options.files.writeSoul(id, input.soul);
     const next = this.store.update(id, (current) => ({
       ...current,
