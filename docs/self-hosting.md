@@ -99,6 +99,24 @@ for a program driving the script — the desktop app's own setup uses it.
 Re-running with the same flags is a no-op for the profile and never
 restarts a running relay.
 
+### Updates
+
+A relay installed by the script keeps itself on the app's version. When the
+app connects and finds the relay on an older release, it asks the relay
+(`POST /relay/update`) to install the app's version. The relay runs the same
+installer, downloading and checksum-verifying that release and swapping it in,
+then restarts onto it on its own once no conversation has a reply running.
+The agent host does the same once every agent is idle. Idle agents are
+hibernated and resume on their next message, so a conversation sees at most a
+reconnect. It never downgrades: a relay ahead of the app is left alone. Only
+a systemd-managed relay restarts itself. A relay started by hand (`npm
+start`, `--mode dev`) or run from a source checkout is never touched.
+
+A relay from before this existed needs one last update by hand: the button
+in the profile's settings for a relay on this machine (Linux), or the install
+command above on the relay's machine, followed by
+`systemctl --user restart anywh-relay@<profile>`.
+
 On macOS the script installs the tree and stops there: it has no launchd
 unit to offer, so the service comes from the Homebrew formula instead
 (`brew install anywh-sh/tap/anywh-relay`), and a profile requested on macOS
