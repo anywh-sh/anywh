@@ -54,7 +54,7 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
   // A relay older than bots: say what it takes to have them, not "no bots".
   if (bots.length === 0 && lacksFeature(relay, "bots")) {
     return (
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 shrink">
         <BotsRelayGate profile={profile} relayVersion={relay.version} />
       </ScrollArea>
     );
@@ -62,7 +62,7 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
 
   if (bots.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-3 px-5 py-9 text-center">
+      <div className="flex flex-col items-center gap-3 px-5 py-6 text-center">
         <span className="font-mono text-xs text-muted-foreground">{dict.bots.emptyTitle}</span>
         <span className="max-w-52 text-xs leading-relaxed text-text-faint">{dict.bots.emptyBody}</span>
         <Button type="button" variant="outline" size="xs" onClick={actions.onNewBot}>
@@ -74,7 +74,7 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
   }
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
+    <ScrollArea className="min-h-0 shrink">
       <div className="flex flex-col px-2 pb-2">
         {bots.map((bot) => (
           <div key={bot.id}>

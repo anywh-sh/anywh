@@ -4,7 +4,7 @@ import { Plus, Search } from "lucide-react";
 import { KbdShortcut } from "@/components/ui/kbd";
 import { SessionList } from "@/components/shell/SessionList";
 import { BotsSection, type BotsSectionActions } from "@/components/bots/BotsSection";
-import { SidebarSectionHeading, SidebarSectionPanel, loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
+import { BotsHeading, loadBotsOpen, saveBotsOpen } from "@/components/shell/SidebarSections";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { ProfileSwitcher } from "@/components/shell/ProfileSwitcher";
 import { useDict } from "@/i18n";
@@ -83,13 +83,11 @@ export const Sidebar = memo(function Sidebar({
 }: SidebarProps) {
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ session: MergedSession; title: string } | null>(null);
-  // Bots and conversations take turns: the open section fills the column,
-  // the other folds to its heading (see `SidebarSectionPanel`).
-  const [section, setSection] = useState<SidebarSection>(loadSidebarSection);
-  const toggle = (): void => {
-    const next = section === "bots" ? "conversations" : "bots";
-    setSection(next);
-    saveSidebarSection(next);
+  // Bots sit above the conversation groups and fold on their own, like them.
+  const [botsOpen, setBotsOpen] = useState(loadBotsOpen);
+  const toggleBots = (): void => {
+    setBotsOpen(!botsOpen);
+    saveBotsOpen(!botsOpen);
   };
   const allProfilesShown = selectedProfileIds.size >= profiles.length;
 
@@ -119,12 +117,15 @@ export const Sidebar = memo(function Sidebar({
         </RowButton>
       </div>
 
-      <SidebarSectionHeading section="bots" open={section === "bots"} profileId={activeProfile.id} onToggle={toggle} onAdd={botActions.onNewBot} />
-      <SidebarSectionPanel section="bots" open={section === "bots"}>
-        <BotsSection profile={activeProfile} selectedSession={selectedSession} {...botActions} />
-      </SidebarSectionPanel>
-      <SidebarSectionHeading section="conversations" open={section === "conversations"} profileId={activeProfile.id} onToggle={toggle} />
-      <SidebarSectionPanel section="conversations" open={section === "conversations"}>
+      <BotsHeading open={botsOpen} profileId={activeProfile.id} onToggle={toggleBots} onAdd={botActions.onNewBot} />
+      {botsOpen && (
+        // The bots keep their natural height, up to a share of the column;
+        // past it they scroll and the conversations keep the rest.
+        <div className="flex max-h-[45%] min-h-0 shrink-0 flex-col" data-testid="sidebar-bots">
+          <BotsSection profile={activeProfile} selectedSession={selectedSession} {...botActions} />
+        </div>
+      )}
+      <div className="flex min-h-0 flex-1 flex-col">
         <SessionList
           sessions={sessions}
           profiles={profiles}
@@ -141,7 +142,7 @@ export const Sidebar = memo(function Sidebar({
           onClearFilter={onClearProfileFilter}
           onOpenSearch={onOpenSearch}
         />
-      </SidebarSectionPanel>
+      </div>
 
       <RenameSessionDialog
         open={renaming !== null}

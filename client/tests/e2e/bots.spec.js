@@ -73,7 +73,6 @@ describe("bots", () => {
     await browser.execute(
       (port) => {
         localStorage.setItem("anywh:profiles", JSON.stringify([{ id: "e2e-bots", label: "Bots relay", host: "127.0.0.1", relayPort: port }]));
-        localStorage.setItem("anywh:sidebar-section", "bots");
         localStorage.setItem("anywh:right-panel-open", "true");
         localStorage.removeItem("anywh:tabs");
         localStorage.removeItem("anywh:tab-layout");
@@ -96,12 +95,12 @@ describe("bots", () => {
     await stack?.stop();
   });
 
-  it("lists the bot in the Bots section, with the conversations folded at the bottom", async () => {
+  it("lists the bot in the Bots group, open above the conversations", async () => {
     const row = await $('[aria-label="Vigia"]');
     await row.waitForExist({ timeout: 30000 });
     await expect(row).toHaveText(expect.stringContaining("setting up"));
-    const conversations = await $('//button[@aria-expanded="false"][contains(., "Conversations")]');
-    await expect(conversations).toExist();
+    const bots = await $('//button[@aria-expanded="true"][contains(., "Bots")]');
+    await expect(bots).toExist();
     await shot("bots-01-sidebar");
   });
 

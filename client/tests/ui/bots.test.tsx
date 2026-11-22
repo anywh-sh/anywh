@@ -50,7 +50,7 @@ async function watchSocket() {
 }
 
 describe("bots in the sidebar", () => {
-  it("bots and conversations take turns, Bots above: opening one folds the other, and the choice is kept", async () => {
+  it("bots sit above the conversations, folding on their own, and the fold is kept", async () => {
     const user = userEvent.setup();
     renderApp();
     const watch = await watchSocket();
@@ -60,27 +60,27 @@ describe("bots in the sidebar", () => {
       watch.emitMessage({ type: "bots_state", bots: [vigia] });
     });
 
-    // Conversations open: the folded Bots heading still shows that a bot
-    // needs the person.
-    expect(await screen.findByText("A conversation")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Vigia" })).not.toBeInTheDocument();
-    const botsHeading = screen.getByRole("button", { name: new RegExp(en.bots.section) });
-    expect(botsHeading).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByTitle(en.bots.collapsedNeedsYou.replace("{count}", "1"))).toBeInTheDocument();
-
-    await user.click(botsHeading);
+    // Both show at once: the bots group above the conversation groups.
     const row = await screen.findByRole("button", { name: "Vigia" });
     expect(row).toHaveTextContent("1 needs you");
-    // Both lists stay mounted (the fold is animated); the folded one is inert.
-    expect(screen.getByTestId("sidebar-panel-conversations")).toHaveAttribute("data-open", "false");
-    expect(screen.getByTestId("sidebar-panel-conversations")).toHaveAttribute("aria-hidden", "true");
-    expect(screen.queryByRole("button", { name: /A conversation/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: new RegExp(en.bots.conversations) })).toHaveAttribute("aria-expanded", "false");
-    expect(localStorage.getItem("anywh:sidebar-section")).toBe("bots");
+    expect(await screen.findByText("A conversation")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Conversations/ })).not.toBeInTheDocument();
+
+    // Folded, the bots go but the heading still shows that one needs the
+    // person; the conversations stay.
+    const botsHeading = screen.getByRole("button", { name: new RegExp(`^${en.bots.section}`) });
+    expect(botsHeading).toHaveAttribute("aria-expanded", "true");
+    await user.click(botsHeading);
+    expect(botsHeading).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Vigia" })).not.toBeInTheDocument();
+    expect(screen.getByTitle(en.bots.collapsedNeedsYou.replace("{count}", "1"))).toBeInTheDocument();
+    expect(screen.getByText("A conversation")).toBeInTheDocument();
+    expect(localStorage.getItem("anywh:sidebar-bots-open")).toBe("false");
+    await user.click(botsHeading);
 
     // Opening the bot opens its conversation as a tab marked as a bot, with
     // its tree (its conversation) under its row.
-    await user.click(row);
+    await user.click(await screen.findByRole("button", { name: "Vigia" }));
     expect(await screen.findByRole("button", { name: en.bots.conversation })).toBeInTheDocument();
     await waitFor(() => {
       const tabs = JSON.parse(localStorage.getItem("anywh:tabs") ?? "[]") as { id: string; profileId: string; bot?: boolean }[];
@@ -90,7 +90,6 @@ describe("bots in the sidebar", () => {
 
   it("a bot's settings, from its row's menu, open as a tab titled with its name", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("anywh:sidebar-section", "bots");
     renderApp();
     const watch = await watchSocket();
     act(() => {
@@ -104,7 +103,6 @@ describe("bots in the sidebar", () => {
 
   it("a bot that leaves the list (deleted here or elsewhere) takes its conversation and settings tabs with it", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("anywh:sidebar-section", "bots");
     renderApp();
     const watch = await watchSocket();
     act(() => {

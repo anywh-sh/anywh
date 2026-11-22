@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { ChevronDown, Plus } from "lucide-react";
 import { RowButton } from "@/components/ui/row-button";
 import { Button } from "@/components/ui/button";
@@ -8,6 +7,8 @@ import { useBots } from "@/lib/bots/botsStore";
 import { mascotStateOf } from "@/lib/bots/mascot";
 import { cn } from "@/lib/utils";
 
+/** The iOS drawer's two sections, which take turns (the desktop sidebar
+ * has a Bots group that folds on its own instead: `BotsHeading`). */
 export type SidebarSection = "bots" | "conversations";
 
 const STORAGE_KEY = "anywh:sidebar-section";
@@ -28,64 +29,45 @@ export function saveSidebarSection(section: SidebarSection): void {
   }
 }
 
-/**
- * The list under one of the sidebar's two section headings. Both stay
- * mounted, Bots above Conversations: opening one grows its panel from
- * nothing to the whole column while the other shrinks to nothing in step,
- * so the Conversations heading slides down to the bottom (Bots open) or up
- * under the Bots heading (Conversations open). A folded panel is inert:
- * out of the tab order and of the accessibility tree.
- */
-export function SidebarSectionPanel({ section, open, children }: { section: SidebarSection; open: boolean; children: ReactNode }) {
-  return (
-    <div
-      data-testid={`sidebar-panel-${section}`}
-      data-open={open}
-      aria-hidden={!open}
-      inert={!open}
-      className={cn(
-        "flex min-h-0 basis-0 flex-col overflow-hidden transition-[flex-grow] duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
-        open ? "grow" : "grow-0",
-      )}
-    >
-      {children}
-    </div>
-  );
+const BOTS_OPEN_KEY = "anywh:sidebar-bots-open";
+
+/** Whether the desktop sidebar's Bots group is open (it is, unless folded). */
+export function loadBotsOpen(): boolean {
+  try {
+    return localStorage.getItem(BOTS_OPEN_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+export function saveBotsOpen(open: boolean): void {
+  try {
+    localStorage.setItem(BOTS_OPEN_KEY, String(open));
+  } catch {
+    // Not remembering the fold is no reason to fail the click.
+  }
 }
 
 /**
- * The heading of one of the sidebar's two sections. Only one is open at a
- * time (see `SidebarSectionPanel`). Folded, the Bots heading still shows the
- * faces of the bots that need the person, so nothing waiting goes unseen.
+ * The heading of the desktop sidebar's Bots group, above the conversation
+ * groups (needs you, running, recent) and folding on its own like them.
+ * Folded, it still shows the faces of the bots that need the person, so
+ * nothing waiting goes unseen.
  */
-export function SidebarSectionHeading({
-  section,
-  open,
-  profileId,
-  onToggle,
-  onAdd,
-}: {
-  section: SidebarSection;
-  open: boolean;
-  profileId: string;
-  onToggle: () => void;
-  /** The section's "+" (a new bot). */
-  onAdd?: () => void;
-}) {
+export function BotsHeading({ open, profileId, onToggle, onAdd }: { open: boolean; profileId: string; onToggle: () => void; onAdd: () => void }) {
   const dict = useDict();
   const bots = useBots(profileId);
-  const waiting = section === "bots" && !open ? bots.filter((bot) => bot.needsYou > 0) : [];
-  const label = section === "bots" ? dict.bots.section : dict.bots.conversations;
+  const waiting = open ? [] : bots.filter((bot) => bot.needsYou > 0);
   return (
-    <div className={cn("relative shrink-0 px-2", open ? "pt-2" : "py-1")}>
+    <div className="relative shrink-0 px-2 pt-2">
       <RowButton
         tone="faint"
         aria-expanded={open}
         onClick={onToggle}
         className="h-[24px] gap-2 font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium"
       >
-        <ChevronDown className={cn("-mr-1 size-2.5 shrink-0 transition-transform", !open && "-rotate-90")} aria-hidden />
-        <span className="dark:opacity-80">{label}</span>
+        <ChevronDown className={cn("-mr-1 size-2.5 shrink-0", !open && "-rotate-90")} aria-hidden />
+        <span className="dark:opacity-80">{dict.bots.section}</span>
         <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
         {waiting.length > 0 && (
           <span className="flex items-center gap-1" title={dict.bots.collapsedNeedsYou.replace("{count}", String(waiting.length))}>
@@ -95,20 +77,18 @@ export function SidebarSectionHeading({
             <span className="size-1.5 rounded-full bg-primary" aria-hidden />
           </span>
         )}
-        {onAdd && <span className="w-5 shrink-0" aria-hidden />}
+        <span className="w-5 shrink-0" aria-hidden />
       </RowButton>
-      {onAdd && (
-        <Button
-          variant="chrome"
-          size="inline"
-          aria-label={dict.bots.newBot}
-          title={dict.bots.newBot}
-          onClick={onAdd}
-          className={cn("absolute right-2 h-[24px] w-6 justify-center text-text-faint hover:bg-bg-hover", open ? "top-2" : "top-1")}
-        >
-          <Plus className="size-3" />
-        </Button>
-      )}
+      <Button
+        variant="chrome"
+        size="inline"
+        aria-label={dict.bots.newBot}
+        title={dict.bots.newBot}
+        onClick={onAdd}
+        className="absolute top-2 right-2 h-[24px] w-6 justify-center text-text-faint hover:bg-bg-hover"
+      >
+        <Plus className="size-3" />
+      </Button>
     </div>
   );
 }
