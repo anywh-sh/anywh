@@ -1,6 +1,7 @@
 import { memo, useMemo, type ReactNode } from "react";
 import { NewBotView } from "@/components/bots/NewBotView";
-import { isNewBotTab } from "@/lib/bots/newBotTab";
+import { isNewBotTab, settingsTabBotId } from "@/lib/bots/botTabs";
+import { BotSettingsView } from "@/components/bots/BotSettingsView";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { createPortal } from "react-dom";
 import { ChatPanel, type BackgroundJobActions, type TurnProgress } from "@/components/chat/ChatPanel";
@@ -70,6 +71,10 @@ export interface TabPanelActions {
   onOpenSession: (profile: Profile, sessionId: string, title: string | null) => void;
   /** The new-bot tab created its bot: `tab` becomes the bot's tab. */
   onBotCreated: (tab: Tab, bot: BotSummary) => void;
+  /** A bot was deleted from its settings tab: that tab and the bot's close. */
+  onBotDeleted: (tab: Tab, roomId: string) => void;
+  /** A bot was renamed from its settings tab. */
+  onBotRenamed: (tab: Tab, roomId: string, name: string) => void;
 }
 
 interface TabChatProps {
@@ -277,6 +282,10 @@ export const TabPanel = memo(function TabPanel({
   // Creating a bot: the whole tab is the flow, with no conversation or dock.
   if (isNewBotTab(tab.id)) {
     return <NewBotView profile={profile} onCreated={(bot) => actions.onBotCreated(tab, bot)} />;
+  }
+  const settingsFor = settingsTabBotId(tab.id);
+  if (settingsFor !== undefined) {
+    return <BotSettingsView profile={profile} botId={settingsFor} onDeleted={(roomId) => actions.onBotDeleted(tab, roomId)} onRenamed={(roomId, name) => actions.onBotRenamed(tab, roomId, name)} />;
   }
 
   if (tab.room) {

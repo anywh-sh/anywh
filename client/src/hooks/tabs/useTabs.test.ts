@@ -2,7 +2,7 @@ import { act } from "react";
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MAX_GROUPS, useTabs } from "@/hooks/tabs/useTabs";
-import { newBotTabId } from "@/lib/bots/newBotTab";
+import { newBotTabId } from "@/lib/bots/botTabs";
 
 beforeEach(() => {
   localStorage.clear();

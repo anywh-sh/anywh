@@ -1,12 +1,11 @@
-import { useMemo, useRef, type ReactNode } from "react";
-import { BotSettingsDialog } from "@/components/bots/BotSettingsDialog";
+import { useEffect, useMemo, useRef } from "react";
 import type { BotsSectionActions } from "@/components/bots/BotsSection";
 import type { useTabs } from "@/hooks/tabs/useTabs";
 import { deleteBot, patchBot } from "@/lib/bots/botClient";
-import { openBotDialog, useBotDialog } from "@/lib/bots/botDialogs";
+import { handleBotSettingsRequests, openBotSettings } from "@/lib/bots/botSettingsRequest";
 import type { BotSummary } from "@/lib/bots/botTypes";
-import { newBotTabId } from "@/lib/bots/newBotTab";
-import { findProfile, type Profile } from "@/lib/profiles/profiles";
+import { botSettingsTabId, newBotTabId } from "@/lib/bots/botTabs";
+import type { Profile } from "@/lib/profiles/profiles";
 
 interface UseBotActionsArgs {
   activeProfile: Profile;
@@ -17,12 +16,11 @@ interface UseBotActionsArgs {
 
 /**
  * What the bots do in the shell: opening a bot's conversation (a tab marked
- * as a bot, so its side panel is the task list), one of its agents, the
- * new-bot tab and the bot settings dialog. The actions object keeps one identity for the app's life
- * (the sidebar is memoized); the dialogs are mounted once, wherever `App`
- * puts `dialogs`.
+ * as a bot, so its side panel is the task list), one of its agents, and the
+ * two bot pages, each a tab: a new bot, and a bot's settings. The actions
+ * object keeps one identity for the app's life (the sidebar is memoized).
  */
-export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotActionsArgs): { botActions: BotsSectionActions; dialogs: ReactNode; openBotTab: (profileId: string, bot: BotSummary) => void } {
+export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotActionsArgs): { botActions: BotsSectionActions; openBotTab: (profileId: string, bot: BotSummary) => void } {
   const latest = useRef({ activeProfile, tabsState, onNavigated });
   latest.current = { activeProfile, tabsState, onNavigated };
 
@@ -41,7 +39,7 @@ export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotA
         latest.current.tabsState.openTab(profile().id, newBotTabId(profile().id), null, true);
         latest.current.onNavigated();
       },
-      onBotSettings: (bot) => openBotDialog({ kind: "settings", profileId: profile().id, botId: bot.id }),
+      onBotSettings: (bot) => openBotSettings({ profileId: profile().id, botId: bot.id, name: bot.name }),
       onTogglePaused: (bot) => {
         patchBot(profile(), bot.id, { paused: !bot.paused }).catch((error: unknown) => console.error("[anywh] failed to pause the bot", error));
       },
@@ -54,27 +52,18 @@ export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotA
     };
   }, []);
 
-  const dialog = useBotDialog();
-  const dialogProfile = dialog ? findProfile(dialog.profileId) : undefined;
-  const dialogs = (
-    <>
-      {dialogProfile && dialog?.kind === "settings" && (
-        <BotSettingsDialog
-          profile={dialogProfile}
-          botId={dialog.botId}
-          open
-          onOpenChange={(open) => {
-            if (!open) openBotDialog(null);
-          }}
-          onDeleted={(roomId) => tabsState.closeTab(roomId)}
-        />
-      )}
-    </>
+  // Settings open as a tab, whoever asks (the sidebar, a bot's panel).
+  useEffect(
+    () =>
+      handleBotSettingsRequests(({ profileId, botId, name }) => {
+        latest.current.tabsState.openTab(profileId, botSettingsTabId(botId), name);
+        latest.current.onNavigated();
+      }),
+    [],
   );
 
   return {
     botActions,
-    dialogs,
     openBotTab: (profileId, bot) => tabsState.openTab(profileId, bot.roomId, bot.name, false, false, true),
   };
 }

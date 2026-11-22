@@ -1502,6 +1502,8 @@ export const en: Dictionary = {
       manualHint: "This relay runs on another machine. There, run:",
     },
     settings: {
+      subtitle: "settings · created {date}",
+      pauseOrDelete: "Pause or delete",
       title: "{name} · settings",
       soul: "Who it is",
       memory: "Memory",

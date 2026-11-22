@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pause, Pencil, Play, Trash2 } from "lucide-react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Textarea } from "@/components/ui/input";
-import { Segmented } from "@/components/ui/segmented";
+import { RowButton } from "@/components/ui/row-button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Mascot } from "@/components/bots/Mascot";
@@ -17,31 +17,35 @@ import type { Profile } from "@/lib/profiles/profiles";
 
 type Section = "soul" | "memory" | "bot";
 
-interface BotSettingsDialogProps {
+interface BotSettingsViewProps {
   profile: Profile;
   botId: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** The bot was deleted: the caller closes its tab. */
+  /** The bot was deleted: its tabs close. */
   onDeleted: (roomId: string) => void;
+  /** The bot was renamed: its tabs follow. */
+  onRenamed: (roomId: string, name: string) => void;
+  /** What the relay would answer, instead of asking it (the stories). */
+  initial?: { bot: BotView; soul: string; memory: MemoryLine[] };
 }
 
 /**
- * A bot's settings: who it is (its soul), what it remembers (one line each,
- * editable), and the bot itself (name, pause, delete). Its permission mode,
- * agent and model are its conversation's, set in its composer like any
- * conversation's.
+ * A bot's settings, as a tab of its own: who it is (its name and soul), what
+ * it remembers (one line each, editable), and pausing or deleting it. A
+ * header with its face and the pause button, a list of sections on the left,
+ * the section on the right. Its permission mode, agent and model are its
+ * conversation's, set in its composer like any conversation's.
  */
-export function BotSettingsDialog({ profile, botId, open, onOpenChange, onDeleted }: BotSettingsDialogProps) {
+export function BotSettingsView({ profile, botId, onDeleted, onRenamed, initial }: BotSettingsViewProps) {
   const dict = useDict();
+  const copy = dict.bots.settings;
   const [section, setSection] = useState<Section>("soul");
-  const [loaded, setLoaded] = useState<{ bot: BotView; soul: string; memory: MemoryLine[] } | null>(null);
-  const [soul, setSoul] = useState("");
-  const [name, setName] = useState("");
+  const [loaded, setLoaded] = useState<{ bot: BotView; soul: string; memory: MemoryLine[] } | null>(initial ?? null);
+  const [soul, setSoul] = useState(initial?.soul ?? "");
+  const [name, setName] = useState(initial?.bot.name ?? "");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle");
 
   useEffect(() => {
-    if (!open) return;
+    if (initial) return;
     let cancelled = false;
     setLoaded(null);
     setStatus("idle");
@@ -59,7 +63,9 @@ export function BotSettingsDialog({ profile, botId, open, onOpenChange, onDelete
     return () => {
       cancelled = true;
     };
-  }, [open, profile, botId]);
+    // `initial` only stands in for the first answer (the stories).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, botId]);
 
   const save = (work: Promise<unknown>): void => {
     setStatus("saving");
@@ -69,91 +75,123 @@ export function BotSettingsDialog({ profile, botId, open, onOpenChange, onDelete
     );
   };
 
-  const bot = loaded?.bot;
+  if (!loaded) {
+    return (
+      <div className="flex h-full items-center justify-center" data-testid="bot-settings-view">
+        {status === "failed" ? <p className="text-sm text-destructive">{copy.saveFailed}</p> : <Spinner size="md" />}
+      </div>
+    );
+  }
+
+  const bot = loaded.bot;
+  const setPaused = (paused: boolean): void => save(patchBot(profile, botId, { paused }).then(() => setLoaded({ ...loaded, bot: { ...bot, paused } })));
+  const sections: { id: Section; label: string; count?: number }[] = [
+    { id: "soul", label: copy.soul },
+    { id: "memory", label: copy.memory, count: loaded.memory.length },
+    { id: "bot", label: copy.pauseOrDelete },
+  ];
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl" data-testid="bot-settings-dialog">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {bot && <Mascot seed={bot.mascot.seed} state={mascotStateOf(bot)} size={24} />}
-            {dict.bots.settings.title.replace("{name}", bot?.name ?? "")}
-          </DialogTitle>
-        </DialogHeader>
-        <DialogBody className="gap-4">
-          <Segmented
-            id="bot-settings-section"
-            label={dict.bots.menu.settings}
-            value={section}
-            onChange={setSection}
-            options={[
-              { value: "soul", label: dict.bots.settings.soul },
-              { value: "memory", label: dict.bots.settings.memory },
-              { value: "bot", label: dict.bots.settings.bot },
-            ]}
-          />
-          {!loaded ? (
-            status === "failed" ? <p className="text-sm text-destructive">{dict.bots.settings.saveFailed}</p> : <Spinner size="md" />
-          ) : section === "soul" ? (
-            <div className="flex flex-col gap-2" role="tabpanel" aria-labelledby="bot-settings-section-soul">
-              <Textarea value={soul} rows={14} onChange={(event) => setSoul(event.target.value)} className="font-mono text-xs" />
-              <div className="flex items-center gap-3">
-                <Button size="xs" disabled={soul.trim() === "" || soul === loaded.soul} onClick={() => save(patchBot(profile, botId, { soul }).then(() => setLoaded({ ...loaded, soul })))}>
-                  {dict.bots.settings.save}
-                </Button>
+    <div className="flex h-full min-h-0 flex-col" data-testid="bot-settings-view">
+      <header className="flex shrink-0 items-center gap-4 border-b border-border px-8 py-6">
+        <Mascot seed={bot.mascot.seed} state={mascotStateOf(bot)} size={48} />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h1 className="truncate text-xl font-semibold text-foreground">{bot.name}</h1>
+          <span className="truncate font-mono text-[11px] text-text-faint">{copy.subtitle.replace("{date}", new Date(bot.createdAt).toLocaleDateString())}</span>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setPaused(!bot.paused)}>
+          {bot.paused ? <Play /> : <Pause />}
+          {bot.paused ? copy.resume : copy.pause}
+        </Button>
+      </header>
+      <div className="flex min-h-0 flex-1">
+        <nav className="flex w-[200px] shrink-0 flex-col gap-0.5 border-r border-border p-2" aria-label={dict.bots.menu.settings}>
+          {sections.map((each) => (
+            <RowButton key={each.id} selected={section === each.id} onClick={() => setSection(each.id)} aria-current={section === each.id ? "page" : undefined}>
+              <span className="flex-1">{each.label}</span>
+              {each.count !== undefined && each.count > 0 && <span className="font-mono text-[11px] text-text-faint">{each.count}</span>}
+            </RowButton>
+          ))}
+        </nav>
+        <ScrollArea className="min-h-0 min-w-0 flex-1">
+          <div className="flex max-w-[720px] flex-col gap-5 px-8 py-6">
+            <h2 className="text-lg font-semibold text-foreground">{sections.find((each) => each.id === section)?.label}</h2>
+            {section === "soul" ? (
+              <>
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[11px] text-text-faint">{copy.rename}</span>
+                  <div className="flex gap-2">
+                    <Input value={name} maxLength={40} onChange={(event) => setName(event.target.value)} className="flex-1" />
+                    <Button
+                      variant="outline"
+                      className="h-9"
+                      disabled={name.trim() === "" || name.trim() === bot.name}
+                      onClick={() =>
+                        save(
+                          patchBot(profile, botId, { name: name.trim() }).then(() => {
+                            setLoaded({ ...loaded, bot: { ...bot, name: name.trim() } });
+                            onRenamed(bot.roomId, name.trim());
+                          }),
+                        )
+                      }
+                    >
+                      {copy.save}
+                    </Button>
+                  </div>
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[11px] text-text-faint">{dict.bots.create.soul}</span>
+                  <Textarea value={soul} rows={16} onChange={(event) => setSoul(event.target.value)} className="font-mono text-xs" />
+                </label>
+                <div className="flex items-center gap-3">
+                  <Button disabled={soul.trim() === "" || soul === loaded.soul} onClick={() => save(patchBot(profile, botId, { soul }).then(() => setLoaded({ ...loaded, soul })))}>
+                    {copy.save}
+                  </Button>
+                  <SaveStatus status={status} />
+                </div>
+              </>
+            ) : section === "memory" ? (
+              <MemoryList profile={profile} botId={botId} lines={loaded.memory} onChange={(memory) => setLoaded({ ...loaded, memory })} />
+            ) : (
+              <>
+                <label className="flex items-start gap-3 border border-border p-4">
+                  <Switch checked={bot.paused} onCheckedChange={setPaused} />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-sm text-foreground">{bot.paused ? copy.resume : copy.pause}</span>
+                    <span className="text-xs text-text-faint">{copy.pauseHint}</span>
+                  </span>
+                </label>
                 <SaveStatus status={status} />
-              </div>
-            </div>
-          ) : section === "memory" ? (
-            <MemoryList profile={profile} botId={botId} lines={loaded.memory} onChange={(memory) => setLoaded({ ...loaded, memory })} />
-          ) : (
-            <div className="flex flex-col gap-4" role="tabpanel" aria-labelledby="bot-settings-section-bot">
-              <label className="flex flex-col gap-1">
-                <span className="font-mono text-[11px] text-text-faint">{dict.bots.settings.rename}</span>
-                <div className="flex gap-2">
-                  <Input value={name} maxLength={40} onChange={(event) => setName(event.target.value)} className="flex-1" />
-                  <Button size="xs" className="h-9" disabled={name.trim() === "" || name.trim() === loaded.bot.name} onClick={() => save(patchBot(profile, botId, { name: name.trim() }))}>
-                    {dict.bots.settings.save}
+                <div className="flex flex-col items-start gap-2 border border-border p-4">
+                  <span className="text-xs text-text-faint">{copy.deleteConfirm.replace("{name}", bot.name)}</span>
+                  <Button
+                    variant="destructive-outline"
+                    size="sm"
+                    onClick={() => {
+                      void confirmDialog(copy.deleteConfirm.replace("{name}", bot.name), {
+                        title: copy.delete,
+                        kind: "warning",
+                        okLabel: dict.common.delete,
+                        cancelLabel: dict.common.cancel,
+                      }).then((confirmed) => {
+                        if (!confirmed) return;
+                        deleteBot(profile, botId).then(
+                          () => onDeleted(bot.roomId),
+                          () => setStatus("failed"),
+                        );
+                      });
+                    }}
+                  >
+                    <Trash2 />
+                    {copy.delete}
                   </Button>
                 </div>
-              </label>
-              <label className="flex items-start gap-3">
-                <Switch checked={loaded.bot.paused} onCheckedChange={(paused) => save(patchBot(profile, botId, { paused }).then(() => setLoaded({ ...loaded, bot: { ...loaded.bot, paused } })))} />
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-sm text-foreground">{loaded.bot.paused ? dict.bots.settings.resume : dict.bots.settings.pause}</span>
-                  <span className="text-xs text-text-faint">{dict.bots.settings.pauseHint}</span>
-                </span>
-              </label>
-              <SaveStatus status={status} />
-              <Button
-                variant="destructive-outline"
-                size="xs"
-                className="self-start"
-                onClick={() => {
-                  void confirmDialog(dict.bots.settings.deleteConfirm.replace("{name}", loaded.bot.name), {
-                    title: dict.bots.settings.delete,
-                    kind: "warning",
-                    okLabel: dict.common.delete,
-                    cancelLabel: dict.common.cancel,
-                  }).then((confirmed) => {
-                    if (!confirmed) return;
-                    deleteBot(profile, botId).then(
-                      () => {
-                        onOpenChange(false);
-                        onDeleted(loaded.bot.roomId);
-                      },
-                      () => setStatus("failed"),
-                    );
-                  });
-                }}
-              >
-                <Trash2 />
-                {dict.bots.settings.delete}
-              </Button>
-            </div>
-          )}
-        </DialogBody>
-      </DialogContent>
-    </Dialog>
+              </>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
   );
 }
 

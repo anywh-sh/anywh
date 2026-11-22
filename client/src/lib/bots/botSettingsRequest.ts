@@ -1,24 +1,24 @@
-import { useSyncExternalStore } from "react";
+// Opening a bot's settings from anywhere: the sidebar, a bot's panel and the
+// iOS shell ask for it here, and the shell (`useBotActions`, which owns the
+// tabs) opens the settings tab. A settings page is a tab, not a dialog: see
+// `botTabs.ts`.
 
-// Which bot dialog is open, app-wide: the sidebar, a bot's panel and the iOS
-// shell all open the same settings dialog, mounted once in `App`. (A new bot
-// is a tab, not a dialog: see `newBotTab.ts`.)
-export type BotDialog = { kind: "settings"; profileId: string; botId: string } | null;
-
-let current: BotDialog = null;
-const listeners = new Set<() => void>();
-
-export function openBotDialog(dialog: BotDialog): void {
-  current = dialog;
-  for (const listener of listeners) listener();
+export interface BotSettingsRequest {
+  profileId: string;
+  botId: string;
+  name: string;
 }
 
-export function useBotDialog(): BotDialog {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => current,
-  );
+let handler: ((request: BotSettingsRequest) => void) | null = null;
+
+export function openBotSettings(request: BotSettingsRequest): void {
+  handler?.(request);
+}
+
+/** Who opens the tab; one at a time (the app's shell). Returns the undo. */
+export function handleBotSettingsRequests(next: (request: BotSettingsRequest) => void): () => void {
+  handler = next;
+  return () => {
+    if (handler === next) handler = null;
+  };
 }

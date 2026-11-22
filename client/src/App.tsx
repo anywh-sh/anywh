@@ -45,7 +45,7 @@ import { useSessionNames } from "@/hooks/relay/useSessionNames";
 import { useSessionListBootstrap } from "@/hooks/tabs/useSessionListBootstrap";
 import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
 import { useBotActions } from "@/hooks/useBotActions";
-import { isNewBotTab } from "@/lib/bots/newBotTab";
+import { isBotPageTab, isNewBotTab } from "@/lib/bots/botTabs";
 import { useBots } from "@/lib/bots/botsStore";
 import { loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
@@ -319,8 +319,9 @@ function AppShell() {
   // No active tab means no conversation is trying to connect at all — showing
   // "Reconnecting…" on the idle screen would be reporting a disconnect that
   // doesn't exist, since `false` here used to mean "no tab" as much as "really down".
-  // The new-bot tab has no connection of its own to report: it reads as no tab.
-  const activeConnected = activeTabId && !isNewBotTab(activeTabId) ? (connectedByTab[activeTabId] ?? false) : true;
+  // A bot page (new bot, settings) has no connection of its own to report: it
+  // reads as no tab.
+  const activeConnected = activeTabId && !isBotPageTab(activeTabId) ? (connectedByTab[activeTabId] ?? false) : true;
 
   // Clears the "turn complete" badge of the tab that's visible now.
   useEffect(() => {
@@ -550,7 +551,7 @@ function AppShell() {
     setDrawerSection(section);
     saveSidebarSection(section);
   }, []);
-  const { botActions, dialogs: botDialogs } = useBotActions({ activeProfile, tabsState, onNavigated: closeDrawer });
+  const { botActions } = useBotActions({ activeProfile, tabsState, onNavigated: closeDrawer });
 
   const sidebarProps = {
     activeProfile,
@@ -767,7 +768,6 @@ function AppShell() {
         <RevokedProfileBanners />
         {profileSetupDialog}
         <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
-        {botDialogs}
         {/* `relative` stays for the web stack floating above the native
          * composer (see the comment on the desktop branch); the drawer, top
          * bar and composer are native. */}
@@ -810,7 +810,6 @@ function AppShell() {
       <FirstLaunchBanner />
 
       <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
-        {botDialogs}
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

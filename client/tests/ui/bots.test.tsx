@@ -88,6 +88,20 @@ describe("bots in the sidebar", () => {
     });
   });
 
+  it("a bot's settings, from its row's menu, open as a tab titled with its name", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("anywh:sidebar-section", "bots");
+    renderApp();
+    const watch = await watchSocket();
+    act(() => {
+      watch.emitMessage({ type: "bots_state", bots: [vigia] });
+    });
+    await user.pointer({ keys: "[MouseRight]", target: await screen.findByRole("button", { name: "Vigia" }) });
+    await user.click(await screen.findByRole("menuitem", { name: en.bots.menu.settings }));
+    expect(await screen.findByTestId("bot-settings-view")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: new RegExp(en.bots.settings.title.replace("{name}", "Vigia")) })).toBeInTheDocument();
+  });
+
   it("the + of the Bots heading opens the new bot as a tab, and opening it again focuses the same tab", async () => {
     const user = userEvent.setup();
     renderApp();

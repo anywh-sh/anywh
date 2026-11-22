@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { isNewBotTab } from "@/lib/bots/newBotTab";
+import { isNewBotTab, settingsTabBotId } from "@/lib/bots/botTabs";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { Plus, X } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
@@ -110,7 +110,10 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: tab.id });
   const menu = useContextMenu();
   const dict = useDict();
-  const title = tab.title ?? (isNewBotTab(tab.id) ? dict.bots.create.title : dict.common.untitledSession);
+  const title =
+    settingsTabBotId(tab.id) !== undefined
+      ? dict.bots.settings.title.replace("{name}", tab.title ?? "")
+      : (tab.title ?? (isNewBotTab(tab.id) ? dict.bots.create.title : dict.common.untitledSession));
 
   return (
     <Tooltip>

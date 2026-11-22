@@ -2014,6 +2014,10 @@ export interface Dictionary {
       manualHint: string;
     };
     settings: {
+      /** Under the bot's name; `{date}`: when it was created. */
+      subtitle: string;
+      /** The section with pausing and deleting the bot. */
+      pauseOrDelete: string;
       /** `{name}`. */
       title: string;
       soul: string;

@@ -1502,6 +1502,8 @@ export const ptBr: Dictionary = {
       manualHint: "Este relay roda em outra máquina. Lá, rode:",
     },
     settings: {
+      subtitle: "configurações · criado em {date}",
+      pauseOrDelete: "Pausar ou excluir",
       title: "{name} · configurações",
       soul: "Quem é",
       memory: "Memória",

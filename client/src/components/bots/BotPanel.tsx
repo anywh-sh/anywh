@@ -10,7 +10,7 @@ import { BotTaskDetail } from "@/components/bots/BotTaskDetail";
 import { useRoomChannel } from "@/hooks/sala/useRoomChannel";
 import { useDict, useLocale } from "@/i18n";
 import { removeSchedule, runScheduleNow, setSchedulePaused } from "@/lib/bots/botClient";
-import { openBotDialog } from "@/lib/bots/botDialogs";
+import { openBotSettings } from "@/lib/bots/botSettingsRequest";
 import { botStatusLine, shortWhen } from "@/lib/bots/botStatusLine";
 import { TASK_GROUPS, taskGroup, type BotSchedule, type BotTask, type BotTaskStatus, type BotView } from "@/lib/bots/botTypes";
 import { mascotStateOf } from "@/lib/bots/mascot";
@@ -74,7 +74,7 @@ function BotHeader({ profile, bot }: { profile: Profile; bot: BotView }) {
         <span className="truncate text-sm font-medium text-foreground">{bot.name}</span>
         <span className={cn("truncate font-mono text-[11px]", line.tone === "attention" ? "text-primary" : line.tone === "fail" ? "text-destructive" : "text-text-faint")}>{line.text}</span>
       </div>
-      <Button variant="ghost" size="icon-sm" aria-label={dict.bots.menu.settings} title={dict.bots.menu.settings} onClick={() => openBotDialog({ kind: "settings", profileId: profile.id, botId: bot.id })}>
+      <Button variant="ghost" size="icon-sm" aria-label={dict.bots.menu.settings} title={dict.bots.menu.settings} onClick={() => openBotSettings({ profileId: profile.id, botId: bot.id, name: bot.name })}>
         <Settings className="size-3.5" />
       </Button>
     </div>
