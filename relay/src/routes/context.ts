@@ -11,6 +11,7 @@ import type { ContextTally } from "../session/roomContextUsage.js";
 import type { RoomManager } from "../session/roomManager.js";
 import type { BotManager } from "../session/botManager.js";
 import type { SessionStore } from "../session/sessionStore.js";
+import type { RelayUpdater } from "../update/relayUpdater.js";
 
 /** Shared server-lifetime state a route handler needs — everything else
  * (profile-provisioning script paths, the systemctl binary override, the
@@ -51,6 +52,8 @@ export interface RouteContext {
   readonly agentContext: ContextTally;
   /** How much of each installed agent's plan is spent (`/plan-usage`). */
   readonly planUsage: PlanUsageService;
+  /** Installs a newer release over this relay (`/relay/update`). */
+  readonly relayUpdater: RelayUpdater;
 }
 
 /** Every HTTP route handler has this shape — returns `true` if it handled

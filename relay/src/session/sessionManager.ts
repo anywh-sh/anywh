@@ -272,6 +272,14 @@ export class SessionManager {
 
   /** Resolves when no session has a turn in progress — used by graceful
    * shutdown (server.ts) before letting the process exit. */
+  /** Whether a conversation this relay process runs itself has a turn
+   * running or waiting to — what a restart would have to wait for. A room's
+   * agents run in the agent host and go on through a restart. */
+  relayTurnInFlight(): boolean {
+    for (const session of this.sessions.values()) if (!session.runsOutsideRelay() && session.isBusy()) return true;
+    return false;
+  }
+
   async waitForAllIdle(): Promise<void> {
     await Promise.all([...this.sessions.values()].map((session) => session.waitForIdle()));
   }
