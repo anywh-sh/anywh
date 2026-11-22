@@ -247,6 +247,11 @@ test("memory, soul and schedules through the bot's tools; a scheduled run with n
     assert.equal((await getBot(id)).bot.schedules[0].runs[0].outcome, "silent");
     socket.off("message", listen);
     assert.ok(!shown.some((message) => message.type === "agent_event" && (message.event as { type: string }).type === "tool_started"), "the silent run's lookup is not shown");
+    assert.ok(
+      shown.some((message) => message.type === "agent_event" && (message.event as { type: string; synthetic?: string }).type === "user_message" && (message.event as { synthetic?: string }).synthetic === "bot_schedule"),
+      "its note is: the person sees each automation that ran",
+    );
+    assert.ok(!shown.some((message) => message.type === "agent_event" && (message.event as { type: string; text?: string }).type === "text"), "and none of its words");
 
     // The person edits the memory and pauses the schedule.
     const edited = await fetch(`${base}/bots/${id}/memory/0`, { method: "PATCH", body: JSON.stringify({ text: "Never merge to main" }) });

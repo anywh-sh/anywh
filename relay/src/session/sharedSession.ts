@@ -1771,9 +1771,10 @@ export class SharedSession implements SessionDriverHost {
       syntheticUserEvent = event;
       if (origin) {
         this.broadcastExcept({ type: "agent_event", event }, origin);
-      } else if (card?.kind === "reports") {
-        // The card IS the person's notice of the reports: only the model's
-        // answer to them may be silent, never the card.
+      } else if (card?.kind === "reports" || synthetic?.kind === "bot_schedule") {
+        // The card IS the person's notice of the reports, and a schedule's
+        // note is how they know each automation ran: only the model's answer
+        // may be silent, never the note.
         shownApart = true;
         this.broadcast({ type: "agent_event", event });
       } else {

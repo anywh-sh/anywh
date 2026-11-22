@@ -163,7 +163,10 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
     messages.length = turnStartIdx;
     // A card is the person's notification of the report, so it stays visible
     // (live, `runTurn` broadcasts it outside the held turn).
-    messages.push({ type: "agent_event", event: turnUserEvent.room ? turnUserEvent : markSilent(turnUserEvent) });
+    // A room's card and a schedule's note stay, as they did live: only the
+    // answer was silent.
+    const keepsNote = turnUserEvent.room !== undefined || (turnUserEvent.type === "user_message" && turnUserEvent.synthetic === "bot_schedule");
+    messages.push({ type: "agent_event", event: keepsNote ? turnUserEvent : markSilent(turnUserEvent) });
     messages.push({ type: "agent_event", event: markSilent({ type: "turn_ended", stopped: false }) });
     return true;
   }

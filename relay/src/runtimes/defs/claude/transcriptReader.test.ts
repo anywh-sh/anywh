@@ -399,13 +399,14 @@ function toolResult(id: string, content: string): string {
   return JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content }] } });
 }
 
-test("a bot's scheduled run that looked something up and answered NO_REPLY collapses, as it was silent live", () => {
+test("a bot's scheduled run that looked something up and answered NO_REPLY collapses to its note, as it was live", () => {
   withFixture("bs1", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantText("Let me check."), assistantToolUse("t1", "Bash", { command: "gh run list" }), toolResult("t1", "all green"), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
     const events = readHistoryFromTranscript(home, home, "bs1").map((m) => m.event);
     const note = events.find((e) => e.type === "user_message" && e.synthetic === "bot_schedule");
     assert.ok(note && note.type === "user_message" && note.label === "CI check");
-    assert.equal(isSilentEvent(note), true);
+    assert.equal(isSilentEvent(note), false, "the note stays: the person sees each automation that ran");
     assert.ok(!events.some((e) => e.type === "tool_started" && !isSilentEvent(e)), "the lookup is not shown");
+    assert.ok(!events.some((e) => e.type === "text" && !isSilentEvent(e) && /NO_REPLY|Let me check/.test(e.text)), "nor its words");
   });
 });
 
