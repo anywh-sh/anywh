@@ -1331,7 +1331,11 @@ export const en: Dictionary = {
     emptyTitle: "no bots yet",
     emptyBody: "A bot has a name, a job and a memory. You ask in its conversation; it hands the work to agents and only calls you when it needs you.",
     emptyCta: "Create your first bot",
-    templatesReady: "{count} templates ready",
+    firstBot: {
+      title: "AI teammates that watch for you",
+      create: "Create a bot",
+      templates: "See templates",
+    },
     collapsedNeedsYou: "{count} need you",
     status: {
       needsYou: "{count} needs you",

@@ -5,7 +5,7 @@ import { deleteBot, patchBot } from "@/lib/bots/botClient";
 import { handleBotSettingsRequests, openBotSettings } from "@/lib/bots/botSettingsRequest";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { subscribeBotRemovals } from "@/lib/bots/botsStore";
-import { botSettingsTabId, newBotTabId } from "@/lib/bots/botTabs";
+import { botSettingsTabId, newBotTabId, setNewBotStart } from "@/lib/bots/botTabs";
 import type { Profile } from "@/lib/profiles/profiles";
 
 interface UseBotActionsArgs {
@@ -46,7 +46,8 @@ export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotA
         latest.current.tabsState.openTab(profile().id, agentId, title);
         latest.current.onNavigated();
       },
-      onNewBot: () => {
+      onNewBot: (start) => {
+        if (start) setNewBotStart(profile().id, start);
         latest.current.tabsState.openTab(profile().id, newBotTabId(profile().id), null, true);
         latest.current.onNavigated();
       },

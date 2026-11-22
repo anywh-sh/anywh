@@ -2,6 +2,7 @@ import { memo, useMemo, useState, type ReactNode } from "react";
 import { MessageSquare, Pause, Play, Plus, Settings, Trash2 } from "lucide-react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { RowButton } from "@/components/ui/row-button";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -23,7 +24,8 @@ export interface BotsSectionActions {
   onSelectBot: (bot: BotSummary) => void;
   /** Opens one of the bot's agents as a tab. */
   onOpenAgent: (bot: BotSummary, agentId: string, title: string | null) => void;
-  onNewBot: () => void;
+  /** Opens the new-bot tab; `templates` skips the first-bot presentation. */
+  onNewBot: (start?: "templates") => void;
   onBotSettings: (bot: BotSummary) => void;
   onTogglePaused: (bot: BotSummary) => void;
   onDeleteBot: (bot: BotSummary) => void;
@@ -61,18 +63,27 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
   }
 
   if (bots.length === 0) {
-    // One row, like a bot's: the way in, and how many templates wait there.
+    // A card with a few template faces sitting on it: what a bot is, in one
+    // line, and the two ways in.
     return (
-      <div className="flex flex-col px-2 pb-2">
-        <RowButton size="auto" onClick={actions.onNewBot} className="gap-2.5 py-1.5">
-          <span aria-hidden className="flex size-6 shrink-0 items-center justify-center border border-dashed border-border text-text-faint">
-            <Plus className="size-3" />
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-[length:calc(13px*var(--chrome-scale))] text-foreground/90">{dict.bots.emptyCta}</span>
-            <span className="truncate font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint">{dict.bots.templatesReady.replace("{count}", String(BOT_TEMPLATES.length))}</span>
-          </span>
-        </RowButton>
+      <div className="flex flex-col px-3 pt-2 pb-3" data-testid="bots-first-card">
+        <div className="flex items-end gap-2 pl-3" aria-hidden>
+          {BOT_TEMPLATES.slice(0, 3).map((each) => (
+            <Mascot key={each.id} seed={each.seed} size={24} />
+          ))}
+        </div>
+        <div className="flex flex-col gap-3 border border-border bg-background p-3">
+          <span className="text-[length:calc(12.5px*var(--chrome-scale))] font-medium text-foreground">{dict.bots.firstBot.title}</span>
+          <div className="flex gap-2">
+            <Button size="xs" onClick={() => actions.onNewBot()}>
+              <Plus className="size-3" />
+              {dict.bots.firstBot.create}
+            </Button>
+            <Button variant="outline" size="xs" onClick={() => actions.onNewBot("templates")}>
+              {dict.bots.firstBot.templates}
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

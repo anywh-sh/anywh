@@ -16,6 +16,7 @@ import { useDict } from "@/i18n";
 import { BotRequestError, createBot } from "@/lib/bots/botClient";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { getBots } from "@/lib/bots/botsStore";
+import { takeNewBotStart } from "@/lib/bots/botTabs";
 import { rerollSeed } from "@/lib/bots/mascot";
 import { BOT_TEMPLATES, type BotTemplate } from "@/lib/bots/templates";
 import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
@@ -55,7 +56,7 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
   const copy = dict.bots.create;
   // A profile with no bot yet opens on a presentation; one that has bots goes
   // straight to the templates.
-  const [step, setStep] = useState<"intro" | 1 | 2>(() => (getBots(tabProfile.id).length === 0 ? "intro" : 1));
+  const [step, setStep] = useState<"intro" | 1 | 2>(() => (takeNewBotStart(tabProfile.id) !== "templates" && getBots(tabProfile.id).length === 0 ? "intro" : 1));
   // Where the bot will live: the tab's profile unless the person picks another.
   const profiles = useProfiles();
   const [profileId, setProfileId] = useState(tabProfile.id);

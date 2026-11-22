@@ -1879,8 +1879,12 @@ export interface Dictionary {
     emptyTitle: string;
     emptyBody: string;
     emptyCta: string;
-    /** Under "create your first bot" in the sidebar; `{count}`: templates. */
-    templatesReady: string;
+    /** The sidebar's card while the profile has no bot: one line, two ways in. */
+    firstBot: {
+      title: string;
+      create: string;
+      templates: string;
+    };
     /** Shown beside a folded Bots section: `{count}` bots need the person. */
     collapsedNeedsYou: string;
     status: {

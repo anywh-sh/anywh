@@ -117,7 +117,7 @@ export const Sidebar = memo(function Sidebar({
         </RowButton>
       </div>
 
-      <BotsHeading open={botsOpen} profileId={activeProfile.id} onToggle={toggleBots} onAdd={botActions.onNewBot} />
+      <BotsHeading open={botsOpen} profileId={activeProfile.id} onToggle={toggleBots} onAdd={() => botActions.onNewBot()} />
       {botsOpen && (
         // The bots keep their natural height, up to a share of the column;
         // past it they scroll and the conversations keep the rest.

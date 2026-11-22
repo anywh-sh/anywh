@@ -7,11 +7,11 @@ import type { BotSummary } from "@/lib/bots/botTypes";
 const noop = (): void => undefined;
 
 /** The section with the store filled the way the relay's watch would. */
-function SectionWithBots({ bots, selectedSession = null }: { bots: BotSummary[]; selectedSession?: string | null }) {
+function SectionWithBots({ bots, selectedSession = null, onNewBot = noop }: { bots: BotSummary[]; selectedSession?: string | null; onNewBot?: (start?: "templates") => void }) {
   setBots(storyProfile.id, bots);
   return (
     <div className="flex h-[480px] w-[280px] flex-col bg-bg-sidebar">
-      <BotsSection profile={storyProfile} selectedSession={selectedSession} onSelectBot={noop} onOpenAgent={noop} onNewBot={noop} onBotSettings={noop} onTogglePaused={noop} onDeleteBot={noop} />
+      <BotsSection profile={storyProfile} selectedSession={selectedSession} onSelectBot={noop} onOpenAgent={noop} onNewBot={onNewBot} onBotSettings={noop} onTogglePaused={noop} onDeleteBot={noop} />
     </div>
   );
 }

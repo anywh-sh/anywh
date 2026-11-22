@@ -1,6 +1,7 @@
 import { composeStories } from "@storybook/react-vite";
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as stories from "./BotsSection.stories";
 import { en } from "@/i18n/en";
 import { resetBotsStore } from "@/lib/bots/botsStore";
@@ -21,9 +22,15 @@ describe("Bots sidebar section stories", () => {
     expect(screen.getByRole("button", { name: "Triagem" })).toHaveTextContent(en.bots.status.setup);
   });
 
-  it("Empty is one row inviting the first bot, with how many templates wait", () => {
-    render(<Empty />);
-    const row = screen.getByRole("button", { name: new RegExp(en.bots.emptyCta) });
-    expect(row).toHaveTextContent(en.bots.templatesReady.replace("{count}", "5"));
+  it("Empty is a card with one line and the two ways in", async () => {
+    const onNewBot = vi.fn();
+    render(<Empty onNewBot={onNewBot} />);
+    const card = screen.getByTestId("bots-first-card");
+    expect(within(card).getByText(en.bots.firstBot.title)).toBeInTheDocument();
+    await userEvent.click(within(card).getByRole("button", { name: en.bots.firstBot.create }));
+    expect(onNewBot).toHaveBeenLastCalledWith();
+    await userEvent.click(within(card).getByRole("button", { name: en.bots.firstBot.templates }));
+    expect(onNewBot).toHaveBeenLastCalledWith("templates");
   });
+
 });
