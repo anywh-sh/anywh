@@ -1969,6 +1969,18 @@ export interface Dictionary {
       /** `{n}`. */
       canceled: string;
     };
+    /** The mascot picker: the ten characters and eight tones. */
+    mascot: {
+      characters: Record<"bip" | "visor" | "fone" | "topete" | "capacete" | "ciclope" | "tela" | "oculos" | "chip" | "helice", string>;
+      tones: Record<"giz" | "areia" | "salvia" | "oliva" | "rosa" | "nuvem" | "ardosia" | "pedra", string>;
+      /** Opens the picker, after `{character} · {tone}`. */
+      change: string;
+      /** The picker's own label (its trigger and dialog name). */
+      pick: string;
+      previous: string;
+      next: string;
+      tone: string;
+    };
     create: {
       /** The presentation shown on "+" while the profile has no bot yet. */
       intro: {

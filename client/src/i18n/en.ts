@@ -1406,6 +1406,15 @@ export const en: Dictionary = {
       answer: "You answered task #{n}",
       canceled: "You canceled task #{n}",
     },
+    mascot: {
+      characters: { bip: "Bip", visor: "Visor", fone: "Headset", topete: "Quiff", capacete: "Helmet", ciclope: "Cyclops", tela: "Screen", oculos: "Specs", chip: "Chip", helice: "Propeller" },
+      tones: { giz: "chalk", areia: "sand", salvia: "sage", oliva: "olive", rosa: "rose", nuvem: "cloud", ardosia: "slate", pedra: "stone" },
+      change: "change",
+      pick: "Pick the mascot",
+      previous: "Previous character",
+      next: "Next character",
+      tone: "Tone",
+    },
     create: {
       intro: {
         title: "Teammates that keep an eye out for you",
