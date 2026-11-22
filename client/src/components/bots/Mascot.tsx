@@ -37,7 +37,8 @@ export const Mascot = memo(function Mascot({ mascot, state = "idle", size = 32, 
         role={title ? "img" : undefined}
         aria-label={title}
         aria-hidden={title ? undefined : true}
-        className="block"
+        // `size-full` (a "size-" class) keeps a Button's icon sizing off it.
+        className="block size-full"
       >
         {layers.map((layer) => (
           <path key={layer.layer} fill={layer.color} d={layer.rects.map(([x, y, w, h]) => `M${String(x)} ${String(y)}h${String(w)}v${String(h)}h-${String(w)}z`).join("")} />
