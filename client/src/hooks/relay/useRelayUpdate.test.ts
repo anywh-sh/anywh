@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InstallDoneEvent } from "@/lib/install/localRelay";
 
@@ -6,6 +6,11 @@ import type { InstallDoneEvent } from "@/lib/install/localRelay";
 const install = vi.hoisted(() => ({
   listeners: new Set<(event: InstallDoneEvent) => void>(),
   start: (): Promise<{ runId: string }> => Promise.resolve({ runId: "r1" }),
+  restarted: [] as string[],
+  restart: (profileId: string): Promise<void> => {
+    install.restarted.push(profileId);
+    return Promise.resolve();
+  },
 }));
 vi.mock("@/lib/install/localRelay", () => ({
   onInstallDone: (handler: (event: InstallDoneEvent) => void) => {
@@ -13,6 +18,7 @@ vi.mock("@/lib/install/localRelay", () => ({
     return Promise.resolve(() => install.listeners.delete(handler));
   },
   startLocalInstall: () => install.start(),
+  restartLocalRelay: (profileId: string) => install.restart(profileId),
 }));
 vi.mock("@/hooks/platform/useLocalRelayProbe", () => ({ useLocalRelayProbe: () => ({ installedVersion: "0.2.0", profiles: [] }) }));
 vi.mock("@/lib/platform/platform", () => ({ currentPlatform: () => "linux" }));
@@ -24,7 +30,10 @@ const emit = (event: Partial<InstallDoneEvent>): void => {
 };
 
 describe("useRelayUpdate", () => {
-  afterEach(() => install.listeners.clear());
+  afterEach(() => {
+    install.listeners.clear();
+    install.restarted = [];
+  });
 
   it("an install that ends before its start resolves still settles the update", async () => {
     install.start = () => {
@@ -33,8 +42,34 @@ describe("useRelayUpdate", () => {
     };
     const { result } = renderHook(() => useRelayUpdate(profile));
     await act(() => result.current.run());
-    expect(result.current.status).toBe("done");
+    await waitFor(() => expect(result.current.status).toBe("done"));
     expect(install.listeners.size).toBe(0);
+  });
+
+  it("a successful install restarts the profile's relay, so the new release is what runs", async () => {
+    install.start = () => Promise.resolve({ runId: "r1" });
+    const { result } = renderHook(() => useRelayUpdate(profile));
+    await act(() => result.current.run());
+    expect(install.restarted).toEqual([]);
+    act(() => emit({ ok: true }));
+    await waitFor(() => expect(result.current.status).toBe("done"));
+    expect(install.restarted).toEqual(["p"]);
+  });
+
+  it("a failed install never restarts the relay, and a failed restart is reported", async () => {
+    install.start = () => Promise.resolve({ runId: "r1" });
+    const { result } = renderHook(() => useRelayUpdate(profile));
+    await act(() => result.current.run());
+    act(() => emit({ ok: false, failure: { message: "no network" } } as Partial<InstallDoneEvent>));
+    await waitFor(() => expect(result.current.status).toBe("failed"));
+    expect(install.restarted).toEqual([]);
+    expect(result.current.error).toBe("no network");
+
+    install.restart = () => Promise.reject(new Error("systemctl said no"));
+    await act(() => result.current.run());
+    act(() => emit({ ok: true }));
+    await waitFor(() => expect(result.current.error).toBe("systemctl said no"));
+    expect(result.current.status).toBe("failed");
   });
 
   it("only its own run's end counts, and the listener goes when the hook unmounts", async () => {

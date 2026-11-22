@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocalRelayProbe } from "@/hooks/platform/useLocalRelayProbe";
-import { onInstallDone, startLocalInstall, type InstallDoneEvent } from "@/lib/install/localRelay";
+import { onInstallDone, restartLocalRelay, startLocalInstall, type InstallDoneEvent } from "@/lib/install/localRelay";
 import { currentPlatform } from "@/lib/platform/platform";
 import type { Profile } from "@/lib/profiles/profiles";
 
 /** How a profile's relay can be brought up to date from here:
  * - `in-app`: it runs on this machine (not macOS) and the app can re-run
- *   its installer, which refreshes the relay on disk and leaves the running
- *   service alone (the new version runs from its next restart);
+ *   its installer, which refreshes the relay on disk, then restart the
+ *   service so the new version runs (the relay's graceful shutdown waits
+ *   for turns in flight). Only needed once: from then on the relay updates
+ *   itself (useRelayAutoUpdate);
  * - `brew`: it runs on this Mac, where Homebrew owns it;
  * - `manual`: it runs elsewhere, so only a command on that machine can. */
 export type RelayUpdateKind = "in-app" | "brew" | "manual";
@@ -41,9 +43,7 @@ export function useRelayUpdate(profile: Profile): RelayUpdate {
       // check (add-profile.sh) as long as they match what's already on
       // file, which this profile's own fields always do — so this is a
       // plain re-run, not a reprovision. It refreshes the relay tree on
-      // disk and deliberately leaves the running service alone (same
-      // reasoning as add-profile.sh's own "must not be the thing that
-      // restarts a relay with a conversation in flight").
+      // disk and leaves the running service alone; `finish` restarts it.
       const registered = probe?.profiles.find((p) => p.id === profile.id);
       // Listening before starting: an install that ends at once (nothing to
       // update, or failing on its first step) can report before the start
@@ -51,10 +51,22 @@ export function useRelayUpdate(profile: Profile): RelayUpdate {
       let runId: string | null = null;
       const early: InstallDoneEvent[] = [];
       const finish = (event: InstallDoneEvent): void => {
-        setStatus(event.ok ? "done" : "failed");
-        if (!event.ok) setError(event.failure?.message ?? null);
         unlistenRef.current?.();
         unlistenRef.current = null;
+        if (!event.ok) {
+          setStatus("failed");
+          setError(event.failure?.message ?? null);
+          return;
+        }
+        // The tree on disk is new; the service still runs the old one, which
+        // predates restarting itself onto a release.
+        restartLocalRelay(profile.id).then(
+          () => setStatus("done"),
+          (err: unknown) => {
+            setStatus("failed");
+            setError(err instanceof Error ? err.message : String(err));
+          },
+        );
       };
       unlistenRef.current?.();
       unlistenRef.current = await onInstallDone((event) => {

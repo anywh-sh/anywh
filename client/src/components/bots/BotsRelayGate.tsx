@@ -11,8 +11,9 @@ export const RELAY_UPDATE_COMMAND = "curl -fsSL https://anywh.sh/install | sh -s
  * Where bots would be when the profile's relay predates them: which version
  * brings them, which one it runs, and the way to update it from here — the
  * button when the app can do it, otherwise the command for the machine that
- * can. The new relay runs from its next restart (the update never restarts a
- * relay with work in flight).
+ * can. The in-app update restarts the relay once it is installed, and the
+ * relay's graceful shutdown waits for turns in flight. A relay new enough to
+ * update itself never shows this: the app updates it on launch.
  */
 export function BotsRelayGate({ profile, relayVersion }: { profile: Profile; relayVersion?: string }) {
   const dict = useDict().bots.relayGate;

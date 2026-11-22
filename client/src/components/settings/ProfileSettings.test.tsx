@@ -22,7 +22,8 @@ function probe(overrides: Partial<LocalRelayProbe> = {}): LocalRelayProbe {
   };
 }
 
-const { localInstallPossibleMock, probeLocalRelayMock, startLocalInstallMock, onInstallDoneMock, currentPlatformMock } = vi.hoisted(() => ({
+const { localInstallPossibleMock, probeLocalRelayMock, startLocalInstallMock, onInstallDoneMock, currentPlatformMock, restartLocalRelayMock } = vi.hoisted(() => ({
+  restartLocalRelayMock: vi.fn((_profileId: string): Promise<void> => Promise.resolve()),
   localInstallPossibleMock: vi.fn(() => true),
   probeLocalRelayMock: vi.fn(async (): Promise<LocalRelayProbe | null> => probe()),
   startLocalInstallMock: vi.fn(async () => ({ runId: "r1", logPath: "/tmp/r1.log", started: true })),
@@ -38,6 +39,7 @@ vi.mock("@/lib/install/localRelay", async (importOriginal) => {
     probeLocalRelay: probeLocalRelayMock,
     startLocalInstall: startLocalInstallMock,
     onInstallDone: onInstallDoneMock,
+    restartLocalRelay: restartLocalRelayMock,
   };
 });
 // Drift only exists against a released app: git keeps APP_VERSION at the
@@ -77,6 +79,7 @@ afterEach(() => {
   localInstallPossibleMock.mockReset().mockReturnValue(true);
   probeLocalRelayMock.mockReset().mockResolvedValue(probe());
   startLocalInstallMock.mockClear();
+  restartLocalRelayMock.mockClear();
   onInstallDoneMock.mockReset().mockResolvedValue(() => {});
   currentPlatformMock.mockReset().mockReturnValue("linux");
 });
@@ -103,7 +106,7 @@ describe("ProfileSettings: local relay drift", () => {
     expect(screen.getByRole("button", { name: copy.update })).toBeInTheDocument();
   });
 
-  it("re-runs the installer against this same profile's host, and reports success", async () => {
+  it("re-runs the installer against this same profile's host, restarts its relay, and reports success", async () => {
     let doneHandler: ((event: InstallDoneEvent) => void) | undefined;
     onInstallDoneMock.mockImplementation(async (handler: (event: InstallDoneEvent) => void) => {
       doneHandler = handler;
@@ -123,8 +126,10 @@ describe("ProfileSettings: local relay drift", () => {
     });
     expect(await screen.findByText(copy.updating)).toBeInTheDocument();
 
+    expect(restartLocalRelayMock).not.toHaveBeenCalled();
     doneHandler?.({ runId: "r1", exitCode: 0, ok: true, profile: null, failure: null });
     expect(await screen.findByText(copy.updated)).toBeInTheDocument();
+    expect(restartLocalRelayMock).toHaveBeenCalledWith("default");
   });
 
   it("shows the brew command instead of a button on macOS, never calling the in-app installer", async () => {

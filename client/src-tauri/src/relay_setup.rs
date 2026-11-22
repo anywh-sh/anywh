@@ -396,6 +396,41 @@ async fn active_relay_units() -> Vec<String> {
         .collect()
 }
 
+/// Whether `id` is a profile id as add-profile.sh accepts it (so it can only
+/// ever name an `anywh-relay@<id>` unit, nothing else).
+pub fn is_profile_id(id: &str) -> bool {
+    !id.is_empty() && !id.starts_with('-') && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// Restarts a profile's relay service, if it is running, so the tree the
+/// installer just put on disk is what runs. Only for a relay too old to
+/// restart itself onto a new release: the restart is the relay's graceful
+/// shutdown (it stops taking new turns and waits for the ones in flight
+/// before exiting), queued with `--no-block` so this returns at once. The
+/// agent host is left running: its agents survive the relay's restart.
+#[tauri::command]
+pub async fn relay_setup_restart(profile_id: String) -> Result<(), String> {
+    if !cfg!(target_os = "linux") {
+        return Err("restarting the relay from the app is only supported on Linux".into());
+    }
+    if !is_profile_id(&profile_id) {
+        return Err(format!("invalid profile id {profile_id:?}"));
+    }
+    let unit = format!("anywh-relay@{profile_id}");
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::process::Command::new("systemctl").args(["--user", "--no-block", "try-restart", &unit]).output(),
+    )
+    .await
+    .map_err(|_| format!("systemctl did not answer restarting {unit}"))?
+    .map_err(|error| format!("couldn't run systemctl: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("couldn't restart {unit}: {}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
 #[tauri::command]
 pub async fn relay_setup_prerequisites() -> Prerequisites {
     let short = Duration::from_secs(10);
@@ -1083,6 +1118,18 @@ mod tests {
     fn pins_the_relay_to_this_release_but_not_to_an_unstamped_build() {
         assert_eq!(relay_release_tag("0.2.0").as_deref(), Some("v0.2.0"));
         assert_eq!(relay_release_tag("0.0.0"), None);
+    }
+
+    #[test]
+    fn only_a_profile_id_can_name_the_unit_to_restart() {
+        assert!(is_profile_id("default"));
+        assert!(is_profile_id("work-2"));
+        assert!(!is_profile_id(""));
+        assert!(!is_profile_id("-x"));
+        assert!(!is_profile_id("Work"));
+        assert!(!is_profile_id("a b"));
+        assert!(!is_profile_id("x.service"));
+        assert!(!is_profile_id("*"));
     }
 
     #[test]
