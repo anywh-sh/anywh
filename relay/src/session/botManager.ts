@@ -10,6 +10,8 @@ import {
   BOT_OPEN_TASKS_MAX,
   BOT_SCHEDULES_MAX,
   cleanBotName,
+  defaultMascot,
+  isBotMascot,
   isClosed,
   pruneTasks,
   taskStatus,
@@ -98,7 +100,7 @@ export interface BotManagerOptions {
 
 export interface CreateBotInput {
   name?: unknown;
-  mascotSeed?: unknown;
+  mascot?: unknown;
   soul?: unknown;
   templateId?: unknown;
   schedules?: unknown;
@@ -208,8 +210,8 @@ export class BotManager implements RoomBots {
     if (!name) return { ok: false, status: 400, error: "name is required (at most 40 characters)" };
     if (typeof input.soul !== "string" || input.soul.trim() === "" || input.soul.length > 8000) return { ok: false, status: 400, error: "soul must be a non-empty string" };
     if (input.templateId !== undefined && (typeof input.templateId !== "string" || input.templateId.length > 64)) return { ok: false, status: 400, error: "templateId must be a string" };
-    const seed = input.mascotSeed === undefined ? name : input.mascotSeed;
-    if (typeof seed !== "string" || seed.length === 0 || seed.length > 100) return { ok: false, status: 400, error: "mascotSeed must be a string" };
+    const mascot = input.mascot === undefined ? defaultMascot(name) : input.mascot;
+    if (!isBotMascot(mascot)) return { ok: false, status: 400, error: "mascot must be { character, tone } of known ones" };
     const schedules = this.parseInitialSchedules(input.schedules);
     if (!schedules.ok) return schedules;
     if (!this.options.hostConnected()) return { ok: false, status: 503, error: "the agent host is not running, so a bot cannot start now" };
@@ -219,7 +221,7 @@ export class BotManager implements RoomBots {
     const bot: BotRecord = {
       id,
       name,
-      mascot: { seed },
+      mascot: { character: mascot.character, tone: mascot.tone },
       roomId,
       ...(typeof input.templateId === "string" ? { templateId: input.templateId } : {}),
       paused: false,
@@ -281,7 +283,7 @@ export class BotManager implements RoomBots {
     this.arm();
   }
 
-  patch(id: string, input: { name?: unknown; mascotSeed?: unknown; paused?: unknown; soul?: unknown }): BotResult<BotSummary> {
+  patch(id: string, input: { name?: unknown; mascot?: unknown; paused?: unknown; soul?: unknown }): BotResult<BotSummary> {
     const bot = this.store.get(id);
     if (!bot) return { ok: false, status: 404, error: "bot not found" };
     let name = bot.name;
@@ -290,14 +292,14 @@ export class BotManager implements RoomBots {
       if (!cleaned) return { ok: false, status: 400, error: "name must be a non-empty string of at most 40 characters" };
       name = cleaned;
     }
-    if (input.mascotSeed !== undefined && (typeof input.mascotSeed !== "string" || input.mascotSeed.length === 0 || input.mascotSeed.length > 100)) return { ok: false, status: 400, error: "mascotSeed must be a string" };
+    if (input.mascot !== undefined && !isBotMascot(input.mascot)) return { ok: false, status: 400, error: "mascot must be { character, tone } of known ones" };
     if (input.paused !== undefined && typeof input.paused !== "boolean") return { ok: false, status: 400, error: "paused must be true or false" };
     if (input.soul !== undefined && (typeof input.soul !== "string" || input.soul.trim() === "" || input.soul.length > 8000)) return { ok: false, status: 400, error: "soul must be a non-empty string" };
     if (typeof input.soul === "string") this.options.files.writeSoul(id, input.soul);
     const next = this.store.update(id, (current) => ({
       ...current,
       name,
-      ...(typeof input.mascotSeed === "string" ? { mascot: { seed: input.mascotSeed } } : {}),
+      ...(isBotMascot(input.mascot) ? { mascot: { character: input.mascot.character, tone: input.mascot.tone } } : {}),
       ...(typeof input.paused === "boolean" ? { paused: input.paused } : {}),
       // A soul the person wrote is the bot's soul: its first run is over.
       ...(typeof input.soul === "string" ? { firstRun: false } : {}),

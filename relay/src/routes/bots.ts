@@ -20,15 +20,16 @@ function decode(segment: string): string | undefined {
 /**
  * Bots over HTTP (see session/bot.ts):
  *   GET    /bots                        every bot, as the sidebar lists them
- *   POST   /bots                        creates one: `{ name, soul, mascotSeed?,
- *                                       templateId?, schedules?: [{ name, cron,
+ *   POST   /bots                        creates one: `{ name, soul, mascot?: {
+ *                                       character, tone }, templateId?,
+ *                                       schedules?: [{ name, cron,
  *                                       prompt, paused? }], agentId?, model?,
  *                                       effort?, permissionMode?, cwd? }` →
  *                                       `201 { bot }` (its room's principal is
  *                                       its conversation: `bot.roomId`)
  *   GET    /bots/:id                    the bot with its tasks and schedules,
  *                                       its soul and its memory
- *   PATCH  /bots/:id                    `{ name?, mascotSeed?, paused?, soul? }`
+ *   PATCH  /bots/:id                    `{ name?, mascot?, paused?, soul? }`
  *   DELETE /bots/:id                    deletes the bot, its room and its files
  *   PATCH  /bots/:id/memory/:index      `{ text }` rewrites one memory line
  *   DELETE /bots/:id/memory/:index      removes it

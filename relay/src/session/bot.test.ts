@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BOT_CLOSED_TASKS_KEPT, cleanBotName, isBotRecord, pruneTasks, taskStatus, withRun, type BotRecord, type BotTask } from "./bot.js";
+import { BOT_CHARACTER_TONES, BOT_CLOSED_TASKS_KEPT, cleanBotName, defaultMascot, isBotRecord, pruneTasks, taskStatus, upgradeLegacyMascot, withRun, type BotRecord, type BotTask } from "./bot.js";
 
 const task = (over: Partial<BotTask> = {}): BotTask => ({ n: 1, title: "t", status: "planned", workerIds: [], notes: [], createdAt: 1, updatedAt: 1, ...over });
 
@@ -30,10 +30,12 @@ test("runs keep the latest twenty", () => {
 });
 
 test("a stored record that does not validate never reaches the bot logic", () => {
-  const good: BotRecord = { id: "b", name: "Vigia", mascot: { seed: "Vigia" }, roomId: "r", paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [task()], schedules: [] };
+  const good: BotRecord = { id: "b", name: "Vigia", mascot: { character: "bip", tone: "areia" }, roomId: "r", paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [task()], schedules: [] };
   assert.equal(isBotRecord(good), true);
   assert.equal(isBotRecord({ ...good, tasks: [{ ...task(), status: "needs_you" }] }), false, "needs_you is derived, never stored");
   assert.equal(isBotRecord({ ...good, roomId: "" }), false);
+  assert.equal(isBotRecord({ ...good, mascot: { character: "dragon", tone: "areia" } }), false, "an unknown character");
+  assert.equal(isBotRecord({ ...good, mascot: { character: "bip", tone: "orange" } }), false, "an unknown tone");
   assert.equal(isBotRecord({ ...good, schedules: [{ id: "s", name: "n", cron: "* * * * *", prompt: "p", paused: false, createdAt: 1, runs: [{ at: 1, outcome: "exploded" }] }] }), false);
 });
 
@@ -42,4 +44,20 @@ test("a bot name is one trimmed line, bounded", () => {
   assert.equal(cleanBotName("   "), undefined);
   assert.equal(cleanBotName("x".repeat(41)), undefined);
   assert.equal(cleanBotName(3), undefined);
+});
+
+test("a mascot nobody picked comes from the name, in the character's own tone", () => {
+  assert.deepEqual(defaultMascot("Vigia"), defaultMascot(" vigia "));
+  const mascot = defaultMascot("Vigia");
+  assert.equal(mascot.tone, BOT_CHARACTER_TONES[mascot.character]);
+});
+
+test("a record saved with a generated face's seed loads with a character instead", () => {
+  const legacy = { id: "b", name: "Vigia", mascot: { seed: "Vigia" }, roomId: "r", paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [], schedules: [] };
+  const upgraded = upgradeLegacyMascot(legacy);
+  assert.equal(isBotRecord(legacy), false);
+  assert.equal(isBotRecord(upgraded), true);
+  assert.deepEqual((upgraded as BotRecord).mascot, defaultMascot("Vigia"));
+  const current = { ...legacy, mascot: { character: "tela", tone: "pedra" } };
+  assert.equal(upgradeLegacyMascot(current), current, "a picked mascot is left alone");
 });

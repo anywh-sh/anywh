@@ -71,9 +71,59 @@ export interface BotSchedule {
   runs: BotRun[];
 }
 
+/** The pixel characters a bot can wear, each with the tone it comes in.
+ * The drawings are the client's; the relay only keeps the choice. */
+export const BOT_CHARACTER_TONES = {
+  bip: "areia",
+  visor: "giz",
+  fone: "salvia",
+  topete: "pedra",
+  capacete: "rosa",
+  ciclope: "nuvem",
+  tela: "ardosia",
+  oculos: "oliva",
+  chip: "salvia",
+  helice: "giz",
+} as const;
+export type BotCharacter = keyof typeof BOT_CHARACTER_TONES;
+export const BOT_TONES = ["giz", "areia", "salvia", "oliva", "rosa", "nuvem", "ardosia", "pedra"] as const;
+export type BotTone = (typeof BOT_TONES)[number];
+
 export interface BotMascot {
-  /** What the pixel face is generated from; the name by default. */
-  seed: string;
+  character: BotCharacter;
+  tone: BotTone;
+}
+
+export function isBotCharacter(value: unknown): value is BotCharacter {
+  return typeof value === "string" && Object.hasOwn(BOT_CHARACTER_TONES, value);
+}
+
+export function isBotTone(value: unknown): value is BotTone {
+  return typeof value === "string" && (BOT_TONES as readonly string[]).includes(value);
+}
+
+export function isBotMascot(value: unknown): value is BotMascot {
+  return isRecord(value) && isBotCharacter(value.character) && isBotTone(value.tone);
+}
+
+/** A mascot nobody picked (a bot made over HTTP without one): a character
+ * from the name, so two such bots rarely look alike, in its own tone. */
+export function defaultMascot(name: string): BotMascot {
+  let h = 0x811c9dc5;
+  for (const char of name.trim().toLowerCase()) {
+    h ^= char.charCodeAt(0);
+    h = Math.imul(h, 0x01000193);
+  }
+  const characters = Object.keys(BOT_CHARACTER_TONES) as BotCharacter[];
+  const character = characters[(h >>> 0) % characters.length];
+  return { character, tone: BOT_CHARACTER_TONES[character] };
+}
+
+/** Bots saved before mascots were picked carry a generated face's seed
+ * instead: they get a character from it, so the record still loads. */
+export function upgradeLegacyMascot(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.mascot) || isBotMascot(value.mascot) || typeof value.mascot.seed !== "string") return value;
+  return { ...value, mascot: defaultMascot(value.mascot.seed) };
 }
 
 export interface BotRecord {
@@ -177,8 +227,7 @@ export function isBotRecord(value: unknown): value is BotRecord {
     typeof value.id === "string" &&
     value.id !== "" &&
     typeof value.name === "string" &&
-    isRecord(value.mascot) &&
-    typeof value.mascot.seed === "string" &&
+    isBotMascot(value.mascot) &&
     typeof value.roomId === "string" &&
     value.roomId !== "" &&
     (value.templateId === undefined || typeof value.templateId === "string") &&

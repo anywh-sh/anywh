@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { BotRecord } from "./bot.js";
 import { BotStore, botsPathFor } from "./botStore.js";
 
-const bot = (id: string): BotRecord => ({ id, name: id, mascot: { seed: id }, roomId: `room-${id}`, paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [], schedules: [] });
+const bot = (id: string): BotRecord => ({ id, name: id, mascot: { character: "bip", tone: "areia" }, roomId: `room-${id}`, paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [], schedules: [] });
 
 test("the bots file sits beside the sessions file", () => {
   assert.equal(botsPathFor("/x/pessoal.json"), "/x/pessoal-bots.json");
@@ -43,6 +43,20 @@ test("a file that does not parse is set aside, never overwritten", () => {
     assert.equal(existsSync(file), false);
     assert.ok(readdirSync(dir).includes("p-bots.json.corrupt-42"));
     assert.equal(readFileSync(join(dir, "p-bots.json.corrupt-42"), "utf8"), "{ not json");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a bot saved with a generated face's seed is kept, with a character written back", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-bots-"));
+  try {
+    const file = join(dir, "p-bots.json");
+    writeFileSync(file, JSON.stringify({ bots: [{ ...bot("a"), mascot: { seed: "a" } }] }));
+    const store = new BotStore(file);
+    assert.equal(store.list().length, 1);
+    const written = JSON.parse(readFileSync(file, "utf8")) as { bots: BotRecord[] };
+    assert.equal(typeof written.bots[0].mascot.character, "string");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -114,6 +114,19 @@ test("a bot is created with its files and a kickoff turn, and is listed with the
   }
 });
 
+test("a bot wears the character and tone picked for it, and only known ones", async () => {
+  const bad = await fetch(`${base}/bots`, { method: "POST", body: JSON.stringify({ name: "Rosto", soul: "I watch.", agentId: "claude", model: "haiku", cwd: host.dir, mascot: { character: "dragon", tone: "areia" } }) });
+  assert.equal(bad.status, 400);
+  const { id } = await createBot({ name: "Rosto", mascot: { character: "tela", tone: "pedra" } });
+  assert.deepEqual((await getBot(id)).bot.mascot, { character: "tela", tone: "pedra" });
+  const patched = await fetch(`${base}/bots/${id}`, { method: "PATCH", body: JSON.stringify({ mascot: { character: "chip", tone: "rosa" } }) });
+  assert.equal(patched.status, 200, await patched.clone().text());
+  assert.deepEqual((await getBot(id)).bot.mascot, { character: "chip", tone: "rosa" });
+  const refused = await fetch(`${base}/bots/${id}`, { method: "PATCH", body: JSON.stringify({ mascot: { seed: "Rosto" } }) });
+  assert.equal(refused.status, 400);
+  assert.equal((await fetch(`${base}/bots/${id}`, { method: "DELETE" })).status, 200);
+});
+
 test("the bot keeps a task list: create, ask, the person answers, delegate a worker to it, and its worker is archived once the task is done", async () => {
   const { id, roomId } = await createBot({ name: "Tarefas" });
   const socket = await connectSession(relay.port, roomId);
