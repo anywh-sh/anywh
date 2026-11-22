@@ -13,6 +13,8 @@ import type { Profile } from "@/lib/profiles/profiles";
 export type RelayUpdateKind = "in-app" | "brew" | "manual";
 
 export interface RelayUpdate {
+  /** The local relay probe this read (the caller's copy, not a second one). */
+  probe: ReturnType<typeof useLocalRelayProbe>;
   kind: RelayUpdateKind;
   status: "idle" | "running" | "done" | "failed";
   error: string | null;
@@ -71,5 +73,5 @@ export function useRelayUpdate(profile: Profile): RelayUpdate {
     }
   }
 
-  return { kind, status, error, run };
+  return { probe, kind, status, error, run };
 }

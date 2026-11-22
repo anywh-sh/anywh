@@ -9,7 +9,6 @@ import { FolderPickerDialog } from "@/components/chat/FolderPickerDialog";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { SettingsRow, SettingsSectionHeading } from "@/components/settings/SettingsRow";
 import { useDefaultPaths } from "@/hooks/useDefaultPaths";
-import { useLocalRelayProbe } from "@/hooks/platform/useLocalRelayProbe";
 import { useRevokedProfiles } from "@/hooks/profiles/useProfileRevoked";
 import {
   DEFAULT_MODEL_PREFERENCE,
@@ -357,10 +356,9 @@ function IdentityRows({ profile, effectiveColorIndex }: { profile: Profile; effe
  */
 function RelayDriftRow({ profile }: { profile: Profile }) {
   const dict = useDict().settings.profile.relay;
-  const probe = useLocalRelayProbe();
   const platform = currentPlatform();
   const update = useRelayUpdate(profile);
-  const { status, error } = update;
+  const { probe, status, error } = update;
 
   if (profile.host !== "127.0.0.1" || !probe?.installedVersion) return null;
 
