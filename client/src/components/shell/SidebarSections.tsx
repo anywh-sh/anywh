@@ -77,7 +77,7 @@ export function SidebarSectionHeading({
   const waiting = section === "bots" && !open ? bots.filter((bot) => bot.needsYou > 0) : [];
   const label = section === "bots" ? dict.bots.section : dict.bots.conversations;
   return (
-    <div className={cn("relative shrink-0 px-2", open ? "pt-2" : "border-t border-border py-1")}>
+    <div className={cn("relative shrink-0 px-2", open ? "pt-2" : "py-1")}>
       <RowButton
         tone="faint"
         aria-expanded={open}
