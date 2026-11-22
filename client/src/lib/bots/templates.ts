@@ -1,5 +1,5 @@
 import type { Dictionary } from "@/i18n";
-import type { MascotChoice } from "@/lib/bots/mascot";
+import { isMascotCharacter, isMascotTone, type MascotChoice } from "@/lib/bots/mascot";
 
 // The templates a new bot can start from. Their words (name, soul, the
 // schedule's name) are the person's language, from the dictionary; the
@@ -52,3 +52,16 @@ export const BOT_TEMPLATES: readonly BotTemplate[] = [
     prompt: "List the open issues untouched for 60 days, likely duplicates and ones that look already fixed. Propose which to close in a task and change nothing until the person confirms.",
   },
 ];
+
+/**
+ * A bot as the client keeps it: its mascot always a character and a tone. A
+ * relay from before characters stores the generated face's seed instead and
+ * ignores the one picked; a bot made from a template then wears the
+ * template's face rather than falling back to Bip.
+ */
+export function withPickedMascot<T extends { mascot: unknown; templateId?: string }>(bot: T): T & { mascot: MascotChoice } {
+  const mascot = bot.mascot as { character?: unknown; tone?: unknown } | null;
+  if (mascot && isMascotCharacter(mascot.character) && isMascotTone(mascot.tone)) return bot as T & { mascot: MascotChoice };
+  const template = BOT_TEMPLATES.find((each) => each.id === bot.templateId);
+  return { ...bot, mascot: template?.mascot ?? { character: "bip", tone: "areia" } };
+}

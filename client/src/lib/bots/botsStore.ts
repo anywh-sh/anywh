@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { BotSummary } from "@/lib/bots/botTypes";
+import { withPickedMascot } from "@/lib/bots/templates";
 
 // The bots of each profile, as the relay last listed them on its
 // `/sessions/watch` socket (`bots_state`). A small store rather than state in
@@ -16,8 +17,9 @@ function notify(): void {
 
 const removalListeners = new Set<(removed: readonly BotSummary[]) => void>();
 
-export function setBots(profileId: string, bots: readonly BotSummary[]): void {
+export function setBots(profileId: string, given: readonly BotSummary[]): void {
   const previous = byProfile.get(profileId);
+  const bots = given.map(withPickedMascot);
   byProfile.set(profileId, bots);
   notify();
   // A bot gone from a list already seen was deleted (here or on another
