@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Dices, Lock, MessageSquare, Network } from "lucide-react";
+import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Lock, MessageSquare, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { RowButton } from "@/components/ui/row-button";
@@ -17,7 +17,7 @@ import { BotRequestError, createBot } from "@/lib/bots/botClient";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { useBots } from "@/lib/bots/botsStore";
 import { onNewBotStart, takeNewBotStart } from "@/lib/bots/botTabs";
-import { rerollSeed } from "@/lib/bots/mascot";
+import { defaultChoice } from "@/lib/bots/mascot";
 import { BOT_TEMPLATES, type BotTemplate } from "@/lib/bots/templates";
 import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
@@ -85,10 +85,6 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
   const [focusedTemplate, setFocusedTemplate] = useState<BotTemplate>(BOT_TEMPLATES[0]);
   const [name, setName] = useState("");
   const [soul, setSoul] = useState("");
-  // The face the person drew with "draw another": kept as is from then on, so
-  // typing the name no longer changes it.
-  const [drawnSeed, setDrawnSeed] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
   const [scheduleOn, setScheduleOn] = useState(false);
   const [agentId, setAgentId] = useState("claude");
   const [busy, setBusy] = useState(false);
@@ -101,20 +97,11 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
     if (agents.length > 0 && !agents.includes(agentId)) setAgentId(agents[0]);
   }, [agents, agentId]);
 
-  // A template keeps its own face whatever it is renamed to; a bot from
-  // scratch takes its face from its name, until the person draws one.
-  const seedBase = template?.seed ?? (name.trim() || "bot");
-  const seed = drawnSeed ?? seedBase;
-  const drawAnother = (): void => {
-    const next = attempt + 1;
-    setAttempt(next);
-    setDrawnSeed(rerollSeed(seedBase, next));
-  };
+  // A template keeps its own face whatever it is renamed to.
+  const mascot = template?.mascot ?? defaultChoice("bip");
 
   const startFrom = (picked: BotTemplate | null): void => {
     setTemplate(picked);
-    setDrawnSeed(null);
-    setAttempt(0);
     setScheduleOn(false);
     if (picked) {
       const words = dict.bots.templates[picked.id];
@@ -136,7 +123,7 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
       const bot = await createBot(profile, {
         name: name.trim(),
         soul: soul.trim(),
-        mascotSeed: seed,
+        mascot,
         agentId,
         ...(template && words ? { templateId: template.id, schedules: [{ name: words.scheduleName, cron: template.cron, prompt: template.prompt, paused: !scheduleOn }] } : {}),
       });
@@ -232,7 +219,7 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
                         onDoubleClick={() => startFrom(each)}
                         className="items-start gap-3 border border-border p-3 hover:bg-surface-hover"
                       >
-                        <Mascot seed={each.seed} size={24} />
+                        <Mascot mascot={each.mascot} size={32} />
                         <span className="flex min-w-0 flex-col gap-0.5">
                           <span className="text-[13px] text-foreground">{words.name}</span>
                           <span className="font-mono text-[10.5px] text-text-faint">{words.when}</span>
@@ -249,12 +236,8 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
               <div className="flex flex-col gap-2">
                 <span className="font-mono text-[11px] text-text-faint">{copy.mascot}</span>
                 <div className="flex aspect-square w-full items-center justify-center border border-border bg-bg-chrome" style={MASCOT_FRAME_STYLE}>
-                  <Mascot seed={seed} size={96} title={name || undefined} />
+                  <Mascot mascot={mascot} size={96} title={name || undefined} />
                 </div>
-                <Button variant="outline" size="sm" onClick={drawAnother}>
-                  <Dices />
-                  {copy.reroll}
-                </Button>
               </div>
               <div className="flex flex-col gap-4">
                 <label className="flex flex-col gap-1.5">
@@ -332,7 +315,7 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
       {view === 1 && (
         <aside className="flex shrink-0 flex-col border-t border-border lg:w-[340px] lg:border-t-0 lg:border-l" data-testid="new-bot-preview">
           <div className="hidden min-h-0 flex-1 flex-col gap-4 overflow-auto p-8 lg:flex" data-testid="template-preview">
-            <Mascot seed={focusedTemplate.seed} size={72} />
+            <Mascot mascot={focusedTemplate.mascot} size={64} />
             <div className="flex flex-col gap-1.5">
               <span className="text-lg font-semibold text-foreground">{focusedWords.name}</span>
               <p className="text-[13px] leading-relaxed text-muted-foreground">{focusedWords.line}</p>
@@ -349,7 +332,7 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
               <span className="font-mono text-[11px] text-text-faint">{copy.example}</span>
               <div className="flex flex-col gap-2 border border-border p-3">
                 <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                  <Mascot seed={focusedTemplate.seed} size={12} />
+                  <Mascot mascot={focusedTemplate.mascot} size={16} />
                   {focusedWords.name}
                 </span>
                 <p className="text-xs leading-relaxed text-foreground/90">{focusedWords.example}</p>
@@ -398,7 +381,7 @@ function Intro({ onTemplates, onScratch }: { onTemplates: (picked?: BotTemplate)
         <div className="flex w-full max-w-[680px] flex-col items-center gap-6 text-center">
           <div className="flex items-end gap-4" aria-hidden>
             {BOT_TEMPLATES.map((each) => (
-              <Mascot key={each.id} seed={each.seed} size={40} />
+              <Mascot key={each.id} mascot={each.mascot} size={48} />
             ))}
           </div>
           <div className="flex flex-col gap-3">
@@ -419,7 +402,7 @@ function Intro({ onTemplates, onScratch }: { onTemplates: (picked?: BotTemplate)
               const words = dict.bots.templates[each.id];
               return (
                 <RowButton key={each.id} size="auto" onClick={() => onTemplates(each)} className="gap-2.5 border border-border bg-background p-3 hover:bg-surface-hover">
-                  <Mascot seed={each.seed} size={20} />
+                  <Mascot mascot={each.mascot} size={32} />
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate text-[13px] text-foreground">{words.name}</span>
                     <span className="truncate font-mono text-[10.5px] text-text-faint">{words.when}</span>

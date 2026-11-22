@@ -1,6 +1,7 @@
 import type { Profile } from "@/lib/profiles/profiles";
 import { authHeaders, resolveConnection } from "@/lib/profiles/connectionResolver";
 import type { BotSummary, BotView, MemoryLine } from "@/lib/bots/botTypes";
+import type { MascotChoice } from "@/lib/bots/mascot";
 
 // The relay's `/bots` routes (see its `routes/bots.ts`).
 
@@ -31,7 +32,7 @@ const path = (id: string): string => `/bots/${encodeURIComponent(id)}`;
 export interface CreateBotInput {
   name: string;
   soul: string;
-  mascotSeed?: string;
+  mascot?: MascotChoice;
   templateId?: string;
   schedules?: { name: string; cron: string; prompt: string; paused?: boolean }[];
   agentId?: string;
@@ -49,7 +50,7 @@ export async function fetchBot(profile: Profile, id: string): Promise<{ bot: Bot
   return call(profile, path(id));
 }
 
-export async function patchBot(profile: Profile, id: string, input: { name?: string; mascotSeed?: string; paused?: boolean; soul?: string }): Promise<BotSummary> {
+export async function patchBot(profile: Profile, id: string, input: { name?: string; mascot?: MascotChoice; paused?: boolean; soul?: string }): Promise<BotSummary> {
   return (await call<{ bot: BotSummary }>(profile, path(id), { method: "PATCH", body: input })).bot;
 }
 

@@ -69,7 +69,7 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
       <div className="flex flex-col px-3 pt-2 pb-3" data-testid="bots-first-card">
         <div className="flex items-end gap-2 pl-3" aria-hidden>
           {BOT_TEMPLATES.slice(0, 3).map((each) => (
-            <Mascot key={each.id} seed={each.seed} size={24} />
+            <Mascot key={each.id} mascot={each.mascot} size={32} />
           ))}
         </div>
         <div className="flex flex-col gap-3 border border-border bg-background p-3">
@@ -119,7 +119,7 @@ function BotRow({ bot, selected, onSelect, actions }: { bot: BotSummary; selecte
   return (
     <div className="relative" onContextMenu={menu.onContextMenu}>
       <RowButton size="auto" selected={selected} mark="start" onClick={onSelect} className="gap-2.5 py-1.5" aria-label={bot.name}>
-        <Mascot seed={bot.mascot.seed} state={state} size={24} badge />
+        <Mascot mascot={bot.mascot} state={state} size={32} badge />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className={cn("truncate text-[length:calc(13px*var(--chrome-scale))]", selected ? "text-foreground" : "text-foreground/90")}>{bot.name}</span>
           <span

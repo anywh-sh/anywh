@@ -115,8 +115,9 @@ export interface NativeDrawerGroup {
   sessions: NativeDrawerSession[];
 }
 
-/** A bot as the drawer's Bots section lists it. Its face arrives drawn: 144
- * characters, row by row, `#` body, `o` face, `.` empty (see `mascot.ts`). */
+/** A bot as the drawer's Bots section lists it. Its face arrives drawn: 256
+ * characters, row by row, `.` empty and `a`, `b`, … the first, second, …
+ * color of `mascotPalette` (see `mascotPixels` in `mascot.ts`). */
 export interface NativeDrawerBot {
   id: string;
   roomId: string;
@@ -125,9 +126,8 @@ export interface NativeDrawerBot {
   line: string;
   tone: "attention" | "fail" | "normal";
   mascot: string;
-  mascotColor: string;
-  faceColor: string;
-  /** The corner mark: `needsYou`, `failed`, `working`, `paused`, or none. */
+  mascotPalette: string[];
+  /** The corner mark: `needsYou`, `failed`, `working`, `paused`, `limit`, or none. */
   badge: string | null;
   selected: boolean;
 }

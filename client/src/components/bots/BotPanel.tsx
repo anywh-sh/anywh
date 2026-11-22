@@ -69,7 +69,7 @@ function BotHeader({ profile, bot }: { profile: Profile; bot: BotView }) {
   const line = botStatusLine(bot, dict, (at) => shortWhen(at, locale));
   return (
     <div className="flex shrink-0 items-center gap-3 border-b border-border px-3 py-3">
-      <Mascot seed={bot.mascot.seed} state={mascotStateOf(bot)} size={36} />
+      <Mascot mascot={bot.mascot} state={mascotStateOf(bot)} size={48} />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium text-foreground">{bot.name}</span>
         <span className={cn("truncate font-mono text-[11px]", line.tone === "attention" ? "text-primary" : line.tone === "fail" ? "text-destructive" : "text-text-faint")}>{line.text}</span>

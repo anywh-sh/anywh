@@ -61,7 +61,7 @@ describe("buildDrawerPayload", () => {
       profileCssColor: () => "#7aa2f7",
       resolve: (css) => css,
       now: NOW,
-      bots: [{ id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { seed: "Vigia" }, paused: false, firstRun: false, needsYou: 1, working: 0, busy: false, lastRunFailed: false, createdAt: 1 }],
+      bots: [{ id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { character: "bip", tone: "areia" }, paused: false, firstRun: false, needsYou: 1, working: 0, busy: false, lastRunFailed: false, createdAt: 1 }],
       section: "conversations",
     });
     expect(JSON.parse(JSON.stringify(payload))).toEqual(drawerFixture);
@@ -142,7 +142,7 @@ describe("buildTopBarPayload", () => {
 
 describe("buildDrawerPayload — bots", () => {
   const bot = (over: Partial<import("@/lib/bots/botTypes").BotSummary> = {}): import("@/lib/bots/botTypes").BotSummary => ({
-    id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { seed: "Vigia" }, paused: false, firstRun: false, needsYou: 0, working: 0, busy: false, lastRunFailed: false, createdAt: 1, ...over,
+    id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { character: "bip", tone: "areia" }, paused: false, firstRun: false, needsYou: 0, working: 0, busy: false, lastRunFailed: false, createdAt: 1, ...over,
   });
 
   it("leaves the bots out for a build that has none", () => {
@@ -150,7 +150,7 @@ describe("buildDrawerPayload — bots", () => {
   });
 
   it("sends each bot's face drawn, its line written and its corner mark, and which section is open", () => {
-    const payload = build({ bots: [bot({ needsYou: 1 }), bot({ id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { seed: "Faxina" }, paused: true })], section: "bots", selectedSessionId: "room-faxina" });
+    const payload = build({ bots: [bot({ needsYou: 1 }), bot({ id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { character: "capacete", tone: "pedra" }, paused: true })], section: "bots", selectedSessionId: "room-faxina" });
     const bots = payload.bots!;
     expect(bots.section).toBe("bots");
     expect(bots.waitingLabel).toBe("1 need you");
@@ -158,8 +158,10 @@ describe("buildDrawerPayload — bots", () => {
       { name: "Vigia", line: "1 needs you", tone: "attention", badge: "needsYou", selected: false },
       { name: "Faxina", line: "paused", tone: "normal", badge: "paused", selected: true },
     ]);
-    expect(bots.items[0].mascot).toHaveLength(144);
-    expect(bots.items[0].mascot).toMatch(/^[.#o]+$/);
+    expect(bots.items[0].mascot).toHaveLength(256);
+    const letters = new Set(bots.items[0].mascot.replace(/\./g, ""));
+    expect(letters.size).toBe(bots.items[0].mascotPalette.length);
+    expect(bots.items[1].mascotPalette).toContain("#77736e");
   });
 
   it("says nothing on the folded heading when no bot waits", () => {

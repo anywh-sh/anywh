@@ -132,8 +132,8 @@ struct SessionDrawerView: View {
       store.onSelectBot(bot)
     } label: {
       HStack(spacing: 12) {
-        MascotView(bitmap: bot.mascot, bodyColor: Color(hex: bot.mascotColor), faceColor: Color(hex: bot.faceColor))
-          .frame(width: 36, height: 36)
+        MascotView(pixels: bot.mascot, palette: bot.mascotPalette.map { Color(hex: $0) })
+          .frame(width: 32, height: 32)
           .overlay(alignment: .bottomTrailing) { badge(bot.badge, theme) }
         VStack(alignment: .leading, spacing: 2) {
           Text(bot.name)
@@ -163,6 +163,7 @@ struct SessionDrawerView: View {
     case "failed": Rectangle().fill(Color(hex: theme.destructive)).frame(width: 8, height: 8)
     case "working": Circle().fill(Color(hex: theme.faint)).frame(width: 8, height: 8)
     case "paused": Rectangle().fill(Color(hex: theme.muted)).frame(width: 8, height: 8)
+    case "limit": Image(systemName: "clock").font(.system(size: 8, weight: .semibold)).foregroundStyle(Color(hex: theme.destructive))
     default: EmptyView()
     }
   }
@@ -397,21 +398,23 @@ private extension View {
   }
 }
 
-/// A bot's pixel face, drawn from the bitmap the web side generated: twelve
-/// rows of twelve cells, square edges at every size.
+/// A bot's pixel face, drawn from the cells the web side computed: sixteen
+/// rows of sixteen, each `.` (empty) or a letter naming a palette color,
+/// square edges at every size.
 struct MascotView: View {
-  let bitmap: String
-  let bodyColor: Color
-  let faceColor: Color
+  let pixels: String
+  let palette: [Color]
 
   var body: some View {
     Canvas { context, size in
-      let cells = Array(bitmap)
-      guard cells.count == 144 else { return }
-      let cell = min(size.width, size.height) / 12
-      for (index, char) in cells.enumerated() where char != "." {
-        let rect = CGRect(x: CGFloat(index % 12) * cell, y: CGFloat(index / 12) * cell, width: cell, height: cell)
-        context.fill(Path(rect), with: .color(char == "o" ? faceColor : bodyColor))
+      let cells = Array(pixels.unicodeScalars)
+      guard cells.count == 256 else { return }
+      let cell = min(size.width, size.height) / 16
+      for (index, scalar) in cells.enumerated() where scalar != "." {
+        let colorIndex = Int(scalar.value) - 97
+        guard colorIndex >= 0, colorIndex < palette.count else { continue }
+        let rect = CGRect(x: CGFloat(index % 16) * cell, y: CGFloat(index / 16) * cell, width: cell, height: cell)
+        context.fill(Path(rect), with: .color(palette[colorIndex]))
       }
     }
   }

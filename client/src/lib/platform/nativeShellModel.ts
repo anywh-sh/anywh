@@ -5,7 +5,7 @@ import { groupSessionsByRecency, type MergedSession } from "@/lib/format/session
 import type { Profile } from "@/lib/profiles/profiles";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { botStatusLine, shortWhen } from "@/lib/bots/botStatusLine";
-import { MASCOT_FACE, mascotBitmap, mascotParts, mascotStateOf, mascotTone } from "@/lib/bots/mascot";
+import { mascotPixels, mascotStateOf } from "@/lib/bots/mascot";
 import type {
   NativeDrawerBots,
   NativeDrawerPayload,
@@ -78,7 +78,7 @@ export function buildDrawerBots(input: { bots: readonly BotSummary[]; section: "
     waitingLabel: waiting > 0 ? dict.bots.collapsedNeedsYou.replace("{count}", String(waiting)) : "",
     items: input.bots.map((bot) => {
       const state = mascotStateOf(bot);
-      const parts = mascotParts(bot.mascot.seed);
+      const face = mascotPixels(bot.mascot, state);
       const line = botStatusLine(bot, dict, (at) => shortWhen(at, input.locale, input.now));
       return {
         id: bot.id,
@@ -86,9 +86,8 @@ export function buildDrawerBots(input: { bots: readonly BotSummary[]; section: "
         name: bot.name,
         line: line.text,
         tone: line.tone,
-        mascot: mascotBitmap(parts, state),
-        mascotColor: mascotTone(parts, state),
-        faceColor: MASCOT_FACE,
+        mascot: face.pixels,
+        mascotPalette: face.palette,
         badge: state === "idle" || state === "setup" ? null : state,
         selected: input.selectedSessionId === bot.roomId,
       };

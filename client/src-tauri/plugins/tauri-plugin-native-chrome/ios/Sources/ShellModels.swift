@@ -135,8 +135,9 @@ struct DrawerGroup: Decodable, Identifiable {
   let sessions: [DrawerSession]
 }
 
-/// A bot of the drawer's Bots section. Its face arrives drawn: 144
-/// characters, row by row, `#` body, `o` face, `.` empty.
+/// A bot of the drawer's Bots section. Its face arrives drawn: 256
+/// characters, row by row, `.` empty and `a`, `b`, ... the first, second, ...
+/// color of `mascotPalette`.
 struct DrawerBot: Decodable, Identifiable {
   let id: String
   let roomId: String
@@ -144,8 +145,7 @@ struct DrawerBot: Decodable, Identifiable {
   let line: String
   let tone: String
   let mascot: String
-  let mascotColor: String
-  let faceColor: String
+  let mascotPalette: [String]
   let badge: String?
   let selected: Bool
 }

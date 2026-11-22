@@ -207,7 +207,8 @@ pub struct DrawerGroup {
 }
 
 /// A bot of the drawer's Bots section, drawn and written by the web side: its
-/// face is a 144-character bitmap, row by row (`#` body, `o` face, `.` empty).
+/// face is 256 characters, row by row, `.` empty and `a`, `b`, ... the first,
+/// second, ... color of `mascot_palette`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DrawerBot {
@@ -217,8 +218,7 @@ pub struct DrawerBot {
   pub line: String,
   pub tone: String,
   pub mascot: String,
-  pub mascot_color: String,
-  pub face_color: String,
+  pub mascot_palette: Vec<String>,
   pub badge: Option<String>,
   pub selected: bool,
 }

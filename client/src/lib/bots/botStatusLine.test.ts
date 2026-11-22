@@ -4,7 +4,7 @@ import { botStatusLine } from "@/lib/bots/botStatusLine";
 import type { BotSummary } from "@/lib/bots/botTypes";
 
 const bot = (over: Partial<BotSummary> = {}): BotSummary => ({
-  id: "b", roomId: "r", name: "Vigia", mascot: { seed: "Vigia" }, paused: false, firstRun: false, needsYou: 0, working: 0, busy: false, lastRunFailed: false, createdAt: 1, ...over,
+  id: "b", roomId: "r", name: "Vigia", mascot: { character: "bip", tone: "areia" }, paused: false, firstRun: false, needsYou: 0, working: 0, busy: false, lastRunFailed: false, createdAt: 1, ...over,
 });
 
 describe("botStatusLine", () => {

@@ -72,7 +72,7 @@ export function BotsHeading({ open, profileId, onToggle, onAdd }: { open: boolea
         {waiting.length > 0 && (
           <span className="flex items-center gap-1" title={dict.bots.collapsedNeedsYou.replace("{count}", String(waiting.length))}>
             {waiting.slice(0, 4).map((bot) => (
-              <Mascot key={bot.id} seed={bot.mascot.seed} state={mascotStateOf(bot)} size={12} />
+              <Mascot key={bot.id} mascot={bot.mascot} state={mascotStateOf(bot)} size={16} />
             ))}
             <span className="size-1.5 rounded-full bg-primary" aria-hidden />
           </span>

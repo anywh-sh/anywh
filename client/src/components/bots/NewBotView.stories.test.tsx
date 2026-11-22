@@ -61,16 +61,13 @@ describe("New bot tab stories", () => {
     expect((screen.getAllByRole("textbox").find((box) => box.tagName === "TEXTAREA") as HTMLTextAreaElement).value).toContain("watch my deploys");
   });
 
-  it("a drawn face stays as it is while the name is typed, and the template's schedule can start on", async () => {
+  it("a template's face stays as it is while the name is typed, and its schedule can start on", async () => {
     const { container } = renderStory(Templates);
     await userEvent.click(await screen.findByRole("button", { name: copy.create.useTemplate }));
-    const face = () => container.querySelector('svg[width="96"]')?.innerHTML;
-    const before = face();
-    await userEvent.click(screen.getByRole("button", { name: copy.create.reroll }));
-    const drawn = face();
-    expect(drawn).not.toBe(before);
+    const face = () => container.querySelector("[data-mascot]")?.getAttribute("data-mascot");
+    expect(face()).toBe("bip:areia");
     await userEvent.type(screen.getByDisplayValue(copy.templates["ci-check"].name), " two");
-    expect(face()).toBe(drawn);
+    expect(face()).toBe("bip:areia");
     const schedule = screen.getByRole("switch", { name: copy.templates["ci-check"].scheduleName });
     expect(schedule).not.toBeChecked();
     expect(screen.getByText(copy.create.schedulesOff)).toBeInTheDocument();

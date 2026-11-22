@@ -1433,7 +1433,6 @@ export const ptBr: Dictionary = {
       step2: "Quem é o seu bot?",
       name: "Nome",
       mascot: "Mascote",
-      reroll: "Sortear outro",
       soul: "Quem é e o que faz",
       soulHint: "Depois da primeira tarefa o bot reescreve isto com o que aprendeu. Você revisa nas configurações.",
       agent: "Agente",

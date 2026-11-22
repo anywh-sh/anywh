@@ -2000,7 +2000,6 @@ export interface Dictionary {
       step2: string;
       name: string;
       mascot: string;
-      reroll: string;
       soul: string;
       soulHint: string;
       agent: string;

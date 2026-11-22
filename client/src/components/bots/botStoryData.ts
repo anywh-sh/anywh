@@ -12,7 +12,7 @@ const base: BotSummary = {
   id: "vigia",
   roomId: "room-vigia",
   name: "Vigia",
-  mascot: { seed: "Vigia" },
+  mascot: { character: "bip", tone: "areia" },
   paused: false,
   firstRun: false,
   needsYou: 0,
@@ -24,11 +24,11 @@ const base: BotSummary = {
 
 export const storyBots: BotSummary[] = [
   { ...base, needsYou: 1, working: 2 },
-  { ...base, id: "revisor", roomId: "room-revisor", name: "Revisor", mascot: { seed: "Revisor" }, busy: true, working: 1 },
-  { ...base, id: "standup", roomId: "room-standup", name: "Standup", mascot: { seed: "Standup" }, nextRun: { name: "Daily summary", at: NOW + 22 * HOUR } },
-  { ...base, id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { seed: "Faxina" }, paused: true },
-  { ...base, id: "docs", roomId: "room-docs", name: "Docs", mascot: { seed: "Docs" }, lastRunFailed: true },
-  { ...base, id: "triagem", roomId: "room-triagem", name: "Triagem", mascot: { seed: "Triagem" }, firstRun: true },
+  { ...base, id: "revisor", roomId: "room-revisor", name: "Revisor", mascot: { character: "oculos", tone: "giz" }, busy: true, working: 1 },
+  { ...base, id: "standup", roomId: "room-standup", name: "Standup", mascot: { character: "fone", tone: "salvia" }, nextRun: { name: "Daily summary", at: NOW + 22 * HOUR } },
+  { ...base, id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { character: "capacete", tone: "pedra" }, paused: true },
+  { ...base, id: "docs", roomId: "room-docs", name: "Docs", mascot: { character: "tela", tone: "ardosia" }, lastRunFailed: true },
+  { ...base, id: "triagem", roomId: "room-triagem", name: "Triagem", mascot: { character: "visor", tone: "rosa" }, firstRun: true },
 ];
 
 export const storyBotView: BotView = {

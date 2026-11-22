@@ -75,9 +75,16 @@
         "name": "Vigia",
         "line": "1 needs you",
         "tone": "attention",
-        "mascot": "....####.........##.......########....########....ooo##ooo....ooo##ooo....########....########....###oo###..#####oo#############################",
-        "mascotColor": "#d6bd95",
-        "faceColor": "#11100e",
+        "mascot": ".......................aa.............aeea.............aa..............aa..........aaaaccaaaa.....accccbbcccca....acbbbbbbbbda....acbfgbbfgbda....acbffbbffbda....acbbbbbbbbda....acbbbffbbbda....acbbbffbbbda....acbbbddbbbda.....acddaacdda.......aaa..aaa....",
+        "mascotPalette": [
+          "#4e4639",
+          "#d9c19a",
+          "#e5d5ba",
+          "#ae9a7b",
+          "#ffffff",
+          "#1d1b19",
+          "#f9f7f6"
+        ],
         "badge": "needsYou",
         "selected": false
       }

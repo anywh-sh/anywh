@@ -1433,7 +1433,6 @@ export const en: Dictionary = {
       step2: "Who is your bot?",
       name: "Name",
       mascot: "Mascot",
-      reroll: "Draw another",
       soul: "Who it is and what it does",
       soulHint: "After its first task the bot rewrites this with what it learned. You can review it in settings.",
       agent: "Agent",

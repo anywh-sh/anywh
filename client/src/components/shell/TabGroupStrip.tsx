@@ -423,5 +423,5 @@ function BotTabFace({ roomId, botId }: { roomId?: string; botId?: string }) {
   const byId = useBotById(botId ?? "");
   const bot = roomId !== undefined ? byRoom : byId;
   if (!bot) return null;
-  return <Mascot seed={bot.mascot.seed} state={mascotStateOf(bot)} size={14} />;
+  return <Mascot mascot={bot.mascot} state={mascotStateOf(bot)} size={16} />;
 }

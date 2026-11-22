@@ -94,7 +94,7 @@ export function BotSettingsView({ profile, botId, onDeleted, onRenamed, initial 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="bot-settings-view">
       <header className="flex shrink-0 items-center gap-4 border-b border-border px-8 py-6">
-        <Mascot seed={bot.mascot.seed} state={mascotStateOf(bot)} size={48} />
+        <Mascot mascot={bot.mascot} state={mascotStateOf(bot)} size={48} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <h1 className="truncate text-xl font-semibold text-foreground">{bot.name}</h1>
           <span className="truncate font-mono text-[11px] text-text-faint">{copy.subtitle.replace("{date}", new Date(bot.createdAt).toLocaleDateString())}</span>

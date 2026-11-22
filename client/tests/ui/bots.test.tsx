@@ -19,7 +19,7 @@ const vigia: BotSummary = {
   id: "vigia",
   roomId: "room-vigia",
   name: "Vigia",
-  mascot: { seed: "Vigia" },
+  mascot: { character: "bip", tone: "areia" },
   paused: false,
   firstRun: false,
   needsYou: 1,

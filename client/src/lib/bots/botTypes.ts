@@ -2,6 +2,7 @@
 // `session/botManager.ts`). The shapes mirror the relay's by convention, not
 // by import — same as the rest of `lib/relay`.
 import type { RoomAgentState } from "@/lib/relay/roomClient";
+import type { MascotChoice } from "@/lib/bots/mascot";
 
 /** `needs_you` is derived by the relay: an open question on the task, or a
  * worker of it waiting for the person. */
@@ -51,7 +52,7 @@ export interface BotSummary {
   id: string;
   roomId: string;
   name: string;
-  mascot: { seed: string };
+  mascot: MascotChoice;
   paused: boolean;
   firstRun: boolean;
   templateId?: string;
