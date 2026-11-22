@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from "react";
 
 // Which bot dialog is open, app-wide: the sidebar, a bot's panel and the iOS
-// shell all open the same two dialogs, mounted once in `App`.
-export type BotDialog = { kind: "new"; profileId: string } | { kind: "settings"; profileId: string; botId: string } | null;
+// shell all open the same settings dialog, mounted once in `App`. (A new bot
+// is a tab, not a dialog: see `newBotTab.ts`.)
+export type BotDialog = { kind: "settings"; profileId: string; botId: string } | null;
 
 let current: BotDialog = null;
 const listeners = new Set<() => void>();

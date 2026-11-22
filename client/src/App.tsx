@@ -45,6 +45,7 @@ import { useSessionNames } from "@/hooks/relay/useSessionNames";
 import { useSessionListBootstrap } from "@/hooks/tabs/useSessionListBootstrap";
 import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
 import { useBotActions } from "@/hooks/useBotActions";
+import { isNewBotTab } from "@/lib/bots/newBotTab";
 import { useBots } from "@/lib/bots/botsStore";
 import { loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
@@ -318,7 +319,8 @@ function AppShell() {
   // No active tab means no conversation is trying to connect at all — showing
   // "Reconnecting…" on the idle screen would be reporting a disconnect that
   // doesn't exist, since `false` here used to mean "no tab" as much as "really down".
-  const activeConnected = activeTabId ? (connectedByTab[activeTabId] ?? false) : true;
+  // The new-bot tab has no connection of its own to report: it reads as no tab.
+  const activeConnected = activeTabId && !isNewBotTab(activeTabId) ? (connectedByTab[activeTabId] ?? false) : true;
 
   // Clears the "turn complete" badge of the tab that's visible now.
   useEffect(() => {
@@ -559,7 +561,7 @@ function AppShell() {
     onToggleAllProfiles: toggleAllProfiles,
     onClearProfileFilter: clearProfileFilter,
     onOpenSearch: openSearch,
-    newSessionActive: activeTab?.isNew === true && activeTab.title === null,
+    newSessionActive: activeTab?.isNew === true && activeTab.title === null && !isNewBotTab(activeTab.id),
     sessions,
     sessionsLoading,
     sessionsError,

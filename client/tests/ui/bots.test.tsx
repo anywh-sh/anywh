@@ -88,11 +88,14 @@ describe("bots in the sidebar", () => {
     });
   });
 
-  it("the + of the Bots heading opens the new bot dialog", async () => {
+  it("the + of the Bots heading opens the new bot as a tab, and opening it again focuses the same tab", async () => {
     const user = userEvent.setup();
     renderApp();
     await watchSocket();
     await user.click((await screen.findAllByRole("button", { name: en.bots.newBot }))[0]);
-    expect(await screen.findByTestId("new-bot-dialog")).toBeInTheDocument();
+    expect(await screen.findByTestId("new-bot-view")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: new RegExp(en.bots.create.title) })).toBeInTheDocument();
+    await user.click((await screen.findAllByRole("button", { name: en.bots.newBot }))[0]);
+    expect(screen.getAllByTestId("new-bot-view")).toHaveLength(1);
   });
 });

@@ -1402,6 +1402,9 @@ export const en: Dictionary = {
       canceled: "You canceled task #{n}",
     },
     create: {
+      stepOf: "New bot · {step} of 2",
+      templatesBack: "Templates",
+      inSidebar: "In the sidebar",
       title: "New bot",
       step1: "What should it do?",
       step1Body: "A bot keeps an eye on something, does the heavy work with agents and only calls you when it needs you.",

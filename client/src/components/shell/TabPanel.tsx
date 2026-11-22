@@ -1,4 +1,7 @@
 import { memo, useMemo, type ReactNode } from "react";
+import { NewBotView } from "@/components/bots/NewBotView";
+import { isNewBotTab } from "@/lib/bots/newBotTab";
+import type { BotSummary } from "@/lib/bots/botTypes";
 import { createPortal } from "react-dom";
 import { ChatPanel, type BackgroundJobActions, type TurnProgress } from "@/components/chat/ChatPanel";
 import { RoomCardActionsContext } from "@/components/chat/roomCardActions";
@@ -65,6 +68,8 @@ export interface TabPanelActions {
   /** Opens (or focuses) another session of the profile as a tab: a room's
    * agent, from its panel. */
   onOpenSession: (profile: Profile, sessionId: string, title: string | null) => void;
+  /** The new-bot tab created its bot: `tab` becomes the bot's tab. */
+  onBotCreated: (tab: Tab, bot: BotSummary) => void;
 }
 
 interface TabChatProps {
@@ -269,6 +274,11 @@ export const TabPanel = memo(function TabPanel({
   // folder is the principal's, which the relay resolves from the room's id
   // (a room's id is its principal's session id), so the file tree and the
   // terminal work on it exactly as they do on a conversation.
+  // Creating a bot: the whole tab is the flow, with no conversation or dock.
+  if (isNewBotTab(tab.id)) {
+    return <NewBotView profile={profile} onCreated={(bot) => actions.onBotCreated(tab, bot)} />;
+  }
+
   if (tab.room) {
     // The room draws the dock itself: its panes need what only it has (the
     // agents, the handlers on them). The dock stays mounted while the tab is in

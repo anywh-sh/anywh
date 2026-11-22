@@ -1,11 +1,11 @@
 import { useMemo, useRef, type ReactNode } from "react";
 import { BotSettingsDialog } from "@/components/bots/BotSettingsDialog";
 import type { BotsSectionActions } from "@/components/bots/BotsSection";
-import { NewBotDialog } from "@/components/bots/NewBotDialog";
 import type { useTabs } from "@/hooks/tabs/useTabs";
 import { deleteBot, patchBot } from "@/lib/bots/botClient";
 import { openBotDialog, useBotDialog } from "@/lib/bots/botDialogs";
 import type { BotSummary } from "@/lib/bots/botTypes";
+import { newBotTabId } from "@/lib/bots/newBotTab";
 import { findProfile, type Profile } from "@/lib/profiles/profiles";
 
 interface UseBotActionsArgs {
@@ -17,8 +17,8 @@ interface UseBotActionsArgs {
 
 /**
  * What the bots do in the shell: opening a bot's conversation (a tab marked
- * as a bot, so its side panel is the task list), one of its agents, and the
- * two bot dialogs. The actions object keeps one identity for the app's life
+ * as a bot, so its side panel is the task list), one of its agents, the
+ * new-bot tab and the bot settings dialog. The actions object keeps one identity for the app's life
  * (the sidebar is memoized); the dialogs are mounted once, wherever `App`
  * puts `dialogs`.
  */
@@ -37,7 +37,10 @@ export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotA
         latest.current.tabsState.openTab(profile().id, agentId, title);
         latest.current.onNavigated();
       },
-      onNewBot: () => openBotDialog({ kind: "new", profileId: profile().id }),
+      onNewBot: () => {
+        latest.current.tabsState.openTab(profile().id, newBotTabId(profile().id), null, true);
+        latest.current.onNavigated();
+      },
       onBotSettings: (bot) => openBotDialog({ kind: "settings", profileId: profile().id, botId: bot.id }),
       onTogglePaused: (bot) => {
         patchBot(profile(), bot.id, { paused: !bot.paused }).catch((error: unknown) => console.error("[anywh] failed to pause the bot", error));
@@ -55,19 +58,6 @@ export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotA
   const dialogProfile = dialog ? findProfile(dialog.profileId) : undefined;
   const dialogs = (
     <>
-      {dialogProfile && (
-        <NewBotDialog
-          profile={dialogProfile}
-          open={dialog?.kind === "new"}
-          onOpenChange={(open) => {
-            if (!open) openBotDialog(null);
-          }}
-          onCreated={(bot) => {
-            tabsState.openTab(dialogProfile.id, bot.roomId, bot.name, false, false, true);
-            onNavigated();
-          }}
-        />
-      )}
       {dialogProfile && dialog?.kind === "settings" && (
         <BotSettingsDialog
           profile={dialogProfile}
