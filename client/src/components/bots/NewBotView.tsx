@@ -5,6 +5,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { RowButton } from "@/components/ui/row-button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Segmented } from "@/components/ui/segmented";
+import { TextButton } from "@/components/ui/text-button";
 import { Mascot } from "@/components/bots/Mascot";
 import { BotsRelayGate } from "@/components/bots/BotsRelayGate";
 import { useHostAgents, agentName } from "@/components/chat/AgentModelEffortButton";
@@ -114,10 +115,10 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
       <ScrollArea className="min-h-0 min-w-0 flex-1">
         <div className="flex max-w-[760px] flex-col gap-6 px-10 pt-10 pb-12">
           {step === 2 && (
-            <button type="button" onClick={() => setStep(1)} disabled={busy} className="-ml-1 flex w-fit cursor-pointer items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground">
+            <TextButton onClick={() => setStep(1)} disabled={busy} className="-ml-1 flex w-fit items-center gap-1 text-[13px]">
               <ChevronLeft className="size-3.5" />
               {copy.templatesBack}
-            </button>
+            </TextButton>
           )}
           <div className="flex flex-col gap-2">
             <span className="font-mono text-[11px] text-text-faint">{template && step === 2 ? `${stepLabel} · ${dict.bots.templates[template.id].name}` : stepLabel}</span>
