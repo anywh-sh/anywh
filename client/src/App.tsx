@@ -27,6 +27,7 @@ import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
 import { WINDOW_CONTROLS_INSET_CLASS, WindowControls } from "@/components/shell/WindowControls";
 import { useBackgroundActivity, type BackgroundActivityEntry, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
+import { RelayUpgradeBanners } from "@/components/shell/RelayUpgradeBanner";
 import { FirstLaunchBanner } from "@/components/shell/FirstLaunchBanner";
 import { UpdateModal } from "@/components/shell/UpdateModal";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
@@ -643,7 +644,12 @@ function AppShell() {
   // column, because the conversation and panels are what stop working — the
   // session list keeps working off its local cache. The live connection state
   // is in the footer, next to the version.
-  const notices = <RevokedProfileBanners />;
+  const notices = (
+    <>
+      <RevokedProfileBanners />
+      <RelayUpgradeBanners />
+    </>
+  );
 
   // The sidebar is hidden (collapsed on desktop) — the shell buttons then
   // float over the strip, and their measured width tells the strip how much
@@ -785,6 +791,7 @@ function AppShell() {
       // testing `ChoiceCard` clipping/leaving a gap under the composer on iOS).
       <div className="flex h-full w-screen flex-col overflow-hidden bg-background text-foreground">
         <RevokedProfileBanners />
+        <RelayUpgradeBanners />
         {profileSetupDialog}
         {newBotDialog}
         <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />

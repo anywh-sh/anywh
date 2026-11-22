@@ -1384,6 +1384,27 @@ export interface Dictionary {
        * confirmation. */
       lastProfile: string;
     };
+    /** The one update a relay from before self-update needs, offered as a
+     * button: the app checks nothing is running, updates it and waits for it
+     * to come back. */
+    relayUpgrade: {
+      eyebrow: string;
+      /** `{profile}` — the profile's label, rendered as its own element. */
+      body: string;
+      update: string;
+      checking: string;
+      waitingOne: string;
+      /** `{count}` — conversations with a reply still running. */
+      waitingMany: string;
+      updating: string;
+      restarting: string;
+      done: string;
+      /** Shown above the command to run on the relay's machine. */
+      failed: string;
+      /** `{error}` — the reason the update stopped. */
+      failedWithReason: string;
+      dismiss: string;
+    };
     /** The single, app-wide dialog a newer GitHub release triggers — opened
      * either from the footer's update indicator (only rendered once one is
      * available) or manually via the title bar menu's "Check for updates",
