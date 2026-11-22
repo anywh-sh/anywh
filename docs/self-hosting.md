@@ -116,10 +116,12 @@ A relay from before this existed cannot be asked to update itself, so the
 app shows a notice for it with an **Update** button. Pressing it checks that
 no conversation on that relay has a reply running, waits while one does, then
 runs the installer and the restart on the relay's machine, through the
-relay's own terminal (the in-app installer for a relay on this Linux machine).
-The relay comes back on the app's version and updates itself from then on.
-The app only runs this for a service that runs from a tree the installer laid
-out, never over a source checkout. If it cannot run the update from there (no
+relay's own terminal. The relay comes back on the app's version and updates
+itself from then on. Which service to update is found on that machine (the
+unit the terminal runs in, or the one listening on the relay's port), never
+guessed from the app's profile, and it is updated only if it runs from a tree
+the installer laid out, never over a source checkout. Files the release does
+not ship, such as `relay/.env`, are carried over to the new tree. If it cannot run the update from there (no
 tmux on that machine, say), the notice shows the one command to paste on the
 relay's machine instead.
 
