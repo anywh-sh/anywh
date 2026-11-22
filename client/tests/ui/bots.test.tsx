@@ -88,6 +88,29 @@ describe("bots in the sidebar", () => {
     });
   });
 
+  it("a bot's conversation never joins the conversation list, even when its tab gets a title", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    const watch = await watchSocket();
+    act(() => {
+      watch.emitMessage({ type: "session_list_snapshot", sessions: [{ id: "chat-1", title: "A conversation", lastActiveAt: Date.now() }] });
+      watch.emitMessage({ type: "bots_state", bots: [vigia] });
+    });
+    await user.click(await screen.findByRole("button", { name: "Vigia" }));
+    await waitFor(() => {
+      if (!relay.sockets.some((socket) => socket.url.includes("session=room-vigia") && socket.readyState === 1)) throw new Error("no bot socket yet");
+    });
+    // The conversation's socket, not the room channel's (`/rooms/<id>/watch`).
+    const botSocket = relay.sockets.find((socket) => socket.url.includes("session=room-vigia"))!;
+    act(() => {
+      botSocket.emitMessage({ type: "session_title", title: "CI check" });
+    });
+    // The title reaches the tab, the path that used to list it.
+    await waitFor(() => expect(screen.getByRole("tab", { name: /CI check/ })).toBeInTheDocument());
+    expect(screen.getByText("A conversation")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^CI check/ })).not.toBeInTheDocument();
+  });
+
   it("a bot's settings, from its row's menu, open as a tab titled with its name", async () => {
     const user = userEvent.setup();
     renderApp();
