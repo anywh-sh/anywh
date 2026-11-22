@@ -12,7 +12,7 @@ const base: BotSummary = {
   id: "vigia",
   roomId: "room-vigia",
   name: "Vigia",
-  mascot: { character: "bip", tone: "areia" },
+  mascot: { character: "bip", tone: "sand" },
   paused: false,
   firstRun: false,
   needsYou: 0,
@@ -24,14 +24,14 @@ const base: BotSummary = {
 
 export const storyBots: BotSummary[] = [
   { ...base, needsYou: 1, working: 2 },
-  { ...base, id: "revisor", roomId: "room-revisor", name: "Revisor", mascot: { character: "oculos", tone: "giz" }, busy: true, working: 1 },
-  { ...base, id: "standup", roomId: "room-standup", name: "Standup", mascot: { character: "fone", tone: "salvia" }, nextRun: { name: "Daily summary", at: NOW + 22 * HOUR } },
-  { ...base, id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { character: "capacete", tone: "pedra" }, paused: true },
-  { ...base, id: "docs", roomId: "room-docs", name: "Docs", mascot: { character: "tela", tone: "ardosia" }, lastRunFailed: true },
-  { ...base, id: "triagem", roomId: "room-triagem", name: "Triagem", mascot: { character: "visor", tone: "rosa" }, firstRun: true },
+  { ...base, id: "revisor", roomId: "room-revisor", name: "Revisor", mascot: { character: "specs", tone: "chalk" }, busy: true, working: 1 },
+  { ...base, id: "standup", roomId: "room-standup", name: "Standup", mascot: { character: "headset", tone: "sage" }, nextRun: { name: "Daily summary", at: NOW + 22 * HOUR } },
+  { ...base, id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { character: "helmet", tone: "stone" }, paused: true },
+  { ...base, id: "docs", roomId: "room-docs", name: "Docs", mascot: { character: "screen", tone: "slate" }, lastRunFailed: true },
+  { ...base, id: "triagem", roomId: "room-triagem", name: "Triagem", mascot: { character: "visor", tone: "rose" }, firstRun: true },
   // Waiting out its agent's usage limit (relative to the real clock, so the
   // story keeps showing it).
-  { ...base, id: "chip", roomId: "room-chip", name: "Chip", mascot: { character: "chip", tone: "salvia" }, limitedUntil: Date.now() + 58 * 60_000 },
+  { ...base, id: "chip", roomId: "room-chip", name: "Chip", mascot: { character: "chip", tone: "sage" }, limitedUntil: Date.now() + 58 * 60_000 },
 ];
 
 export const storyBotView: BotView = {

@@ -19,7 +19,7 @@ const vigia: BotSummary = {
   id: "vigia",
   roomId: "room-vigia",
   name: "Vigia",
-  mascot: { character: "bip", tone: "areia" },
+  mascot: { character: "bip", tone: "sand" },
   paused: false,
   firstRun: false,
   needsYou: 1,
@@ -200,7 +200,7 @@ describe("bots in the sidebar", () => {
     await user.click(screen.getByRole("button", { name: new RegExp(`^${en.bots.create.create}`) }));
 
     await waitFor(() => expect(created).toHaveLength(1));
-    expect(created[0]).toMatchObject({ name: en.bots.templates["pr-review"].name, mascot: { character: "oculos", tone: "giz" }, templateId: "pr-review" });
+    expect(created[0]).toMatchObject({ name: en.bots.templates["pr-review"].name, mascot: { character: "specs", tone: "chalk" }, templateId: "pr-review" });
     await waitFor(() => expect(screen.queryByTestId("bot-templates-view")).not.toBeInTheDocument());
     await waitFor(() => {
       const tabs = JSON.parse(localStorage.getItem("anywh:tabs") ?? "[]") as { id: string; bot?: boolean }[];

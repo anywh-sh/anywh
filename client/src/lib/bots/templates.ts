@@ -1,5 +1,5 @@
 import type { Dictionary } from "@/i18n";
-import { isMascotCharacter, isMascotTone, type MascotChoice } from "@/lib/bots/mascot";
+import { isMascotCharacter, isMascotTone, mascotChoiceOf, type MascotChoice } from "@/lib/bots/mascot";
 
 // The templates a new bot can start from. Their words (name, soul, the
 // schedule's name) are the person's language, from the dictionary; the
@@ -20,34 +20,34 @@ export interface BotTemplate {
 export const BOT_TEMPLATES: readonly BotTemplate[] = [
   {
     id: "ci-check",
-    mascot: { character: "bip", tone: "areia" },
+    mascot: { character: "bip", tone: "sand" },
     cron: "0 9-18 * * 1-5",
     prompt:
       "Check the latest CI runs of the main branch of the repositories you watch (gh run list --branch main). If the latest run failed, read its log, decide whether it is a flaky test or a real failure, create a task for it and hand the fix to an agent on a branch. If you do not know yet which repositories to watch, ask the person.",
   },
   {
     id: "pr-review",
-    mascot: { character: "oculos", tone: "giz" },
+    mascot: { character: "specs", tone: "chalk" },
     cron: "0 9-18 * * 1-5",
     prompt:
       "List the open pull requests where the person's review is requested (gh search prs --review-requested=@me --state=open). For each one you have not looked at yet, read the diff and the discussion, create a task and write a short draft review in it. Do not comment on GitHub.",
   },
   {
     id: "issue-triage",
-    mascot: { character: "visor", tone: "rosa" },
+    mascot: { character: "visor", tone: "rose" },
     cron: "0 9 * * 1-5",
     prompt: "Read the issues opened since your last triage in the repositories you watch. Suggest labels, point out duplicates and flag what is urgent. Change nothing on GitHub.",
   },
   {
     id: "daily-summary",
-    mascot: { character: "fone", tone: "salvia" },
+    mascot: { character: "headset", tone: "sage" },
     cron: "0 9 * * 1-5",
     prompt:
       "Summarize what changed since the previous weekday in the repositories you watch: pull requests merged and still open, new issues, the state of CI. Five lines at most, the most important first.",
   },
   {
     id: "backlog-cleanup",
-    mascot: { character: "capacete", tone: "pedra" },
+    mascot: { character: "helmet", tone: "stone" },
     cron: "0 9 1 * *",
     prompt: "List the open issues untouched for 60 days, likely duplicates and ones that look already fixed. Propose which to close in a task and change nothing until the person confirms.",
   },
@@ -62,6 +62,8 @@ export const BOT_TEMPLATES: readonly BotTemplate[] = [
 export function withPickedMascot<T extends { mascot: unknown; templateId?: string }>(bot: T): T & { mascot: MascotChoice } {
   const mascot = bot.mascot as { character?: unknown; tone?: unknown } | null;
   if (mascot && isMascotCharacter(mascot.character) && isMascotTone(mascot.tone)) return bot as T & { mascot: MascotChoice };
+  // A pick under an earlier id is still the person's pick.
+  if (mascot && typeof mascot.character === "string") return { ...bot, mascot: mascotChoiceOf(mascot) };
   const template = BOT_TEMPLATES.find((each) => each.id === bot.templateId);
-  return { ...bot, mascot: template?.mascot ?? { character: "bip", tone: "areia" } };
+  return { ...bot, mascot: template?.mascot ?? { character: "bip", tone: "sand" } };
 }

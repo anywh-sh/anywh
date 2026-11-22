@@ -29,7 +29,7 @@ describe("Mascot stories", () => {
 
   it("Tones names every face, and Sizes the sizes asked for", () => {
     render(<Tones />);
-    expect(screen.getByRole("img", { name: "salvia" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "sage" })).toBeInTheDocument();
     const { container } = render(<Sizes />);
     expect([...container.querySelectorAll("svg")].map((svg) => svg.getAttribute("width"))).toEqual(["16", "32", "48", "64", "96", "128"]);
   });

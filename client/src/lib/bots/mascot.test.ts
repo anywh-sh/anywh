@@ -10,7 +10,7 @@ describe("mascot", () => {
       expect(MASCOT_CHARACTERS[id].map).toHaveLength(MASCOT_GRID);
       for (const row of MASCOT_CHARACTERS[id].map) expect(row).toHaveLength(MASCOT_GRID);
     }
-    const figures = new Set(MASCOT_ORDER.map((id) => mascotPixels({ character: id, tone: "giz" }).pixels));
+    const figures = new Set(MASCOT_ORDER.map((id) => mascotPixels({ character: id, tone: "chalk" }).pixels));
     expect(figures.size).toBe(MASCOT_ORDER.length);
   });
 
@@ -23,16 +23,16 @@ describe("mascot", () => {
           }
         }
       }
-      expect(mascotLayers({ character: id, tone: "giz" }, "setup").map((layer) => layer.layer)).not.toContain("B");
+      expect(mascotLayers({ character: id, tone: "chalk" }, "setup").map((layer) => layer.layer)).not.toContain("B");
     }
   });
 
   it("the tone colors the body and its light and shade; the state changes the face, not the silhouette", () => {
-    const sand = mascotLayers({ character: "bip", tone: "areia" });
-    expect(sand.find((layer) => layer.layer === "B")?.color).toBe(MASCOT_TONES.areia);
-    expect(sand.find((layer) => layer.layer === "Bl")?.color).toBe(mixColor(MASCOT_TONES.areia, "#ffffff", 0.32));
-    const idle = mascotPixels({ character: "bip", tone: "areia" }, "idle").pixels;
-    const asking = mascotPixels({ character: "bip", tone: "areia" }, "needsYou").pixels;
+    const sand = mascotLayers({ character: "bip", tone: "sand" });
+    expect(sand.find((layer) => layer.layer === "B")?.color).toBe(MASCOT_TONES.sand);
+    expect(sand.find((layer) => layer.layer === "Bl")?.color).toBe(mixColor(MASCOT_TONES.sand, "#ffffff", 0.32));
+    const idle = mascotPixels({ character: "bip", tone: "sand" }, "idle").pixels;
+    const asking = mascotPixels({ character: "bip", tone: "sand" }, "needsYou").pixels;
     expect(asking).not.toBe(idle);
     expect(asking.replace(/[^.]/g, "#")).toBe(idle.replace(/[^.]/g, "#"));
   });
@@ -42,21 +42,21 @@ describe("mascot", () => {
   });
 
   it("the drawer's pixels name only colors of their palette", () => {
-    const { pixels, palette } = mascotPixels({ character: "tela", tone: "ardosia" }, "working");
+    const { pixels, palette } = mascotPixels({ character: "screen", tone: "slate" }, "working");
     expect(pixels).toHaveLength(MASCOT_GRID * MASCOT_GRID);
     for (const letter of new Set(pixels.replace(/\./g, ""))) expect(letter.charCodeAt(0) - 97).toBeLessThan(palette.length);
   });
 
   it("draws a mascot in an older relay's shape (a seed) as Bip instead of throwing", () => {
     const legacy = { seed: "Vigia" } as unknown as Parameters<typeof mascotPixels>[0];
-    expect(mascotPixels(legacy, "idle")).toEqual(mascotPixels({ character: "bip", tone: "areia" }, "idle"));
+    expect(mascotPixels(legacy, "idle")).toEqual(mascotPixels({ character: "bip", tone: "sand" }, "idle"));
   });
 
   it("reads whatever the relay sent as a mascot, falling back to Bip in its tone", () => {
-    expect(mascotChoiceOf({ character: "tela", tone: "rosa" })).toEqual({ character: "tela", tone: "rosa" });
-    expect(mascotChoiceOf({ character: "tela" })).toEqual({ character: "tela", tone: "ardosia" });
-    expect(mascotChoiceOf({ seed: "Vigia" })).toEqual({ character: "bip", tone: "areia" });
-    expect(mascotChoiceOf(undefined)).toEqual({ character: "bip", tone: "areia" });
+    expect(mascotChoiceOf({ character: "screen", tone: "rose" })).toEqual({ character: "screen", tone: "rose" });
+    expect(mascotChoiceOf({ character: "screen" })).toEqual({ character: "screen", tone: "slate" });
+    expect(mascotChoiceOf({ seed: "Vigia" })).toEqual({ character: "bip", tone: "sand" });
+    expect(mascotChoiceOf(undefined)).toEqual({ character: "bip", tone: "sand" });
   });
 
   it("derives the face from the bot's summary, what needs the person first", () => {

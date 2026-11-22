@@ -75,19 +75,19 @@ export interface BotSchedule {
 /** The pixel characters a bot can wear, each with the tone it comes in.
  * The drawings are the client's; the relay only keeps the choice. */
 export const BOT_CHARACTER_TONES = {
-  bip: "areia",
-  visor: "giz",
-  fone: "salvia",
-  topete: "pedra",
-  capacete: "rosa",
-  ciclope: "nuvem",
-  tela: "ardosia",
-  oculos: "oliva",
-  chip: "salvia",
-  helice: "giz",
+  bip: "sand",
+  visor: "chalk",
+  headset: "sage",
+  quiff: "stone",
+  helmet: "rose",
+  cyclops: "cloud",
+  screen: "slate",
+  specs: "olive",
+  chip: "sage",
+  propeller: "chalk",
 } as const;
 export type BotCharacter = keyof typeof BOT_CHARACTER_TONES;
-export const BOT_TONES = ["giz", "areia", "salvia", "oliva", "rosa", "nuvem", "ardosia", "pedra"] as const;
+export const BOT_TONES = ["chalk", "sand", "sage", "olive", "rose", "cloud", "slate", "stone"] as const;
 export type BotTone = (typeof BOT_TONES)[number];
 
 export interface BotMascot {
@@ -121,11 +121,36 @@ export function defaultMascot(name: string): BotMascot {
 }
 
 /** Bots saved before mascots were picked carry a generated face's seed
- * instead: they get a character from it, so the record still loads. */
+ * instead: they get a character from it, so the record still loads. Ids
+ * from before the English names are renamed. */
 export function upgradeLegacyMascot(value: unknown): unknown {
-  if (!isRecord(value) || !isRecord(value.mascot) || isBotMascot(value.mascot) || typeof value.mascot.seed !== "string") return value;
-  return { ...value, mascot: defaultMascot(value.mascot.seed) };
+  if (!isRecord(value) || !isRecord(value.mascot) || isBotMascot(value.mascot)) return value;
+  const { character, tone, seed } = value.mascot;
+  // The first ids were Portuguese words; the same picks under their English ids.
+  const renamed = { character: typeof character === "string" ? (LEGACY_MASCOT_IDS[character] ?? character) : character, tone: typeof tone === "string" ? (LEGACY_MASCOT_IDS[tone] ?? tone) : tone };
+  if (isBotMascot(renamed)) return { ...value, mascot: renamed };
+  if (typeof seed !== "string") return value;
+  return { ...value, mascot: defaultMascot(seed) };
 }
+
+/** Mascot ids as a relay of this branch first wrote them. */
+const LEGACY_MASCOT_IDS: Readonly<Record<string, string>> = {
+  fone: "headset",
+  topete: "quiff",
+  capacete: "helmet",
+  ciclope: "cyclops",
+  tela: "screen",
+  oculos: "specs",
+  helice: "propeller",
+  giz: "chalk",
+  areia: "sand",
+  salvia: "sage",
+  oliva: "olive",
+  rosa: "rose",
+  nuvem: "cloud",
+  ardosia: "slate",
+  pedra: "stone",
+};
 
 export interface BotRecord {
   id: string;

@@ -1408,8 +1408,8 @@ export const ptBr: Dictionary = {
       canceled: "Você cancelou a tarefa #{n}",
     },
     mascot: {
-      characters: { bip: "Bip", visor: "Visor", fone: "Fone", topete: "Topete", capacete: "Capacete", ciclope: "Ciclope", tela: "Tela", oculos: "Óculos", chip: "Chip", helice: "Hélice" },
-      tones: { giz: "giz", areia: "areia", salvia: "sálvia", oliva: "oliva", rosa: "rosa", nuvem: "nuvem", ardosia: "ardósia", pedra: "pedra" },
+      characters: { bip: "Bip", visor: "Visor", headset: "Fone", quiff: "Topete", helmet: "Capacete", cyclops: "Ciclope", screen: "Tela", specs: "Óculos", chip: "Chip", propeller: "Hélice" },
+      tones: { chalk: "giz", sand: "areia", sage: "sálvia", olive: "oliva", rose: "rosa", cloud: "nuvem", slate: "ardósia", stone: "pedra" },
       change: "trocar",
       pick: "Escolher o mascote",
       previous: "Personagem anterior",

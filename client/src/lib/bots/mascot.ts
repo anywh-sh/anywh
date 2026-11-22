@@ -6,9 +6,9 @@
 //
 // Pure: no DOM. `Mascot.tsx` draws the layers.
 
-export type MascotCharacter = "bip" | "visor" | "fone" | "topete" | "capacete" | "ciclope" | "tela" | "oculos" | "chip" | "helice";
+export type MascotCharacter = "bip" | "visor" | "headset" | "quiff" | "helmet" | "cyclops" | "screen" | "specs" | "chip" | "propeller";
 
-export type MascotTone = "giz" | "areia" | "salvia" | "oliva" | "rosa" | "nuvem" | "ardosia" | "pedra";
+export type MascotTone = "chalk" | "sand" | "sage" | "olive" | "rose" | "cloud" | "slate" | "stone";
 
 export type MascotState = "idle" | "working" | "needsYou" | "paused" | "setup" | "failed" | "limit";
 
@@ -33,20 +33,20 @@ interface Character {
   /** The one light pixel in each eye. */
   shine: [number, number][];
   mouth: [x: number, y: number, w: number, kind: "flat" | "smile" | "none"];
-  /** Eyes (and mouth) lit in the tone, lightened: Visor and Tela. */
+  /** Eyes (and mouth) lit in the tone, lightened: Visor and Screen. */
   glowEyes?: boolean;
   glowMouth?: boolean;
   reflection?: [number, number][];
   mark?: [number, number][];
-  /** Ciclope: one big eye with a white. */
+  /** Cyclops: one big eye with a white. */
   bigEye?: boolean;
-  /** Óculos: the frames over the eyes. */
+  /** Specs: the frames over the eyes. */
   glasses?: boolean;
 }
 
 export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
   bip: {
-    tone: "areia",
+    tone: "sand",
     map: ["................", ".......LL.......", "......LLLL......", ".......LL.......", ".......MM.......", "...BBBBBBBBBB...", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "...BBBBBBBBBB...", "....BBB..BBB...."],
     eyes: [
       [5, 8, 2, 2],
@@ -59,7 +59,7 @@ export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
     mouth: [7, 11, 2, "flat"],
   },
   visor: {
-    tone: "giz",
+    tone: "chalk",
     map: ["................", ".......BB.......", "....BBBBBBBB....", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "..MDDDDDDDDDDM..", "..MDDDDDDDDDDM..", "...DDDDDDDDDD...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "....BBBBBBBB....", ".....BB..BB....."],
     eyes: [
       [5, 7, 2, 1],
@@ -70,8 +70,8 @@ export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
     glowEyes: true,
     reflection: [[11, 6]],
   },
-  fone: {
-    tone: "salvia",
+  headset: {
+    tone: "sage",
     map: ["................", "................", "....MMMMMMMM....", "..MM........MM..", ".M..BBBBBBBB..M.", ".M.BBBBBBBBBB.M.", ".M.BBBBBBBBBB.M.", "DDDBBBBBBBBBBDDD", "DDDBBBBBBBBBBDDD", "DDDBBBBBBBBBBDDD", "DDDBBBBBBBBBBDDD", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "....BBBBBBBB....", ".....BB..BB....."],
     eyes: [
       [5, 7, 2, 2],
@@ -83,8 +83,8 @@ export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
     ],
     mouth: [6, 10, 4, "smile"],
   },
-  topete: {
-    tone: "pedra",
+  quiff: {
+    tone: "stone",
     map: [".........HHH....", "......HHHHH.....", "....BHHHHHHB....", "...BBBHHHHBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "....OOOOOOOO....", "..BBBBBBBBBBBB..", ".BBBBBBBBBBBBBB.", ".BBBBBDDDDBBBBB.", ".BBBBBDLDDBBBBB.", ".BBBBBBBBBBBBBB."],
     eyes: [
       [5, 5, 2, 2],
@@ -96,8 +96,8 @@ export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
     ],
     mouth: [7, 8, 2, "flat"],
   },
-  capacete: {
-    tone: "rosa",
+  helmet: {
+    tone: "rose",
     map: ["................", "......HHHH......", "....HHHHHHHH....", "...HHHHLLHHHH...", ".HHHHHHHHHHHHHH.", "...BBBBBBBBBB...", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "...BBBBBBBBBB...", "....BBB..BBB...."],
     eyes: [
       [5, 8, 2, 2],
@@ -109,16 +109,16 @@ export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
     ],
     mouth: [7, 11, 2, "flat"],
   },
-  ciclope: {
-    tone: "nuvem",
+  cyclops: {
+    tone: "cloud",
     map: ["................", "................", ".......MM.......", "....BBBBBBBB....", "...BBBBBBBBBB...", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "...BBBBBBBBBB...", "....BBBBBBBB....", ".....BB..BB.....", "................"],
     eyes: [[7, 7, 2, 2]],
     shine: [],
     mouth: [7, 11, 2, "flat"],
     bigEye: true,
   },
-  tela: {
-    tone: "ardosia",
+  screen: {
+    tone: "slate",
     map: ["................", "..BBBBBBBBBBBB..", ".BBBBBBBBBBBBBB.", ".BBDDDDDDDDDDBB.", ".BBDDDDDDDDDDBB.", ".BBDDDDDDDDDDBB.", ".BBDDDDDDDDDDBB.", ".BBDDDDDDDDDDBB.", ".BBDDDDDDDDDDBB.", ".BBDDDDDDDDDDBB.", ".BBBBBBBBBBBBLB.", "..BBBBBBBBBBBB..", "......MMMM......", ".....BBBBBB.....", "....BBBBBBBB....", "................"],
     eyes: [
       [6, 5, 1, 2],
@@ -134,8 +134,8 @@ export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
       [12, 5],
     ],
   },
-  oculos: {
-    tone: "oliva",
+  specs: {
+    tone: "olive",
     map: ["................", "................", "....HHHHHHHH....", "...HHHHHHHHHH...", "...HHHBBBBHHH...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "...BBBBBBBBBB...", "....BBBBBBBB....", ".....BB..BB....."],
     eyes: [
       [5, 8, 1, 1],
@@ -146,7 +146,7 @@ export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
     glasses: true,
   },
   chip: {
-    tone: "salvia",
+    tone: "sage",
     map: [".....M....M.....", ".....M....M.....", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "MMBBBBBBBBBBBBMM", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "MMBBBBBBBBBBBBMM", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", ".....M....M.....", ".....M....M....."],
     eyes: [
       [5, 6, 2, 2],
@@ -159,8 +159,8 @@ export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
     mouth: [7, 10, 2, "flat"],
     mark: [[4, 4]],
   },
-  helice: {
-    tone: "giz",
+  propeller: {
+    tone: "chalk",
     map: ["..MMMMMMMMMMMM..", ".......MM.......", ".......MM.......", ".....HHHHHH.....", "....HHHHHHHH....", "...HHHHHHHHHH...", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "..BBBBBBBBBBBB..", "...BBBBBBBBBB...", "....BBB..BBB...."],
     eyes: [
       [5, 8, 2, 2],
@@ -175,19 +175,19 @@ export const MASCOT_CHARACTERS: Record<MascotCharacter, Character> = {
 };
 
 /** The order the picker walks the characters in. */
-export const MASCOT_ORDER: readonly MascotCharacter[] = ["bip", "visor", "fone", "topete", "capacete", "ciclope", "tela", "oculos", "chip", "helice"];
+export const MASCOT_ORDER: readonly MascotCharacter[] = ["bip", "visor", "headset", "quiff", "helmet", "cyclops", "screen", "specs", "chip", "propeller"];
 
 /** Low-chroma tones, far from the status colors: orange is "needs you" only,
  * red is failed or limited, yellow is near a limit. */
 export const MASCOT_TONES: Record<MascotTone, string> = {
-  giz: "#e6e1d8",
-  areia: "#d9c19a",
-  salvia: "#a9bd9f",
-  oliva: "#bcb48a",
-  rosa: "#d9aab7",
-  nuvem: "#b7c4d4",
-  ardosia: "#98a3ad",
-  pedra: "#aaa49b",
+  chalk: "#e6e1d8",
+  sand: "#d9c19a",
+  sage: "#a9bd9f",
+  olive: "#bcb48a",
+  rose: "#d9aab7",
+  cloud: "#b7c4d4",
+  slate: "#98a3ad",
+  stone: "#aaa49b",
 };
 
 export const MASCOT_TONE_ORDER = Object.keys(MASCOT_TONES) as MascotTone[];
@@ -215,8 +215,34 @@ export function defaultChoice(character: MascotCharacter): MascotChoice {
  * something else still draws a face. */
 export function mascotChoiceOf(mascot: unknown): MascotChoice {
   const value = (typeof mascot === "object" && mascot !== null ? mascot : {}) as { character?: unknown; tone?: unknown };
-  const character = isMascotCharacter(value.character) ? value.character : "bip";
-  return { character, tone: isMascotTone(value.tone) ? value.tone : MASCOT_CHARACTERS[character].tone };
+  const rawCharacter = renamedId(value.character);
+  const rawTone = renamedId(value.tone);
+  const character = isMascotCharacter(rawCharacter) ? rawCharacter : "bip";
+  return { character, tone: isMascotTone(rawTone) ? rawTone : MASCOT_CHARACTERS[character].tone };
+}
+
+/** The first ids were Portuguese words (a relay still running that build
+ * sends them): read as their English ids. */
+const LEGACY_IDS: Readonly<Record<string, string>> = {
+  fone: "headset",
+  topete: "quiff",
+  capacete: "helmet",
+  ciclope: "cyclops",
+  tela: "screen",
+  oculos: "specs",
+  helice: "propeller",
+  giz: "chalk",
+  areia: "sand",
+  salvia: "sage",
+  oliva: "olive",
+  rosa: "rose",
+  nuvem: "cloud",
+  ardosia: "slate",
+  pedra: "stone",
+};
+
+function renamedId(value: unknown): unknown {
+  return typeof value === "string" ? (LEGACY_IDS[value] ?? value) : value;
 }
 
 const channels = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));

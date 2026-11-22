@@ -20,7 +20,7 @@ function withBot(
   try {
     const store = new BotStore(join(dir, "p-bots.json"));
     const bot: BotRecord = {
-      id: "b1", name: "CI", mascot: { character: "bip", tone: "areia" }, roomId: "room-b1", paused: false, firstRun, createdAt: 1, nextTaskN: 1, tasks: [],
+      id: "b1", name: "CI", mascot: { character: "bip", tone: "sand" }, roomId: "room-b1", paused: false, firstRun, createdAt: 1, nextTaskN: 1, tasks: [],
       schedules: [{ id: "s1", name: "CI check", cron: "0 * * * *", prompt: "Check the CI.", paused: extra.schedulePaused ?? true, createdAt: 1, runs: [] }],
     };
     store.put(bot);

@@ -17,7 +17,7 @@ describe("Bot templates stories", () => {
     for (const id of ["ci-check", "pr-review", "issue-triage", "daily-summary", "backlog-cleanup"] as const) {
       expect(screen.getByTestId(`bot-template-${id}`)).toHaveTextContent(en.bots.templates[id].name);
     }
-    expect(screen.getByTestId("bot-template-pr-review").querySelector("[data-mascot]")?.getAttribute("data-mascot")).toBe("oculos:giz");
+    expect(screen.getByTestId("bot-template-pr-review").querySelector("[data-mascot]")?.getAttribute("data-mascot")).toBe("specs:chalk");
     await userEvent.click(screen.getByTestId("bot-template-daily-summary"));
     expect(onPick).toHaveBeenLastCalledWith("daily-summary");
     await userEvent.click(screen.getByTestId("bot-template-scratch"));

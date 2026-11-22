@@ -67,7 +67,7 @@ describe("Bot panel stories", () => {
     render(<Settings />);
     const settings = screen.getByTestId("bot-settings");
     expect(within(settings).getByDisplayValue("Vigia")).toBeInTheDocument();
-    expect(within(settings).getByRole("button", { name: `${copy.mascot.characters.bip} · ${copy.mascot.tones.areia} · ${copy.mascot.change}` })).toBeInTheDocument();
+    expect(within(settings).getByRole("button", { name: `${copy.mascot.characters.bip} · ${copy.mascot.tones.sand} · ${copy.mascot.change}` })).toBeInTheDocument();
     for (const save of within(settings).getAllByRole("button", { name: copy.settings.save })) expect(save).toBeDisabled();
     expect(within(settings).getByRole("heading", { name: `${copy.settings.memory} 3` })).toBeInTheDocument();
     expect(within(settings).getByText(copy.settings.kinds.rule)).toBeInTheDocument();

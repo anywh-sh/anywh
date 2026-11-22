@@ -14,24 +14,24 @@ describe("MascotPicker stories", () => {
 
   it("walking the characters brings each one's own tone; a tone then changes only the color", async () => {
     render(<Panel />);
-    expect(current()).toBe("bip:areia");
+    expect(current()).toBe("bip:sand");
     await userEvent.click(screen.getByRole("button", { name: copy.next }));
-    expect(current()).toBe("visor:giz");
-    expect(screen.getByRole("radio", { name: copy.tones.giz })).toHaveAttribute("aria-checked", "true");
-    await userEvent.click(screen.getByRole("radio", { name: copy.tones.rosa }));
-    expect(current()).toBe("visor:rosa");
+    expect(current()).toBe("visor:chalk");
+    expect(screen.getByRole("radio", { name: copy.tones.chalk })).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(screen.getByRole("radio", { name: copy.tones.rose }));
+    expect(current()).toBe("visor:rose");
     await userEvent.click(screen.getByRole("button", { name: copy.previous }));
     await userEvent.click(screen.getByRole("button", { name: copy.previous }));
-    expect(current()).toBe("helice:giz");
+    expect(current()).toBe("propeller:chalk");
   });
 
   it("the faded faces at the sides pick their character too, and the face slides in from that side", async () => {
     const { container } = render(<Panel />);
     await userEvent.click(screen.getByRole("button", { name: copy.characters.visor }));
-    expect(current()).toBe("visor:giz");
+    expect(current()).toBe("visor:chalk");
     expect(container.querySelector("[data-carousel-dir]")?.getAttribute("data-carousel-dir")).toBe("next");
     await userEvent.click(screen.getByRole("button", { name: copy.characters.bip }));
-    expect(current()).toBe("bip:areia");
+    expect(current()).toBe("bip:sand");
     expect(container.querySelector("[data-carousel-dir]")?.getAttribute("data-carousel-dir")).toBe("prev");
   });
 
@@ -39,9 +39,9 @@ describe("MascotPicker stories", () => {
     render(<OtherTone />);
     const panel = screen.getByRole("radiogroup").parentElement!;
     fireEvent.keyDown(panel, { key: "ArrowRight" });
-    expect(current()).toBe("oculos:oliva");
+    expect(current()).toBe("specs:olive");
     fireEvent.keyDown(panel, { key: "ArrowLeft" });
-    expect(current()).toBe("tela:ardosia");
+    expect(current()).toBe("screen:slate");
   });
 
   it("opens from its trigger and closes on Escape", async () => {

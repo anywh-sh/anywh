@@ -118,13 +118,13 @@ test("a bot is created with its files and a kickoff turn, and is listed with the
 });
 
 test("a bot wears the character and tone picked for it, and only known ones", async () => {
-  const bad = await fetch(`${base}/bots`, { method: "POST", body: JSON.stringify({ name: "Rosto", soul: "I watch.", agentId: "claude", model: "haiku", cwd: host.dir, mascot: { character: "dragon", tone: "areia" } }) });
+  const bad = await fetch(`${base}/bots`, { method: "POST", body: JSON.stringify({ name: "Rosto", soul: "I watch.", agentId: "claude", model: "haiku", cwd: host.dir, mascot: { character: "dragon", tone: "sand" } }) });
   assert.equal(bad.status, 400);
-  const { id } = await createBot({ name: "Rosto", mascot: { character: "tela", tone: "pedra" } });
-  assert.deepEqual((await getBot(id)).bot.mascot, { character: "tela", tone: "pedra" });
-  const patched = await fetch(`${base}/bots/${id}`, { method: "PATCH", body: JSON.stringify({ mascot: { character: "chip", tone: "rosa" } }) });
+  const { id } = await createBot({ name: "Rosto", mascot: { character: "screen", tone: "stone" } });
+  assert.deepEqual((await getBot(id)).bot.mascot, { character: "screen", tone: "stone" });
+  const patched = await fetch(`${base}/bots/${id}`, { method: "PATCH", body: JSON.stringify({ mascot: { character: "chip", tone: "rose" } }) });
   assert.equal(patched.status, 200, await patched.clone().text());
-  assert.deepEqual((await getBot(id)).bot.mascot, { character: "chip", tone: "rosa" });
+  assert.deepEqual((await getBot(id)).bot.mascot, { character: "chip", tone: "rose" });
   const refused = await fetch(`${base}/bots/${id}`, { method: "PATCH", body: JSON.stringify({ mascot: { seed: "Rosto" } }) });
   assert.equal(refused.status, 400);
   assert.equal((await fetch(`${base}/bots/${id}`, { method: "DELETE" })).status, 200);

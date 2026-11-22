@@ -61,7 +61,7 @@ describe("buildDrawerPayload", () => {
       profileCssColor: () => "#7aa2f7",
       resolve: (css) => css,
       now: NOW,
-      bots: [{ id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { character: "bip", tone: "areia" }, paused: false, firstRun: false, needsYou: 1, working: 0, busy: false, lastRunFailed: false, createdAt: 1 }],
+      bots: [{ id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { character: "bip", tone: "sand" }, paused: false, firstRun: false, needsYou: 1, working: 0, busy: false, lastRunFailed: false, createdAt: 1 }],
       section: "conversations",
     });
     expect(JSON.parse(JSON.stringify(payload))).toEqual(drawerFixture);
@@ -142,7 +142,7 @@ describe("buildTopBarPayload", () => {
 
 describe("buildDrawerPayload — bots", () => {
   const bot = (over: Partial<import("@/lib/bots/botTypes").BotSummary> = {}): import("@/lib/bots/botTypes").BotSummary => ({
-    id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { character: "bip", tone: "areia" }, paused: false, firstRun: false, needsYou: 0, working: 0, busy: false, lastRunFailed: false, createdAt: 1, ...over,
+    id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { character: "bip", tone: "sand" }, paused: false, firstRun: false, needsYou: 0, working: 0, busy: false, lastRunFailed: false, createdAt: 1, ...over,
   });
 
   it("leaves the bots out for a build that has none", () => {
@@ -150,7 +150,7 @@ describe("buildDrawerPayload — bots", () => {
   });
 
   it("sends each bot's face drawn, its line written and its corner mark, and which section is open", () => {
-    const payload = build({ bots: [bot({ needsYou: 1 }), bot({ id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { character: "capacete", tone: "pedra" }, paused: true })], section: "bots", selectedSessionId: "room-faxina" });
+    const payload = build({ bots: [bot({ needsYou: 1 }), bot({ id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { character: "helmet", tone: "stone" }, paused: true })], section: "bots", selectedSessionId: "room-faxina" });
     const bots = payload.bots!;
     expect(bots.section).toBe("bots");
     expect(bots.waitingLabel).toBe("1 need you");

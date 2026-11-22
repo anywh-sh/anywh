@@ -30,11 +30,11 @@ test("runs keep the latest twenty", () => {
 });
 
 test("a stored record that does not validate never reaches the bot logic", () => {
-  const good: BotRecord = { id: "b", name: "Vigia", mascot: { character: "bip", tone: "areia" }, roomId: "r", paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [task()], schedules: [] };
+  const good: BotRecord = { id: "b", name: "Vigia", mascot: { character: "bip", tone: "sand" }, roomId: "r", paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [task()], schedules: [] };
   assert.equal(isBotRecord(good), true);
   assert.equal(isBotRecord({ ...good, tasks: [{ ...task(), status: "needs_you" }] }), false, "needs_you is derived, never stored");
   assert.equal(isBotRecord({ ...good, roomId: "" }), false);
-  assert.equal(isBotRecord({ ...good, mascot: { character: "dragon", tone: "areia" } }), false, "an unknown character");
+  assert.equal(isBotRecord({ ...good, mascot: { character: "dragon", tone: "sand" } }), false, "an unknown character");
   assert.equal(isBotRecord({ ...good, mascot: { character: "bip", tone: "orange" } }), false, "an unknown tone");
   assert.equal(isBotRecord({ ...good, schedules: [{ id: "s", name: "n", cron: "* * * * *", prompt: "p", paused: false, createdAt: 1, runs: [{ at: 1, outcome: "exploded" }] }] }), false);
 });
@@ -58,6 +58,11 @@ test("a record saved with a generated face's seed loads with a character instead
   assert.equal(isBotRecord(legacy), false);
   assert.equal(isBotRecord(upgraded), true);
   assert.deepEqual((upgraded as BotRecord).mascot, defaultMascot("Vigia"));
-  const current = { ...legacy, mascot: { character: "tela", tone: "pedra" } };
+  const current = { ...legacy, mascot: { character: "screen", tone: "stone" } };
   assert.equal(upgradeLegacyMascot(current), current, "a picked mascot is left alone");
+});
+
+test("a record saved under the earlier Portuguese mascot ids loads with the English ones", () => {
+  const legacy = { id: "b", name: "Vigia", mascot: { character: "capacete", tone: "ardosia" }, roomId: "r", paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [], schedules: [] };
+  assert.deepEqual((upgradeLegacyMascot(legacy) as BotRecord).mascot, { character: "helmet", tone: "slate" });
 });

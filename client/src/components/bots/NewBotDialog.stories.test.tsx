@@ -16,7 +16,7 @@ describe("New bot dialog stories", () => {
     render(<Blank />);
     const create = screen.getByRole("button", { name: new RegExp(`^${copy.create.create}`) });
     expect(create).toBeDisabled();
-    expect(face()).toBe("bip:areia");
+    expect(face()).toBe("bip:sand");
     await userEvent.type(screen.getByLabelText(copy.create.namePlaceholder), "Deploys");
     await userEvent.type(screen.getByPlaceholderText(copy.create.soulPlaceholder), "I watch the deploys.");
     expect(create).toBeEnabled();
@@ -27,7 +27,7 @@ describe("New bot dialog stories", () => {
     render(<FromTemplate />);
     expect(screen.getByDisplayValue(copy.templates["ci-check"].name)).toBeInTheDocument();
     expect((screen.getByPlaceholderText<HTMLTextAreaElement>(copy.create.soulPlaceholder)).value).toBe(copy.templates["ci-check"].soul);
-    expect(face()).toBe("bip:areia");
+    expect(face()).toBe("bip:sand");
     expect(screen.getByText(copy.create.readOnly)).toBeInTheDocument();
     const schedule = screen.getByRole("switch", { name: copy.templates["ci-check"].scheduleName });
     expect(screen.getByText(copy.create.scheduleOff.replace("{when}", copy.templates["ci-check"].when))).toBeInTheDocument();
@@ -37,10 +37,10 @@ describe("New bot dialog stories", () => {
 
   it("the mascot's words open the picker, and a pick changes the face", async () => {
     render(<FromTemplate />);
-    await userEvent.click(screen.getByRole("button", { name: `${copy.mascot.characters.bip} · ${copy.mascot.tones.areia} · ${copy.mascot.change}` }));
+    await userEvent.click(screen.getByRole("button", { name: `${copy.mascot.characters.bip} · ${copy.mascot.tones.sand} · ${copy.mascot.change}` }));
     expect(await screen.findByTestId("mascot-picker")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: copy.mascot.next }));
-    await userEvent.click(screen.getByRole("radio", { name: copy.mascot.tones.pedra }));
-    expect(face()).toBe("visor:pedra");
+    await userEvent.click(screen.getByRole("radio", { name: copy.mascot.tones.stone }));
+    expect(face()).toBe("visor:stone");
   });
 });

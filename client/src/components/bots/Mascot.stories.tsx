@@ -7,7 +7,7 @@ const STATES: MascotState[] = ["idle", "working", "needsYou", "paused", "setup",
 const meta = {
   title: "Bots/Mascot",
   component: Mascot,
-  args: { mascot: { character: "bip", tone: "areia" }, state: "idle", size: 64 },
+  args: { mascot: { character: "bip", tone: "sand" }, state: "idle", size: 64 },
 } satisfies Meta<typeof Mascot>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -24,10 +24,10 @@ export const Sheet: Story = {
           <span className="w-24 font-mono text-[11px] text-text-faint">{state}</span>
           {MASCOT_ORDER.map((character) => (
             <span key={character} className="flex items-end gap-2">
-              <Mascot mascot={{ character, tone: "giz" }} state={state} size={48} />
+              <Mascot mascot={{ character, tone: "chalk" }} state={state} size={48} />
             </span>
           ))}
-          <Mascot mascot={{ character: "bip", tone: "areia" }} state={state} size={32} badge backdrop="var(--background)" />
+          <Mascot mascot={{ character: "bip", tone: "sand" }} state={state} size={32} badge backdrop="var(--background)" />
         </div>
       ))}
     </div>
@@ -40,7 +40,7 @@ export const Tones: Story = {
     <div className="flex gap-4">
       {MASCOT_TONE_ORDER.map((tone) => (
         <div key={tone} className="flex flex-col items-center gap-1">
-          <Mascot mascot={{ character: "fone", tone }} size={48} title={tone} />
+          <Mascot mascot={{ character: "headset", tone }} size={48} title={tone} />
           <span className="font-mono text-[11px] text-text-faint">{tone}</span>
         </div>
       ))}
@@ -53,7 +53,7 @@ export const Sizes: Story = {
   render: () => (
     <div className="flex items-end gap-4">
       {[16, 32, 48, 64, 96, 128].map((size) => (
-        <Mascot key={size} mascot={{ character: "oculos", tone: "giz" }} size={size} />
+        <Mascot key={size} mascot={{ character: "specs", tone: "chalk" }} size={size} />
       ))}
     </div>
   ),

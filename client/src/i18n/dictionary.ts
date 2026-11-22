@@ -1973,8 +1973,8 @@ export interface Dictionary {
     };
     /** The mascot picker: the ten characters and eight tones. */
     mascot: {
-      characters: Record<"bip" | "visor" | "fone" | "topete" | "capacete" | "ciclope" | "tela" | "oculos" | "chip" | "helice", string>;
-      tones: Record<"giz" | "areia" | "salvia" | "oliva" | "rosa" | "nuvem" | "ardosia" | "pedra", string>;
+      characters: Record<"bip" | "visor" | "headset" | "quiff" | "helmet" | "cyclops" | "screen" | "specs" | "chip" | "propeller", string>;
+      tones: Record<"chalk" | "sand" | "sage" | "olive" | "rose" | "cloud" | "slate" | "stone", string>;
       /** Opens the picker, after `{character} · {tone}`. */
       change: string;
       /** The picker's own label (its trigger and dialog name). */

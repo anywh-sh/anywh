@@ -1408,8 +1408,8 @@ export const en: Dictionary = {
       canceled: "You canceled task #{n}",
     },
     mascot: {
-      characters: { bip: "Bip", visor: "Visor", fone: "Headset", topete: "Quiff", capacete: "Helmet", ciclope: "Cyclops", tela: "Screen", oculos: "Specs", chip: "Chip", helice: "Propeller" },
-      tones: { giz: "chalk", areia: "sand", salvia: "sage", oliva: "olive", rosa: "rose", nuvem: "cloud", ardosia: "slate", pedra: "stone" },
+      characters: { bip: "Bip", visor: "Visor", headset: "Headset", quiff: "Quiff", helmet: "Helmet", cyclops: "Cyclops", screen: "Screen", specs: "Specs", chip: "Chip", propeller: "Propeller" },
+      tones: { chalk: "chalk", sand: "sand", sage: "sage", olive: "olive", rose: "rose", cloud: "cloud", slate: "slate", stone: "stone" },
       change: "change",
       pick: "Pick the mascot",
       previous: "Previous character",

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { BotRecord } from "./bot.js";
 import { BotStore, botsPathFor } from "./botStore.js";
 
-const bot = (id: string): BotRecord => ({ id, name: id, mascot: { character: "bip", tone: "areia" }, roomId: `room-${id}`, paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [], schedules: [] });
+const bot = (id: string): BotRecord => ({ id, name: id, mascot: { character: "bip", tone: "sand" }, roomId: `room-${id}`, paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [], schedules: [] });
 
 test("the bots file sits beside the sessions file", () => {
   assert.equal(botsPathFor("/x/pessoal.json"), "/x/pessoal-bots.json");

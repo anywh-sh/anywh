@@ -26,7 +26,7 @@ function Controlled({ initial, popover }: { initial: MascotChoice; popover?: boo
 const meta = {
   title: "Bots/Mascot picker",
   component: Controlled,
-  args: { initial: { character: "bip", tone: "areia" } },
+  args: { initial: { character: "bip", tone: "sand" } },
 } satisfies Meta<typeof Controlled>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -35,7 +35,7 @@ type Story = StoryObj<typeof meta>;
 export const Panel: Story = {};
 
 /** A character in a tone other than its own. */
-export const OtherTone: Story = { args: { initial: { character: "tela", tone: "rosa" } } };
+export const OtherTone: Story = { args: { initial: { character: "screen", tone: "rose" } } };
 
 /** As the new bot dialog opens it, from the mascot's frame. */
 export const FromFrame: Story = { args: { popover: true } };
