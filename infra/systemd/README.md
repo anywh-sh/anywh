@@ -104,7 +104,10 @@ and replays what it missed from each agent's log.
   shell's `PATH`: `AGENT_BIN`/`EXTRA_PATH_DIRS` in the env files are how it
   finds the agent CLI and the tools agents run.
 - It is not `PartOf=`/`BindsTo=` the relay on purpose, and
-  `restart-profiles.sh` does not touch it. Restart it only when needed (an
+  `restart-profiles.sh` does not touch it. A host installed from a release
+  restarts itself onto a newer release installed over it (the relay's
+  self-update), once no agent has work in flight: no turn, no background
+  task and no job it left running. Otherwise, restart it only when needed (an
   upgrade that changed the relay↔host protocol: a relay that meets a host
   from another release is refused explicitly and logs both releases).
   Stopping it drains: turns in flight get `ANYWH_AGENT_HOST_DRAIN_GRACE_MS`

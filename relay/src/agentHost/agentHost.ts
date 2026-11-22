@@ -725,6 +725,32 @@ export class AgentHost {
     }
   }
 
+  /**
+   * Whether ending every agent's process right now (a restart onto a new
+   * release) would cut no work: no agent starting, none with a turn in
+   * flight, a message not yet picked up or background work of its own, and
+   * none with a job it left running (a dev server) that the shutdown would
+   * end. Idle agents are hibernated by the shutdown and resume transparently
+   * on their next message. Re-checks the synchronous part last, so a caller
+   * that closes right after an answer of `true` loses nothing in between.
+   */
+  async readyForRestart(): Promise<boolean> {
+    if (this.draining || this.closed) return false;
+    if (!this.allAgentsQuiet()) return false;
+    for (const agent of this.agents.values()) {
+      if (agent.lifecycle === "alive" && (await this.detachedJobs(agent)) > 0) return false;
+    }
+    return this.allAgentsQuiet();
+  }
+
+  private allAgentsQuiet(): boolean {
+    for (const agent of this.agents.values()) {
+      if (agent.lifecycle === "starting") return false;
+      if (agent.turnInFlight || agent.backgroundTasks > 0 || agent.messagesSinceInit > 0) return false;
+    }
+    return true;
+  }
+
   private async detachedJobs(agent: Agent): Promise<number> {
     const pid = agent.proc?.pid;
     if (pid === undefined || pid <= 0) return 0;

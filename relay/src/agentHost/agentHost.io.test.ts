@@ -357,6 +357,44 @@ test("an agent with a turn in flight or a background task still running is never
   }
 });
 
+// A turn's end settles a moment after its `result` (turnSettleMs).
+async function eventuallyReady(h: Harness, what: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!(await h.host.readyForRestart())) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for the host to be ready to restart (${what})`);
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
+test("the host is ready to restart onto a new release only while no agent has work in flight", async () => {
+  const h = await harness();
+  try {
+    assert.equal(await h.host.readyForRestart(), true, "an empty host");
+    const gate = h.file("gate");
+    const bgGate = h.file("bg-gate");
+    await h.client.request("spawn", { agentId: "busy", spec: spec(h), message: `[[gate:${gate}]]` });
+    const busy = h.watch("busy");
+    await waitFor(() => busy.some((event) => event.ev.type === "assistant"), 5000, "busy turn going");
+    assert.equal(await h.host.readyForRestart(), false, "a turn in flight");
+
+    writeFileSync(gate, "");
+    await waitFor(() => results(busy).length === 1, 5000, "busy turn over");
+    await eventuallyReady(h, "only idle agents");
+
+    await h.client.request("spawn", { agentId: "bg", spec: spec(h), message: `[[bg-task:${bgGate}]]` });
+    const bg = h.watch("bg");
+    await waitFor(() => results(bg).length === 1, 5000, "bg turn over");
+    assert.equal((await h.activity("bg")).backgroundTasks, 1);
+    assert.equal(await h.host.readyForRestart(), false, "a background task still running");
+
+    writeFileSync(bgGate, "");
+    await waitFor(() => (h.host.activity().find((agent) => agent.agentId === "bg")?.backgroundTasks ?? 1) === 0, 5000, "bg count");
+    await eventuallyReady(h, "idle again");
+  } finally {
+    await h.cleanup();
+  }
+});
+
 test("waiting for the person is its own state, survives hibernation, and ends with the next message", async () => {
   const h = await harness();
   try {
