@@ -52,7 +52,7 @@ import {
   workerInstructions,
 } from "./roomTools.js";
 import type { RoomWorktrees, WorktreeInfo } from "./roomWorktrees.js";
-import { BOT_TOOLS, parseDelegateTask } from "./botTools.js";
+import { BOT_ONLY_TOOL_NAMES, BOT_TOOLS, parseDelegateTask } from "./botTools.js";
 import { buildNotice } from "./roomContextIndex.js";
 import type { RoomContextStore } from "./roomContextStore.js";
 import type { PersistedChoice, SessionStore } from "./sessionStore.js";
@@ -362,7 +362,8 @@ export class RoomManager implements RoomToolHost {
     const room = this.store.getRoom(sessionId);
     if (!room) return fail("This session is not an agent of a room.");
     const bot = this.isBotPrincipal(sessionId);
-    if (bot && name !== "delegate" && name !== "message_agent" && name !== "stop_agent" && name !== "approve") {
+    // The bot's own tools go to its manager; the room's (delegate, ...) stay here.
+    if (bot && BOT_ONLY_TOOL_NAMES.has(name)) {
       if (name === "bot_status") return this.roomStatus(sessionId, room, this.bots!.status(room.roomId));
       return (await this.bots!.callTool(room.roomId, name, args)) ?? fail(`Unknown tool "${name}".`);
     }
