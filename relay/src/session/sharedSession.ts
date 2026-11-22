@@ -5,7 +5,7 @@ import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
-import type { AgentEvent, RoomCard, SyntheticTurnKind } from "../protocol/agent-event.js";
+import type { AgentEvent, RoomCard, SyntheticTurnKind, TurnFailureClass } from "../protocol/agent-event.js";
 import { withRoomCard } from "../protocol/roomCard.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
@@ -1590,14 +1590,14 @@ export class SharedSession implements SessionDriverHost {
    * silence, and allowed to look things up before answering `NO_REPLY`), or
    * a note (its creation, the person's answer to a task). `onSettled` says
    * how it ended. */
-  submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: { silenced: boolean; failed: boolean }) => void }): void {
+  submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: { silenced: boolean; failed: boolean; limited?: boolean }) => void }): void {
     this.clearSuggestion();
     const schedule = turn.kind === "bot_schedule";
     // Exactly once, however the turn ends: also when it is dropped from the
     // queue or fails before it starts (loading the history), which would
     // otherwise leave a schedule marked as running.
     let settled = false;
-    const settle = (outcome: { silenced: boolean; failed: boolean }): void => {
+    const settle = (outcome: { silenced: boolean; failed: boolean; limited?: boolean }): void => {
       if (settled) return;
       settled = true;
       turn.onSettled?.(outcome);
@@ -1609,7 +1609,9 @@ export class SharedSession implements SessionDriverHost {
             kind: turn.kind,
             label: turn.label,
             ...(schedule ? { silenceOffered: true, toolsAllowed: true } : {}),
-            onSettled: (silenced, failed) => settle({ silenced, failed: failed === true }),
+            // A usage limit is the agent's plan running out, not the bot
+            // failing: the bot waits for the reset instead.
+            onSettled: (silenced, failed, failureClass) => settle({ silenced, failed: failed === true, ...(failureClass === "usage-limit" ? { limited: true } : {}) }),
           });
         } catch (error) {
           console.error(`[relay] bot turn "${turn.label}" failed before it started:`, error);
@@ -1685,9 +1687,9 @@ export class SharedSession implements SessionDriverHost {
       silenceOffered?: boolean;
       /** With `silenceOffered`: tool calls do not end the hold (see `HeldTurn`). */
       toolsAllowed?: boolean;
-      /** Runs once the turn is over, with whether it was silenced and
-       * whether it failed. */
-      onSettled?: (silenced: boolean, failed?: boolean) => void;
+      /** Runs once the turn is over, with whether it was silenced, whether
+       * it failed, and how the agent read the failure when its def says. */
+      onSettled?: (silenced: boolean, failed?: boolean, failureClass?: TurnFailureClass) => void;
     },
     /** Follow a turn already running in the agent host instead of sending one. */
     follow = false,
@@ -1813,6 +1815,7 @@ export class SharedSession implements SessionDriverHost {
     // `lastAssistantText`) genuinely isn't known until `sendTurn` resolves.
     let turnStopped = false;
     let turnError: string | undefined;
+    let turnFailureClass: TurnFailureClass | undefined;
     let planChoiceText: string | undefined;
     this.turnGrants = this.options.hostAgent && grants ? grants : [];
     const roomNote = follow ? undefined : this.options.roomTurnNote?.();
@@ -1946,6 +1949,7 @@ export class SharedSession implements SessionDriverHost {
       release();
       const code = (error as { code?: unknown } | null)?.code;
       const failureClass = this.def.classifyFailure?.({ text: message, ...(typeof code === "number" ? { code } : {}) });
+      turnFailureClass = failureClass;
       this.broadcast({ type: "agent_event", event: failureClass ? { type: "error", message, failureClass } : { type: "error", message } });
       this.notify(turnFailedDraft(this.title));
     } finally {
@@ -1967,7 +1971,7 @@ export class SharedSession implements SessionDriverHost {
       else this.choiceMachine.flushDeferredApprovals(turnId);
       // Before the idle `turn_state` goes out, so a client that sees the turn
       // end already has the failure tray the turn's outcome decided.
-      synthetic?.onSettled?.(silenced, turnError !== undefined);
+      synthetic?.onSettled?.(silenced, turnError !== undefined, turnFailureClass);
       this.turnStartedAt = null;
       // A sign-in or sign-out landed during the turn: its daemon still holds
       // the old credentials.

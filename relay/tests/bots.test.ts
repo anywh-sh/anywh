@@ -47,6 +47,9 @@ interface BotView {
   name: string;
   needsYou: number;
   firstRun: boolean;
+  lastRunFailed: boolean;
+  limitedUntil?: number;
+  mascot: { character: string; tone: string };
   tasks: { n: number; title: string; status: string; question?: { question: string; options: string[] }; workers: { agentId: string; state: string }[]; notes: { text: string }[] }[];
   schedules: { id: string; name: string; paused: boolean; nextRunAt?: number; runs: { outcome: string }[] }[];
 }
@@ -125,6 +128,22 @@ test("a bot wears the character and tone picked for it, and only known ones", as
   const refused = await fetch(`${base}/bots/${id}`, { method: "PATCH", body: JSON.stringify({ mascot: { seed: "Rosto" } }) });
   assert.equal(refused.status, 400);
   assert.equal((await fetch(`${base}/bots/${id}`, { method: "DELETE" })).status, 200);
+});
+
+test("a scheduled run that hits the agent's usage limit is recorded as limited, and the bot waits before running again", async () => {
+  const { id } = await createBot({ name: "Limitado", schedules: [{ name: "Check", cron: "0 9 * * 1-5", prompt: "[[usage-limit]]" }] });
+  try {
+    const before = Date.now();
+    const scheduleId = (await getBot(id)).bot.schedules[0].id;
+    assert.equal((await fetch(`${base}/bots/${id}/schedules/${scheduleId}/run`, { method: "POST" })).status, 200);
+    await waitFor(async () => (await getBot(id)).bot.schedules[0].runs[0]?.outcome === "limited", 20_000, "a limited run");
+    const { bot } = await getBot(id);
+    assert.equal(bot.lastRunFailed, false, "a usage limit is not the bot failing");
+    const limitedUntil = bot.limitedUntil;
+    assert.ok(limitedUntil !== undefined && limitedUntil >= before + 59 * 60_000, "it waits (an hour, with no plan usage to read)");
+  } finally {
+    await fetch(`${base}/bots/${id}`, { method: "DELETE" });
+  }
 });
 
 test("the bot keeps a task list: create, ask, the person answers, delegate a worker to it, and its worker is archived once the task is done", async () => {

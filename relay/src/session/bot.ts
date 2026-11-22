@@ -47,8 +47,9 @@ export interface BotTask {
 }
 
 /** How one firing of a schedule ended. `missed`: the relay was down at the
- * time and it was too late to run it. */
-export type BotRunOutcome = "replied" | "silent" | "failed" | "missed";
+ * time and it was too late to run it. `limited`: the agent's plan ran out
+ * (a usage limit), which is neither a success nor the bot failing. */
+export type BotRunOutcome = "replied" | "silent" | "failed" | "missed" | "limited";
 
 export interface BotRun {
   at: number;
@@ -138,6 +139,9 @@ export interface BotRecord {
   paused: boolean;
   /** Until the bot writes its own soul (`set_soul`). */
   firstRun: boolean;
+  /** Its agent hit a usage limit: no schedule fires before this, and the
+   * runs it held fire once it passes. */
+  limitedUntil?: number;
   createdAt: number;
   /** The next task number. */
   nextTaskN: number;
@@ -161,7 +165,7 @@ export const BOT_SCHEDULE_PROMPT_MAX = 4000;
 export const BOT_RUNS_KEPT = 20;
 
 const STORED_STATUSES: ReadonlySet<string> = new Set(["planned", "working", "done", "canceled"]);
-const RUN_OUTCOMES: ReadonlySet<string> = new Set(["replied", "silent", "failed", "missed"]);
+const RUN_OUTCOMES: ReadonlySet<string> = new Set(["replied", "silent", "failed", "missed", "limited"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -231,6 +235,7 @@ export function isBotRecord(value: unknown): value is BotRecord {
     typeof value.roomId === "string" &&
     value.roomId !== "" &&
     (value.templateId === undefined || typeof value.templateId === "string") &&
+    (value.limitedUntil === undefined || isTimestamp(value.limitedUntil)) &&
     typeof value.paused === "boolean" &&
     typeof value.firstRun === "boolean" &&
     isTimestamp(value.createdAt) &&

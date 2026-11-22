@@ -43,6 +43,25 @@ export function windowIdentity(window: Pick<PlanWindow, "durationMins" | "limitI
   return `${window.durationMins}:${window.limitId ?? ""}`;
 }
 
+/** A window counts as spent from this share on: the agents refuse a turn a
+ * little before 100%, and a reading can lag the refusal. */
+const SPENT_PERCENT = 90;
+/** A reset further away than this is a misread, not a wait to plan around. */
+const MAX_RESET_AHEAD_MS = 31 * 24 * 60 * 60 * 1000;
+
+/** When the spent window that holds the agent longest resets: the latest
+ * `resetsAt` among the windows at or past 90% used, still ahead of `now`.
+ * `undefined` when no window is spent or none says when it resets. */
+export function spentWindowResetAt(windows: readonly PlanWindow[], now: number): number | undefined {
+  let latest: number | undefined;
+  for (const window of windows) {
+    if (window.usedPercent < SPENT_PERCENT || window.resetsAt === null) continue;
+    if (window.resetsAt <= now || window.resetsAt - now > MAX_RESET_AHEAD_MS) continue;
+    latest = Math.max(latest ?? 0, window.resetsAt);
+  }
+  return latest;
+}
+
 /** Ascending by duration, then by limit id (account-wide first). */
 export function sortWindows(windows: PlanWindow[]): PlanWindow[] {
   return [...windows].sort((a, b) => a.durationMins - b.durationMins || (a.limitId ?? "").localeCompare(b.limitId ?? ""));

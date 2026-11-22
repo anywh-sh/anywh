@@ -49,6 +49,7 @@ import { ContextTally } from "./session/roomContextUsage.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
 import { createPlanUsageService } from "./planUsage/service.js";
+import { spentWindowResetAt } from "./planUsage/windows.js";
 import { planUsageCapture } from "./planUsage/capture.js";
 import { PLAN_USAGE_WATCH_PATH, handlePlanUsageConnection, handlePlanUsageRoutes } from "./routes/planUsage.js";
 import { dispatchChatMessage } from "./ws/chat.js";
@@ -279,6 +280,11 @@ const botManager = new BotManager({
   sessions: sessionManager,
   runtimes: () => roomRuntimes,
   hostConnected: () => agentHost?.status === "connected",
+  // A bot whose agent hit a usage limit waits for that agent's spent window.
+  usageResetAt: (agentId) => {
+    const usage = planUsage.getSnapshot().runtimes.find((each) => each.runtime === agentId);
+    return usage ? spentWindowResetAt(usage.windows, Date.now()) : undefined;
+  },
   ...(pushDispatcher ? { notifyPerson: ({ roomId, draft, watched }) => pushDispatcher.notify({ ...draft, sessionId: roomId, ts: Date.now(), watched }) } : {}),
 });
 roomManager.setBots(botManager);

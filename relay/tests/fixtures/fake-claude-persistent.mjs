@@ -44,6 +44,7 @@
 //                        [[gate:<path>]] too, the calls wait for the gate;
 //                        with [[crash-after]], the process exits (code 3)
 //                        right after them
+//   [[usage-limit]]      end the turn in the CLI's usage-limit error
 //   [[look-then-silent]] say "Let me check.", run one command, then answer
 //                        NO_REPLY (a bot's scheduled run with nothing to say)
 //   [[ask:<base64url JSON {tool, input}>]] try that tool call, which needs
@@ -324,6 +325,11 @@ export async function runPersistent(args) {
       // The turn fails after its calls: the report was made, the turn not.
       if (text.includes("[[crash-after]]")) process.exit(3);
       finish(`room: ${last}`);
+      return;
+    }
+    if (text.includes("[[usage-limit]]")) {
+      // The plan is spent: the turn ends in the CLI's own usage-limit error.
+      finish(`Claude AI usage limit reached|${Math.floor(Date.now() / 1000) + 3600}`, { error: true });
       return;
     }
     if (text.includes("[[look-then-silent]]")) {

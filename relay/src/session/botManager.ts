@@ -62,10 +62,12 @@ const SCHEDULER_RETRY_MS = 30 * 1000;
  * reported. The session always reports it (a dropped or failed turn too), so
  * this is only a guard against a bug: it must not hold its schedule forever. */
 const RUN_STALE_MS = 60 * 60 * 1000;
+/** How long a bot waits after a usage limit whose reset nobody reported. */
+const UNKNOWN_RESET_HOLD_MS = 60 * 60 * 1000;
 
 /** The live session of a bot's room, as much of it as bots use. */
 export interface BotSession {
-  submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: { silenced: boolean; failed: boolean }) => void }): void;
+  submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: { silenced: boolean; failed: boolean; limited?: boolean }) => void }): void;
   isBusy(): boolean;
   isAnyoneLooking(): boolean;
 }
@@ -96,6 +98,9 @@ export interface BotManagerOptions {
   readonly timezone?: string;
   /** Replaceable timers, so a test steps time by hand. */
   readonly setTimer?: (fn: () => void, ms: number) => () => void;
+  /** When the agent's spent plan window resets, as its plan usage says;
+   * `undefined` when unknown (the bot then waits an hour). */
+  readonly usageResetAt?: (agentId: string) => number | undefined;
 }
 
 export interface CreateBotInput {
@@ -165,6 +170,8 @@ export interface BotSummary {
   nextRun?: { name: string; at: number };
   /** The latest schedule run failed. */
   lastRunFailed: boolean;
+  /** Its agent hit a usage limit: back at this time. */
+  limitedUntil?: number;
   createdAt: number;
 }
 
@@ -242,7 +249,7 @@ export class BotManager implements RoomBots {
       this.options.files.remove(id);
       return { ok: false, status: 400, error: room.error };
     }
-    this.options.sessions.getOrCreate(roomId).submitBotTurn(botKickoffText(), { kind: "bot_note", label: "created" });
+    this.options.sessions.getOrCreate(roomId).submitBotTurn(botKickoffText(), { kind: "bot_note", label: "created", onSettled: (outcome) => this.turnSettled(id, outcome) });
     this.arm();
     return { ok: true, value: this.summary(this.store.get(id)!) };
   }
@@ -344,7 +351,7 @@ export class BotManager implements RoomBots {
         return { ...rest, notes: withNote(each.notes, { text: `Answered: ${answer.trim()}`, at }), updatedAt: at };
       }),
     }));
-    this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botAnswerText(n, question, answer.trim()), { kind: "bot_note", label: `answer:${n}` });
+    this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botAnswerText(n, question, answer.trim()), { kind: "bot_note", label: `answer:${n}`, onSettled: (outcome) => this.turnSettled(bot.id, outcome) });
     return { ok: true, value: null };
   }
 
@@ -384,7 +391,7 @@ export class BotManager implements RoomBots {
       ),
     ).then((stopped) => {
       const notStopped = active.filter((_, i) => !stopped[i]);
-      this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botCancelText(n, { stopped: active.length - notStopped.length, notStopped }), { kind: "bot_note", label: `cancel:${n}` });
+      this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botCancelText(n, { stopped: active.length - notStopped.length, notStopped }), { kind: "bot_note", label: `cancel:${n}`, onSettled: (outcome) => this.turnSettled(bot.id, outcome) });
     });
     return { ok: true, value: null };
   }
@@ -681,15 +688,25 @@ export class BotManager implements RoomBots {
           soonest = Math.min(soonest ?? Infinity, schedule.nextRunAt);
           continue;
         }
-        if (decision === "run" && (bot.paused || this.isRunning(bot, schedule.id))) {
+        // Its agent's plan is spent: the run waits for the reset, held (its
+        // time not advanced), and is looked at again then.
+        if (bot.limitedUntil !== undefined && bot.limitedUntil > now) {
+          soonest = Math.min(soonest ?? Infinity, bot.limitedUntil);
+          continue;
+        }
+        // A run the limit held is owed once it passes, however late: one
+        // catch-up, never one per occurrence it covered.
+        const owed = decision === "missed" && bot.limitedUntil !== undefined && schedule.nextRunAt <= bot.limitedUntil;
+        const due = owed ? "run" : decision;
+        if (due === "run" && (bot.paused || this.isRunning(bot, schedule.id))) {
           // Nothing to do this time (a paused bot, or the last run still
           // going): the next occurrence is armed.
           this.advance(bot.id, schedule.id, now);
-        } else if (decision === "run" && !this.options.hostConnected()) {
+        } else if (due === "run" && !this.options.hostConnected()) {
           // Tried again shortly, while it is still within the grace.
           soonest = Math.min(soonest ?? Infinity, now + SCHEDULER_RETRY_MS);
           continue;
-        } else if (decision === "run") {
+        } else if (due === "run") {
           this.advance(bot.id, schedule.id, now);
           this.fire(this.store.get(bot.id)!, schedule);
         } else {
@@ -698,6 +715,18 @@ export class BotManager implements RoomBots {
         }
         const next = this.store.get(bot.id)?.schedules.find((each) => each.id === schedule.id)?.nextRunAt;
         if (next !== undefined) soonest = Math.min(soonest ?? Infinity, next);
+      }
+      // A limit is over once its time passes (the runs it held fired just
+      // above): cleared, so the bot reads as itself again. One still
+      // standing wakes the scheduler when it ends.
+      if (bot.limitedUntil !== undefined && bot.limitedUntil <= now) {
+        this.store.update(bot.id, (current) => {
+          const { limitedUntil: _over, ...rest } = current;
+          void _over;
+          return rest;
+        });
+      } else if (bot.limitedUntil !== undefined) {
+        soonest = Math.min(soonest ?? Infinity, bot.limitedUntil);
       }
     }
     if (soonest === undefined) return;
@@ -733,15 +762,40 @@ export class BotManager implements RoomBots {
     this.options.sessions.getOrCreate(bot.roomId).submitBotTurn(botScheduleText(schedule.name, schedule.prompt), {
       kind: "bot_schedule",
       label: schedule.name,
-      onSettled: ({ silenced, failed }) => {
+      onSettled: (outcome) => {
+        this.turnSettled(bot.id, outcome);
         // A run already taken as stale was recorded then, and a newer one
         // may hold the key by now.
         if (this.running.get(key) !== at) return;
         this.running.delete(key);
         if (!this.store.get(bot.id)?.schedules.some((each) => each.id === schedule.id)) return;
-        this.recordRun(bot.id, schedule.id, { at, outcome: failed ? "failed" : silenced ? "silent" : "replied" });
+        this.recordRun(bot.id, schedule.id, { at, outcome: outcome.limited ? "limited" : outcome.failed ? "failed" : outcome.silenced ? "silent" : "replied" });
       },
     });
+  }
+
+  /** How any turn of the bot's own ended: a usage limit holds its schedules
+ * until the agent's plan resets (when its plan usage says, else an hour); a
+ * turn that went through clears a limit that was still standing. */
+  private turnSettled(botId: string, outcome: { failed: boolean; limited?: boolean }): void {
+    const bot = this.store.get(botId);
+    if (!bot) return;
+    if (outcome.limited) {
+      const now = this.now();
+      const resetAt = this.options.usageResetAt?.(this.options.sessionStore.getAgentId(bot.roomId));
+      const until = resetAt !== undefined && resetAt > now ? resetAt : now + UNKNOWN_RESET_HOLD_MS;
+      this.store.update(botId, (current) => ({ ...current, limitedUntil: until }));
+      this.arm();
+      return;
+    }
+    if (!outcome.failed && bot.limitedUntil !== undefined && bot.limitedUntil > this.now()) {
+      this.store.update(botId, (current) => {
+        const { limitedUntil: _gone, ...rest } = current;
+        void _gone;
+        return rest;
+      });
+      this.arm();
+    }
   }
 
   /** Whether a run of the schedule is under way. One that started long ago
@@ -816,6 +870,7 @@ export class BotManager implements RoomBots {
       ...(latest ? { latestTask: { n: latest.task.n, title: latest.task.title, status: latest.status, updatedAt: latest.task.updatedAt } } : {}),
       ...(upcoming[0] ? { nextRun: { name: upcoming[0].name, at: upcoming[0].nextRunAt! } } : {}),
       lastRunFailed: lastRun?.outcome === "failed",
+      ...(bot.limitedUntil !== undefined && bot.limitedUntil > this.now() ? { limitedUntil: bot.limitedUntil } : {}),
       createdAt: bot.createdAt,
     };
   }
