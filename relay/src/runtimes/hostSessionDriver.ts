@@ -13,7 +13,7 @@
 // Rooms are the only sessions driven this way for now; ordinary sessions
 // still spawn their agent in the relay.
 import { defaultCwd } from "../host/paths.js";
-import { HostRequestError, START_OF_LOG, type AgentCursor, type FileCursorStore, type HostClient, type HostSubscription } from "../agentHost/hostClient.js";
+import { HostRequestError, HostUnavailableError, START_OF_LOG, type AgentCursor, type FileCursorStore, type HostClient, type HostSubscription } from "../agentHost/hostClient.js";
 import type { AgentActivity, EventMessage } from "../agentHost/protocol.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import type { ContextUsage } from "../session/sessionStore.js";
@@ -32,6 +32,12 @@ import type { ToolCallMemo } from "./streams/claudeToolMapping.js";
 import type { AgentSessionDriver, DriverTurnResult, SubtaskInfo, TurnHooks } from "./sessionDriver.js";
 import type { AgentRuntimeDef, JsonRpcDaemonPlan, RoomAgentSetup, TurnContext } from "./types.js";
 import { planUsageCapture, planUsageRuntimeOf, type PlanUsageCapture } from "../planUsage/index.js";
+
+/** How long a message waits for an agent host that is restarting onto a new
+ * release (its drain plus the service manager bringing it back), and how
+ * often it tries again meanwhile. */
+const HOST_RESTART_WAIT_MS = 120_000;
+const HOST_RESTART_RETRY_MS = 1000;
 
 export interface HostAgentBinding {
   /** `undefined` when this relay has no agent host to talk to. */
@@ -379,10 +385,33 @@ export class HostSessionDriver implements AgentSessionDriver {
     return `Codex could not start this agent (${message}). This room stays on Codex: nothing was switched to another agent.`;
   }
 
-  /** Writes the message to the agent, creating it in the host first if the
-   * host does not have it. */
-  /** Whether the host took the message (`false`: stopped before it left). */
+  /**
+   * Writes the message to the agent, creating it in the host first if the
+   * host does not have it. Whether the host took it (`false`: stopped before
+   * it left).
+   *
+   * A host restarting onto a new release refuses messages while it drains
+   * (`draining`), then is gone for a moment: a message that meets that waits
+   * for the new host and is delivered there instead of failing. Only once
+   * the host said it is draining — a host that is simply down still fails
+   * at once, as before.
+   */
   private async deliver(client: HostClient, prompt: string, spec: Record<string, unknown>): Promise<boolean> {
+    let restartSeenAt: number | null = null;
+    for (;;) {
+      try {
+        return await this.deliverOnce(client, prompt, spec);
+      } catch (error) {
+        const draining = error instanceof HostRequestError && error.code === "draining";
+        if (draining && restartSeenAt === null) restartSeenAt = Date.now();
+        const restarting = draining || (restartSeenAt !== null && error instanceof HostUnavailableError);
+        if (!restarting || Date.now() - (restartSeenAt ?? 0) > HOST_RESTART_WAIT_MS) throw error;
+        await new Promise((resolve) => setTimeout(resolve, HOST_RESTART_RETRY_MS));
+      }
+    }
+  }
+
+  private async deliverOnce(client: HostClient, prompt: string, spec: Record<string, unknown>): Promise<boolean> {
     // Stopped (or stopped being allowed to run) before the message left: it
     // is never sent. Asked again after every await, right before any request
     // that could start the agent.
