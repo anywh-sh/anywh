@@ -15,7 +15,7 @@ import { lacksFeature, useRelayFeatures } from "@/hooks/relay/useRelayFeatures";
 import { useDict } from "@/i18n";
 import { BotRequestError, createBot } from "@/lib/bots/botClient";
 import type { BotSummary } from "@/lib/bots/botTypes";
-import { getBots } from "@/lib/bots/botsStore";
+import { useBots } from "@/lib/bots/botsStore";
 import { onNewBotStart, takeNewBotStart } from "@/lib/bots/botTabs";
 import { rerollSeed } from "@/lib/bots/mascot";
 import { BOT_TEMPLATES, type BotTemplate } from "@/lib/bots/templates";
@@ -63,7 +63,10 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
   const copy = dict.bots.create;
   // A profile with no bot yet opens on a presentation; one that has bots goes
   // straight to the templates.
-  const [step, setStep] = useState<"intro" | 1 | 2>(() => (takeNewBotStart(tabProfile.id) !== "templates" && getBots(tabProfile.id).length === 0 ? "intro" : 1));
+  const [step, setStep] = useState<"intro" | 1 | 2>(() => (takeNewBotStart(tabProfile.id) === "templates" ? 1 : "intro"));
+  // The presentation is only for a profile with no bot: its list may arrive
+  // after the tab opened (a tab restored at launch), so it is read live.
+  const hasBots = useBots(tabProfile.id).length > 0;
   // Where the bot will live: the tab's profile unless the person picks another.
   const profiles = useProfiles();
   const [profileId, setProfileId] = useState(tabProfile.id);
@@ -156,7 +159,7 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
 
   const focusedWords = dict.bots.templates[focusedTemplate.id];
 
-  if (step === "intro") {
+  if (step === "intro" && !hasBots) {
     return (
       <Intro
         onTemplates={(picked) => {
@@ -171,7 +174,9 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
     );
   }
 
-  const stepLabel = copy.stepOf.replace("{step}", String(step));
+  // Past the presentation (or skipping it because the profile has bots).
+  const view: 1 | 2 = step === 2 ? 2 : 1;
+  const stepLabel = copy.stepOf.replace("{step}", String(view));
 
   return (
     // Narrow, the preview column folds to a bar under the page holding just
@@ -179,19 +184,19 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
     <div className="flex h-full min-h-0 flex-col lg:flex-row" data-testid="new-bot-view">
       <ScrollArea className="min-h-0 min-w-0 flex-1">
         <div className="flex max-w-[760px] flex-col gap-6 px-10 pt-10 pb-12">
-          {step === 2 && (
+          {view === 2 && (
             <TextButton onClick={() => setStep(1)} disabled={busy} className="-ml-1 flex w-fit items-center gap-1 text-[13px]">
               <ChevronLeft className="size-3.5" />
               {copy.templatesBack}
             </TextButton>
           )}
           <div className="flex flex-col gap-2">
-            <span className="font-mono text-[11px] text-text-faint">{template && step === 2 ? `${stepLabel} · ${dict.bots.templates[template.id].name}` : stepLabel}</span>
-            <h1 className="text-[26px] leading-tight font-semibold text-foreground">{step === 1 ? copy.step1 : copy.step2}</h1>
-            {step === 1 && <p className="max-w-[560px] text-sm leading-relaxed text-muted-foreground">{copy.step1Body}</p>}
+            <span className="font-mono text-[11px] text-text-faint">{template && view === 2 ? `${stepLabel} · ${dict.bots.templates[template.id].name}` : stepLabel}</span>
+            <h1 className="text-[26px] leading-tight font-semibold text-foreground">{view === 1 ? copy.step1 : copy.step2}</h1>
+            {view === 1 && <p className="max-w-[560px] text-sm leading-relaxed text-muted-foreground">{copy.step1Body}</p>}
           </div>
 
-          {step === 1 ? (
+          {view === 1 ? (
             <>
               <form
                 className="flex items-center gap-2 border border-border bg-bg-chrome py-1.5 pr-1.5 pl-4"
@@ -310,22 +315,21 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
                     )}
                   </div>
                 </div>
+                {/* The step's action closes the form, in the fields' column. */}
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  {error && <p className="mr-auto text-sm text-destructive">{error}</p>}
+                  <Button loading={busy} disabled={name.trim() === "" || soul.trim() === ""} onClick={() => void create()} className={cn(busy && "pointer-events-none")}>
+                    {busy ? copy.creating : copy.create.replace("{name}", name.trim() || "bot")}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
 
-          {step === 2 && (
-            <div className="flex flex-col items-start gap-2">
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button loading={busy} disabled={name.trim() === "" || soul.trim() === ""} onClick={() => void create()} className={cn(busy && "pointer-events-none")}>
-                {busy ? copy.creating : copy.create.replace("{name}", name.trim() || "bot")}
-              </Button>
-            </div>
-          )}
         </div>
       </ScrollArea>
 
-      {step === 1 && (
+      {view === 1 && (
         <aside className="flex shrink-0 flex-col border-t border-border lg:w-[340px] lg:border-t-0 lg:border-l" data-testid="new-bot-preview">
           <div className="hidden min-h-0 flex-1 flex-col gap-4 overflow-auto p-8 lg:flex" data-testid="template-preview">
             <Mascot seed={focusedTemplate.seed} size={72} />
