@@ -4,6 +4,7 @@
 // reports, worktrees) is the room's, unchanged; this file only adds what a
 // room that never ends needs on top (see bot.ts).
 import { randomBytes, randomUUID } from "node:crypto";
+import { BOT_TURN_NOTE_PREFIX } from "../protocol/relayNote.js";
 import type { RoomToolResult } from "../bridges/roomBridge.js";
 import { promptDraft, type PushNotificationDraft } from "../push/events.js";
 import {
@@ -459,7 +460,9 @@ export class BotManager implements RoomBots {
     const bot = this.store.byRoom(roomId);
     if (!bot) return undefined;
     const clock = botClockNote(this.now(), this.timeZone());
-    return bot.firstRun ? `${BOT_FIRST_RUN_NOTE}\n\n${clock}` : clock;
+    // One note behind a prefix of its own, so a transcript read back can
+    // drop all of it (see `stripRelayNote`).
+    return `${BOT_TURN_NOTE_PREFIX} ${bot.firstRun ? `${BOT_FIRST_RUN_NOTE}\n\n${clock}` : clock}`;
   }
 
   taskRefusal(roomId: string, taskN: number): string | undefined {

@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 import { isSilentEvent } from "../../../protocol/silentEvents.js";
-import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../../../protocol/relayNote.js";
+import { BOT_TURN_NOTE_PREFIX, WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../../../protocol/relayNote.js";
+import { botScheduleText } from "../../../session/botTools.js";
 import { withRoomCard } from "../../../protocol/roomCard.js";
 import type { RoomCard } from "../../../protocol/agent-event.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
@@ -391,7 +392,10 @@ test("a person's text that merely contains the card marker is left alone", () =>
   });
 });
 
-const BOT_SCHEDULE = '[anywh-bot] Schedule "CI check" fired.\n\nCheck the CI.\n\nIf, after checking, nothing needs the person\'s attention, answer exactly NO_REPLY and nothing else.';
+/** A bot's turn note, as `BotManager.turnNote` writes it. */
+const BOT_NOTE = `${BOT_TURN_NOTE_PREFIX} It is now Sun, Nov 22, 2026, 09:00 in America/Fortaleza, the host's time zone, where your schedules run.`;
+/** A schedule firing exactly as the relay sends it: its prompt and the note. */
+const BOT_SCHEDULE = withRelayNote(botScheduleText("CI check", "Check the CI."), BOT_NOTE);
 function assistantToolUse(id: string, name: string, input: unknown): string {
   return JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } });
 }
@@ -432,5 +436,16 @@ test("a scheduled run that changed the bot's tasks is shown even if it ends with
     assert.ok(note);
     assert.equal(isSilentEvent(note), false);
     assert.ok(events.some((e) => e.type === "tool_started"));
+  });
+});
+
+test("what the person told a bot reads back as they wrote it, without the note the bot got with it", () => {
+  const firstRun = `${BOT_TURN_NOTE_PREFIX} This is your first conversation with the person.\n\nIt is now Sun, Nov 22, 2026, 09:00 in America/Fortaleza.`;
+  withFixture("bn1", [userLine(withRelayNote("watch anywh-sh/anywh", firstRun)), assistantText("ok"), userLine(withRelayNote("and the CI", BOT_NOTE)), assistantText("sure")], (home) => {
+    const texts = readHistoryFromTranscript(home, home, "bn1")
+      .map((m) => m.event)
+      .filter((e) => e.type === "user_message")
+      .map((e) => (e.type === "user_message" ? e.text : ""));
+    assert.deepEqual(texts, ["watch anywh-sh/anywh", "and the CI"]);
   });
 });
