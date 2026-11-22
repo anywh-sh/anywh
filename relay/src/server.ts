@@ -395,7 +395,10 @@ const releaseWatch = restartOnRelease
   ? watchForNewRelease({
       running: RELEASE_VERSION,
       readOnDisk: () => readPackageVersion(PACKAGE_JSON_PATH),
-      safeToRestart: () => !sessionManager.relayTurnInFlight(),
+      // Never while this relay's own installer runs: the tree it swaps is
+      // what makes the new release visible here, and exiting would take
+      // the installer (a child in this unit) down before it finished.
+      safeToRestart: () => !sessionManager.relayTurnInFlight() && relayUpdater.status().state !== "installing",
       restart: () => {
         planUsage.stop();
         void gracefulShutdown("release update", { httpServer, sessionManager });

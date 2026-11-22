@@ -95,7 +95,13 @@ export class RelayUpdater {
     }
     if (!isNewerRelease(version, this.options.runningVersion)) return { ok: false, code: "not_newer", status: this.current };
     this.current = { state: "installing", version };
-    this.run(this.support.installer, version);
+    try {
+      this.run(this.support.installer, version);
+    } catch (error) {
+      // Before the installer even started (no room in the temp dir, say):
+      // reported as a failed install, never left "installing".
+      this.current = { state: "failed", version, code: "unexpected", message: error instanceof Error ? error.message : String(error) };
+    }
     return { ok: true, status: this.current };
   }
 
