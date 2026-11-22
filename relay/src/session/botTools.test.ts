@@ -2,17 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { botAnswerText, botCancelText, botClockNote, botKickoffText, botScheduleText, parseDelegateTask, parseRememberArgs, parseScheduleCreateArgs, parseTaskAskArgs, parseTaskUpdateArgs } from "./botTools.js";
 import { botTurnKind } from "../protocol/botTurns.js";
-import { promptOffersSilence } from "../protocol/silentEvents.js";
 
 test("the relay's own turns read back as what they are", () => {
   assert.equal(botTurnKind(botScheduleText("Hourly", "check"))?.kind, "bot_schedule");
   assert.equal(botTurnKind(botAnswerText(2, "q", "a"))?.label, "answer:2");
   assert.equal(botTurnKind(botKickoffText())?.label, "created");
-});
-
-test("a schedule's prompt offers silence the way the relay recognizes it", () => {
-  assert.equal(promptOffersSilence(botScheduleText("Hourly", "check")), true);
-  assert.equal(promptOffersSilence(botAnswerText(2, "q", "a")), false);
 });
 
 test("task_update needs something to change and only takes stored statuses", () => {
@@ -49,4 +43,10 @@ test("the clock note gives the time where schedules run, not UTC", () => {
   const note = botClockNote(Date.UTC(2026, 10, 22, 1, 16), "America/Sao_Paulo");
   assert.match(note, /Sat, Nov 21, 2026, 22:16/);
   assert.match(note, /America\/Sao_Paulo/);
+});
+
+test("a schedule firing carries its prompt as written, and its header still marks the run", () => {
+  const text = botScheduleText("Triage", "List the new issues.");
+  assert.doesNotMatch(text, /NO_REPLY/, "staying silent is a standing rule, not part of each run");
+  assert.deepEqual(botTurnKind(text), { kind: "bot_schedule", label: "Triage" });
 });

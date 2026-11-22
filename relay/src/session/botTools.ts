@@ -224,12 +224,13 @@ export function botKickoffText(): string {
   return `${BOT_TURN_PREFIX} You were just created. Start your first conversation.`;
 }
 
-/** The message a schedule firing gives the bot. */
+/** The message a schedule firing gives the bot: its prompt as written.
+ * Staying silent when nothing is new is a standing rule of the bot's
+ * instructions, never appended here — seen next to every prompt, it was
+ * copied into the schedules the bot writes. The header is what tells the
+ * run apart, live and when a transcript is read back (`botTurnKind`). */
 export function botScheduleText(name: string, prompt: string): string {
-  return (
-    `${BOT_TURN_PREFIX} Schedule "${name}" fired.\n\n${prompt.trim()}\n\n` +
-    `If, after checking, nothing needs the person's attention, answer exactly NO_REPLY and nothing else.`
-  );
+  return `${BOT_TURN_PREFIX} Schedule "${name}" fired.\n\n${prompt.trim()}`;
 }
 
 /** The message that tells the bot the person canceled one of its tasks, and
