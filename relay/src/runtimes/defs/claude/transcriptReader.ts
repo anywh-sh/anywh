@@ -137,6 +137,8 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
   let turnUserEvent: Extract<AgentEvent, { type: "user_message" }> | undefined;
   let turnOffered = false;
   let turnAssistantTexts: string[] = [];
+  /** Its text blocks since the last tool call: with tools allowed, the answer. */
+  let turnTextsSinceTool: string[] = [];
   let turnUsedTool = false;
   /** A bot's scheduled run: tool calls do not keep it from being silent... */
   let turnToolsAllowed = false;
@@ -159,7 +161,7 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
    * count still matches the transcript's `user` lines. Returns whether it did. */
   function collapseIfSilent(): boolean {
     if (!turnUserEvent || !turnOffered || (turnUsedTool && !turnToolsAllowed) || turnBotChange || turnInterrupted) return false;
-    if (!isNoReply(turnToolsAllowed ? (turnAssistantTexts.at(-1) ?? "") : turnAssistantTexts.join("\n"))) return false;
+    if (!isNoReply((turnToolsAllowed ? turnTextsSinceTool : turnAssistantTexts).join("\n"))) return false;
     messages.length = turnStartIdx;
     // A card is the person's notification of the report, so it stays visible
     // (live, `runTurn` broadcasts it outside the held turn).
@@ -213,10 +215,14 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
           const kind = (block as { type?: unknown }).type;
           if (kind === "tool_use") {
             turnUsedTool = true;
+            turnTextsSinceTool = [];
             const name = (block as { name?: unknown }).name;
             if (typeof name === "string" && releasesSilentRun(name)) turnBotChange = true;
           }
-          else if (isTextBlock(block)) turnAssistantTexts.push(block.text);
+          else if (isTextBlock(block)) {
+            turnAssistantTexts.push(block.text);
+            turnTextsSinceTool.push(block.text);
+          }
         }
       }
       // Real timestamp of the line (same as `user_prompt` below) —
@@ -253,6 +259,7 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       turnUserEvent = undefined;
       turnOffered = false;
       turnAssistantTexts = [];
+      turnTextsSinceTool = [];
       turnUsedTool = false;
       turnToolsAllowed = false;
       turnBotChange = false;
@@ -358,5 +365,7 @@ const INTERRUPT_MARKER = "[Request interrupted by user";
  * subagent (`Task`, `Agent` in newer CLIs; a `subagent`). */
 function releasesSilentRun(name: string): boolean {
   if (name === "TodoWrite" || name === "Task" || name === "Agent") return true;
+  // An edit or a new file is never hidden, as live (its `edit`/`write` subject).
+  if (name === "Write" || name === "Edit" || name === "MultiEdit" || name === "NotebookEdit") return true;
   return name.startsWith("mcp__anywh-room__") && name !== "mcp__anywh-room__bot_status";
 }

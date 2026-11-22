@@ -324,22 +324,30 @@ export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarti
  * tool call, or text that can no longer spell `NO_REPLY`. At that point the
  * buffer is flushed in order and the turn continues live like any other.
  */
-class HeldTurn {
+export class HeldTurn {
   readonly buffer: BroadcastMessage[] = [];
   released = false;
   /** A bot's scheduled run may look things up (run a command, read a file)
-   * and still end in silence: tool calls do not release it, only the bot's
-   * own tools that change what the person sees (a task, a delegation, a
-   * schedule, its memory) do. Its last text block alone decides. */
+   * and still end in silence: lookups do not release it. What changes
+   * something the person would want to see does: the bot's own tools that
+   * change its tasks, delegations, schedules or memory, and any edit or new
+   * file. What it wrote after its last tool call decides. */
   constructor(private readonly toolsAllowed = false) {}
   /** Committed top-level text blocks, in order. */
   private readonly committed: string[] = [];
+  /** The ones since the last tool call: with tools allowed, the answer. */
+  private sinceTool: string[] = [];
   /** Streaming previews not yet committed, per block index. */
   private readonly streaming = new Map<number | string, string>();
 
   /** Whether `event` proves the turn is not (only) `NO_REPLY`. */
   shouldRelease(event: AgentEvent): boolean {
-    if (event.type === "tool_started" && this.toolsAllowed) return event.subject?.kind === "mcp" && event.subject.server === "anywh-room" && event.subject.tool !== "bot_status";
+    if (event.type === "tool_started" && this.toolsAllowed) {
+      this.sinceTool = [];
+      const subject = event.subject;
+      if (subject?.kind === "edit" || subject?.kind === "write") return true;
+      return subject?.kind === "mcp" && subject.server === "anywh-room" && subject.tool !== "bot_status";
+    }
     if (event.type === "tool_started" || event.type === "plan" || event.type === "subagent" || event.type === "error") return true;
     if (event.type === "text_delta") {
       this.streaming.set(event.index, (this.streaming.get(event.index) ?? "") + event.text);
@@ -348,6 +356,7 @@ class HeldTurn {
     if (event.type === "text") {
       if (event.parentToolUseId !== undefined) return !this.toolsAllowed;
       this.committed.push(event.text);
+      this.sinceTool.push(event.text);
       this.streaming.clear();
       return !this.couldBeNoReply();
     }
@@ -369,7 +378,7 @@ class HeldTurn {
   }
 
   isNoReply(): boolean {
-    return isNoReply(this.toolsAllowed ? (this.committed.at(-1) ?? "") : this.committed.join("\n"));
+    return isNoReply((this.toolsAllowed ? this.sinceTool : this.committed).join("\n"));
   }
 }
 
