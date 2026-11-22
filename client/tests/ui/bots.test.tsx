@@ -113,8 +113,9 @@ describe("bots in the sidebar", () => {
     expect(screen.queryByRole("button", { name: /^CI check/ })).not.toBeInTheDocument();
   });
 
-  it("a bot's settings, from its row's menu, open as a tab titled with its name", async () => {
+  it("a bot's settings, from its row's menu, open in its side panel, on its conversation", async () => {
     const user = userEvent.setup();
+    localStorage.setItem("anywh:right-panel-open", "true");
     renderApp();
     const watch = await watchSocket();
     act(() => {
@@ -122,12 +123,22 @@ describe("bots in the sidebar", () => {
     });
     await user.pointer({ keys: "[MouseRight]", target: await screen.findByRole("button", { name: "Vigia" }) });
     await user.click(await screen.findByRole("menuitem", { name: en.bots.menu.settings }));
-    expect(await screen.findByTestId("bot-settings-view")).toBeInTheDocument();
-    const settingsTab = screen.getByRole("tab", { name: new RegExp(en.bots.settings.title.replace("{name}", "Vigia")) });
-    expect(settingsTab.querySelector("[data-mascot-state]")).not.toBeNull();
+    // The bot's own channel feeds its panel.
+    await waitFor(() => {
+      if (!relay.sockets.some((socket) => new URL(socket.url).pathname === "/rooms/room-vigia/watch" && socket.readyState === 1)) throw new Error("no room channel yet");
+    });
+    // Every reader of the room's channel (the sidebar's tree, the panel).
+    act(() => {
+      for (const socket of relay.sockets) {
+        if (new URL(socket.url).pathname === "/rooms/room-vigia/watch" && socket.readyState === 1) socket.emitMessage({ type: "room_bot", bot: { ...vigia, conversationNeedsYou: false, tasks: [], schedules: [] } });
+      }
+    });
+    expect(await screen.findByTestId("bot-settings")).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: /Vigia/ }).querySelector("[data-mascot-state]")).not.toBeNull();
   });
 
-  it("a bot that leaves the list (deleted here or elsewhere) takes its conversation and settings tabs with it", async () => {
+  it("a bot that leaves the list (deleted here or elsewhere) takes its conversation's tab with it", async () => {
     const user = userEvent.setup();
     renderApp();
     const watch = await watchSocket();
@@ -135,10 +146,7 @@ describe("bots in the sidebar", () => {
       watch.emitMessage({ type: "bots_state", bots: [vigia] });
     });
     await user.click(await screen.findByRole("button", { name: "Vigia" }));
-    await user.pointer({ keys: "[MouseRight]", target: screen.getByRole("button", { name: "Vigia" }) });
-    await user.click(await screen.findByRole("menuitem", { name: en.bots.menu.settings }));
-    expect(await screen.findByTestId("bot-settings-view")).toBeInTheDocument();
-    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(1));
 
     act(() => {
       watch.emitMessage({ type: "bots_state", bots: [] });

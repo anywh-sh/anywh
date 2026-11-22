@@ -87,15 +87,6 @@ export function useTabPanelActions({
     () => ({
       onTurnActiveChange: (tabId, active) => tabsState.setRunning(tabId, active),
       onOpenSession: (profile, sessionId, title) => tabsState.openTab(profile.id, sessionId, title, false, false),
-      onBotDeleted: (tab, roomId) => {
-        tabsState.closeTab(tab.id);
-        tabsState.closeTab(roomId);
-      },
-      onBotRenamed: (tab, roomId, name) => {
-        tabsState.setTabTitle(tab.id, name);
-        // The bot's own tab is titled by its name too.
-        tabsState.setTabTitle(roomId, name);
-      },
       onBackgroundJobsChange: (tabId, jobs, failedJobs) => {
         tabsState.setHasBackgroundJob(tabId, jobs.length > 0);
         setBackgroundActivityByTab((prev) => ({ ...prev, [tabId]: { turn: prev[tabId]?.turn ?? null, jobs, failedJobs } }));

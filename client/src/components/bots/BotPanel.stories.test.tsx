@@ -6,7 +6,7 @@ import * as stories from "./BotPanel.stories";
 import { en } from "@/i18n/en";
 
 const copy = en.bots;
-const { Tasks, Empty, Question, Working, ConversationWaits } = composeStories(stories);
+const { Tasks, Empty, Question, Working, ConversationWaits, Settings, SettingsEmptyMemory } = composeStories(stories);
 
 describe("Bot panel stories", () => {
   afterEach(() => act(() => cleanup()));
@@ -50,5 +50,33 @@ describe("Bot panel stories", () => {
     cleanup();
     render(<ConversationWaits />);
     expect(screen.getByText(copy.panel.conversationNeedsYou)).toBeInTheDocument();
+  });
+
+  it("the gear opens the settings in place of the tasks, and Tasks comes back", async () => {
+    render(<Tasks />);
+    await userEvent.click(screen.getByRole("button", { name: copy.menu.settings }));
+    const settings = screen.getByTestId("bot-settings");
+    expect(within(settings).getByRole("heading", { name: copy.settings.nameAndMascot })).toBeInTheDocument();
+    expect(screen.queryAllByTestId("bot-schedule")).toHaveLength(0);
+    await userEvent.click(within(settings).getByRole("button", { name: copy.task.back }));
+    expect(screen.queryByTestId("bot-settings")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("bot-schedule")).toHaveLength(2);
+  });
+
+  it("Settings shows the name and face, who it is, the memory with its count and kinds, and pause or delete", () => {
+    render(<Settings />);
+    const settings = screen.getByTestId("bot-settings");
+    expect(within(settings).getByDisplayValue("Vigia")).toBeInTheDocument();
+    expect(within(settings).getByRole("button", { name: `${copy.mascot.characters.bip} · ${copy.mascot.tones.areia} · ${copy.mascot.change}` })).toBeInTheDocument();
+    for (const save of within(settings).getAllByRole("button", { name: copy.settings.save })) expect(save).toBeDisabled();
+    expect(within(settings).getByRole("heading", { name: `${copy.settings.memory} 3` })).toBeInTheDocument();
+    expect(within(settings).getByText(copy.settings.kinds.rule)).toBeInTheDocument();
+    expect(within(settings).getByRole("switch", { name: copy.settings.pause })).toBeInTheDocument();
+    expect(within(settings).getByRole("button", { name: copy.settings.delete })).toBeInTheDocument();
+  });
+
+  it("an empty memory says the bot learns from the conversation", () => {
+    render(<SettingsEmptyMemory />);
+    expect(screen.getByText(copy.settings.memoryEmpty)).toBeInTheDocument();
   });
 });

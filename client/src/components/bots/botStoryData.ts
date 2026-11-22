@@ -1,4 +1,4 @@
-import type { BotSummary, BotView } from "@/lib/bots/botTypes";
+import type { BotSummary, BotView, MemoryLine } from "@/lib/bots/botTypes";
 import type { Profile } from "@/lib/profiles/profiles";
 
 // Sample bots for the stories: one per state the sidebar and the panel draw.
@@ -69,3 +69,11 @@ export const storyBotView: BotView = {
 };
 
 export const storyEmptyBot: BotView = { ...storyBots[5], conversationNeedsYou: false, tasks: [], schedules: [] };
+
+export const storySoul = "I watch the CI of the main branch and tell a flaky test from a real failure.\n\n## How I work\n- I check recent runs with gh.\n\n## Never\n- Merge anything.";
+
+export const storyMemory: MemoryLine[] = [
+  { index: 0, kind: "rule", text: "Never merge: pull requests stay drafts.", source: "conversation", date: "2026-11-18", raw: "- [rule] Never merge" },
+  { index: 1, kind: "preference", text: "Retry a test at most twice.", source: "task #13", date: "2026-11-20", raw: "- [preference] Retry" },
+  { index: 2, kind: "fact", text: "e2e-relay runs against the local relay, not staging.", source: "task #12", date: "2026-11-21", raw: "- [fact] e2e-relay" },
+];

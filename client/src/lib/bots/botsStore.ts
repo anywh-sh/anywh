@@ -59,11 +59,6 @@ export function useBotByRoom(roomId: string): BotSummary | undefined {
   return useSyncExternalStore(subscribeBots, () => botByRoom(roomId));
 }
 
-/** `botById`, kept current as the list changes. */
-export function useBotById(botId: string): BotSummary | undefined {
-  return useSyncExternalStore(subscribeBots, () => botById(botId));
-}
-
 export function subscribeBots(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

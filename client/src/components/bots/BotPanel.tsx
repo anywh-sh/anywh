@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Ban, Check, ChevronDown, Play, Settings, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
@@ -10,7 +10,8 @@ import { BotTaskDetail } from "@/components/bots/BotTaskDetail";
 import { useRoomChannel } from "@/hooks/sala/useRoomChannel";
 import { useDict, useLocale } from "@/i18n";
 import { removeSchedule, runScheduleNow, setSchedulePaused } from "@/lib/bots/botClient";
-import { openBotSettings } from "@/lib/bots/botSettingsRequest";
+import { onPanelSettings, takePanelSettings } from "@/lib/bots/botSettingsRequest";
+import { BotSettings } from "@/components/bots/BotSettings";
 import { botStatusLine, shortWhen } from "@/lib/bots/botStatusLine";
 import { TASK_GROUPS, taskGroup, type BotSchedule, type BotTask, type BotTaskStatus, type BotView } from "@/lib/bots/botTypes";
 import { mascotStateOf } from "@/lib/bots/mascot";
@@ -44,26 +45,55 @@ export function BotPanel({ profile, roomId, onOpenSession }: BotPanelProps) {
 }
 
 /** The panel's content for a bot already known: what the channel feeds, and
- * what the stories draw. */
-export function BotPanelView({ profile, bot, onOpenSession, initialTask = null }: { profile: Profile; bot: BotView; onOpenSession: (sessionId: string, title: string | null) => void; initialTask?: number | null }) {
+ * what the stories draw. Besides the task list it opens, in place, one task
+ * or the bot's settings; each comes back to the list. */
+export function BotPanelView({
+  profile,
+  bot,
+  onOpenSession,
+  initialTask = null,
+  initialSettings = false,
+  settingsInitial,
+}: {
+  profile: Profile;
+  bot: BotView;
+  onOpenSession: (sessionId: string, title: string | null) => void;
+  initialTask?: number | null;
+  initialSettings?: boolean;
+  /** The settings' soul and memory, instead of asking the relay (the stories). */
+  settingsInitial?: Parameters<typeof BotSettings>[0]["initial"];
+}) {
   const [openTask, setOpenTask] = useState<number | null>(initialTask);
+  // Settings asked for from elsewhere (the sidebar's menu) before this
+  // mounted, or while it is open.
+  const [settings, setSettings] = useState(() => initialSettings || takePanelSettings(bot.roomId));
+  useEffect(
+    () =>
+      onPanelSettings(bot.roomId, () => {
+        if (takePanelSettings(bot.roomId)) setSettings(true);
+      }),
+    [bot.roomId],
+  );
   const task = openTask === null ? undefined : bot.tasks.find((each) => each.n === openTask);
+  const body = settings ? (
+    <BotSettings profile={profile} bot={bot} onBack={() => setSettings(false)} initial={settingsInitial} />
+  ) : task ? (
+    <BotTaskDetail profile={profile} bot={bot} task={task} onBack={() => setOpenTask(null)} onOpenSession={onOpenSession} />
+  ) : (
+    <ScrollArea className="min-h-0 flex-1">
+      <TaskList bot={bot} onOpen={setOpenTask} />
+    </ScrollArea>
+  );
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="bot-panel">
-      <BotHeader profile={profile} bot={bot} />
-      {task ? (
-        <BotTaskDetail profile={profile} bot={bot} task={task} onBack={() => setOpenTask(null)} onOpenSession={onOpenSession} />
-      ) : (
-        <ScrollArea className="min-h-0 flex-1">
-          <TaskList bot={bot} onOpen={setOpenTask} />
-        </ScrollArea>
-      )}
-      {!task && <Automations profile={profile} bot={bot} />}
+      <BotHeader bot={bot} settingsOpen={settings} onSettings={() => setSettings((open) => !open)} />
+      {body}
+      {!task && !settings && <Automations profile={profile} bot={bot} />}
     </div>
   );
 }
 
-function BotHeader({ profile, bot }: { profile: Profile; bot: BotView }) {
+function BotHeader({ bot, settingsOpen, onSettings }: { bot: BotView; settingsOpen: boolean; onSettings: () => void }) {
   const dict = useDict();
   const { locale } = useLocale();
   const line = botStatusLine(bot, dict, (at) => shortWhen(at, locale));
@@ -74,7 +104,7 @@ function BotHeader({ profile, bot }: { profile: Profile; bot: BotView }) {
         <span className="truncate text-sm font-medium text-foreground">{bot.name}</span>
         <span className={cn("truncate font-mono text-[11px]", line.tone === "attention" ? "text-primary" : line.tone === "fail" ? "text-destructive" : "text-text-faint")}>{line.text}</span>
       </div>
-      <Button variant="ghost" size="icon-sm" aria-label={dict.bots.menu.settings} title={dict.bots.menu.settings} onClick={() => openBotSettings({ profileId: profile.id, botId: bot.id, name: bot.name })}>
+      <Button variant="ghost" size="icon-sm" aria-label={dict.bots.menu.settings} title={dict.bots.menu.settings} aria-pressed={settingsOpen} onClick={onSettings}>
         <Settings className="size-3.5" />
       </Button>
     </div>

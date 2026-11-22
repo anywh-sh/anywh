@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { BotPanelView } from "@/components/bots/BotPanel";
-import { storyBotView, storyEmptyBot, storyProfile } from "@/components/bots/botStoryData";
+import { storyBotView, storyEmptyBot, storyMemory, storyProfile, storySoul } from "@/components/bots/botStoryData";
 
 const meta = {
   title: "Bots/Panel",
@@ -31,3 +31,10 @@ export const Working: Story = { args: { initialTask: 12 } };
 
 /** The bot's own conversation is waiting for the person. */
 export const ConversationWaits: Story = { args: { bot: { ...storyBotView, conversationNeedsYou: true } } };
+
+/** The gear's settings, in place of the task list: name and face, who it is,
+ * memory, pausing or deleting. */
+export const Settings: Story = { args: { initialSettings: true, settingsInitial: { soul: storySoul, memory: storyMemory } } };
+
+/** Settings of a bot that remembers nothing yet. */
+export const SettingsEmptyMemory: Story = { args: { initialSettings: true, settingsInitial: { soul: storySoul, memory: [] } } };

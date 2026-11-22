@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef } from "react";
 import type { BotsSectionActions } from "@/components/bots/BotsSection";
 import type { useTabs } from "@/hooks/tabs/useTabs";
 import { deleteBot, patchBot } from "@/lib/bots/botClient";
-import { handleBotSettingsRequests, openBotSettings } from "@/lib/bots/botSettingsRequest";
+import { askPanelSettings, handleBotSettingsRequests, openBotSettings } from "@/lib/bots/botSettingsRequest";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { subscribeBotRemovals } from "@/lib/bots/botsStore";
-import { botSettingsTabId, botTemplatesTabId } from "@/lib/bots/botTabs";
+import { botTemplatesTabId } from "@/lib/bots/botTabs";
 import { openNewBot } from "@/lib/bots/newBotRequest";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -14,27 +14,28 @@ interface UseBotActionsArgs {
   tabsState: ReturnType<typeof useTabs>;
   /** Closes the drawer on the platforms that have one. */
   onNavigated: () => void;
+  /** Opens a pane of a tab's side panel (the bot's, for its settings). */
+  openPane: (tabId: string, kind: "bot") => void;
 }
 
 /**
  * What the bots do in the shell: opening a bot's conversation (a tab marked
  * as a bot, so its side panel is the task list), one of its agents, the "New
- * bot" dialog, and the two bot pages, each a tab: the templates, and a bot's
- * settings. The actions
+ * bot" dialog, and the templates tab. A bot's settings are in its side
+ * panel. The actions
  * object keeps one identity for the app's life (the sidebar is memoized).
  */
-export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotActionsArgs): { botActions: BotsSectionActions; openBotTab: (profileId: string, bot: BotSummary) => void } {
-  const latest = useRef({ activeProfile, tabsState, onNavigated });
-  latest.current = { activeProfile, tabsState, onNavigated };
+export function useBotActions({ activeProfile, tabsState, onNavigated, openPane }: UseBotActionsArgs): { botActions: BotsSectionActions; openBotTab: (profileId: string, bot: BotSummary) => void } {
+  const latest = useRef({ activeProfile, tabsState, onNavigated, openPane });
+  latest.current = { activeProfile, tabsState, onNavigated, openPane };
 
-  /** Every tab of a bot that no longer exists: its conversation and its settings. */
+  /** The tab of a bot that no longer exists: its conversation. */
   const closeBotTabs = (bot: Pick<BotSummary, "id" | "roomId">): void => {
     latest.current.tabsState.closeTab(bot.roomId);
-    latest.current.tabsState.closeTab(botSettingsTabId(bot.id));
   };
 
-  // However a bot goes (from here, its settings or another device), its tabs
-  // go with it.
+  // However a bot goes (from here, its settings or another device), its tab
+  // goes with it.
   useEffect(() => subscribeBotRemovals((removed) => removed.forEach(closeBotTabs)), []);
 
   const botActions = useMemo<BotsSectionActions>(() => {
@@ -56,7 +57,7 @@ export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotA
         }
         openNewBot({ profileId: profile().id });
       },
-      onBotSettings: (bot) => openBotSettings({ profileId: profile().id, botId: bot.id, name: bot.name }),
+      onBotSettings: (bot) => openBotSettings({ profileId: profile().id, botId: bot.id, roomId: bot.roomId, name: bot.name }),
       onTogglePaused: (bot) => {
         patchBot(profile(), bot.id, { paused: !bot.paused }).catch((error: unknown) => console.error("[anywh] failed to pause the bot", error));
       },
@@ -69,11 +70,14 @@ export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotA
     };
   }, []);
 
-  // Settings open as a tab, whoever asks (the sidebar, a bot's panel).
+  // Settings live in the bot's side panel: whoever asks, its conversation
+  // opens with the panel on them.
   useEffect(
     () =>
-      handleBotSettingsRequests(({ profileId, botId, name }) => {
-        latest.current.tabsState.openTab(profileId, botSettingsTabId(botId), name);
+      handleBotSettingsRequests(({ profileId, roomId, name }) => {
+        latest.current.tabsState.openTab(profileId, roomId, name, false, false, true);
+        askPanelSettings(roomId);
+        latest.current.openPane(roomId, "bot");
         latest.current.onNavigated();
       }),
     [],

@@ -552,7 +552,7 @@ function AppShell() {
     setDrawerSection(section);
     saveSidebarSection(section);
   }, []);
-  const { botActions } = useBotActions({ activeProfile, tabsState, onNavigated: closeDrawer });
+  const { botActions } = useBotActions({ activeProfile, tabsState, onNavigated: closeDrawer, openPane: handleOpenPane });
 
   const sidebarProps = {
     activeProfile,
