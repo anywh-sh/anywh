@@ -696,9 +696,19 @@ export class BotManager implements RoomBots {
     const now = this.now();
     let soonest: number | undefined;
     for (const bot of this.store.list()) {
+      // Everything this pass changes on the bot is written once at the end
+      // (each write rewrites the whole file and wakes every listener), as
+      // edits applied to the record as it is then: a stale run recorded
+      // meanwhile by `isRunning` is kept.
+      const edits = new Map<string, (schedule: BotSchedule) => BotSchedule>();
+      const edit = (id: string, change: (schedule: BotSchedule) => BotSchedule): void => {
+        const before = edits.get(id);
+        edits.set(id, before ? (schedule) => change(before(schedule)) : change);
+      };
+      const toFire: BotSchedule[] = [];
       for (const raw of bot.schedules) {
         const schedule = this.armed(raw);
-        if (schedule !== raw) this.store.update(bot.id, (current) => ({ ...current, schedules: current.schedules.map((each) => (each.id === raw.id ? schedule : each)) }));
+        if (schedule !== raw) edit(raw.id, (each) => this.armed(each));
         if (schedule.paused || schedule.nextRunAt === undefined) continue;
         const decision = dueDecision(schedule.nextRunAt, now);
         if (decision === "wait") {
@@ -715,53 +725,51 @@ export class BotManager implements RoomBots {
         // catch-up, never one per occurrence it covered.
         const owed = decision === "missed" && bot.limitedUntil !== undefined && schedule.nextRunAt <= bot.limitedUntil;
         const due = owed ? "run" : decision;
-        if (due === "run" && (bot.paused || this.isRunning(bot, schedule.id))) {
-          // Nothing to do this time (a paused bot, or the last run still
-          // going): the next occurrence is armed.
-          this.advance(bot.id, schedule.id, now);
-        } else if (due === "run" && !this.options.hostConnected()) {
+        // A paused bot, or the last run still going: nothing to do this time.
+        const skip = due === "run" && (bot.paused || this.isRunning(bot, schedule.id));
+        if (due === "run" && !skip && !this.options.hostConnected()) {
           // Tried again shortly, while it is still within the grace.
           soonest = Math.min(soonest ?? Infinity, now + SCHEDULER_RETRY_MS);
           continue;
-        } else if (due === "run") {
-          this.advance(bot.id, schedule.id, now);
-          this.fire(this.store.get(bot.id)!, schedule);
-        } else {
-          this.recordRun(bot.id, schedule.id, { at: schedule.nextRunAt, outcome: "missed" });
-          this.advance(bot.id, schedule.id, now);
         }
-        const next = this.store.get(bot.id)?.schedules.find((each) => each.id === schedule.id)?.nextRunAt;
+        if (due === "run" && !skip) toFire.push(schedule);
+        // A missed run is recorded; in every case the next occurrence is armed.
+        if (due === "missed") {
+          const missedAt = schedule.nextRunAt;
+          edit(schedule.id, (each) => ({ ...each, runs: withRun(each.runs, { at: missedAt, outcome: "missed" }) }));
+        }
+        edit(schedule.id, (each) => this.advanced(each, now));
+        const next = this.advanced(schedule, now).nextRunAt;
         if (next !== undefined) soonest = Math.min(soonest ?? Infinity, next);
       }
-      // A limit is over once its time passes (the runs it held fired just
-      // above): cleared, so the bot reads as itself again. One still
-      // standing wakes the scheduler when it ends.
-      if (bot.limitedUntil !== undefined && bot.limitedUntil <= now) {
+      // A limit is over once its time passes (the runs it held fire below):
+      // cleared, so the bot reads as itself again. One still standing wakes
+      // the scheduler when it ends.
+      const limitOver = bot.limitedUntil !== undefined && bot.limitedUntil <= now;
+      if (bot.limitedUntil !== undefined && !limitOver) soonest = Math.min(soonest ?? Infinity, bot.limitedUntil);
+      if (edits.size > 0 || limitOver) {
         this.store.update(bot.id, (current) => {
-          const { limitedUntil: _over, ...rest } = current;
-          void _over;
-          return rest;
+          const { limitedUntil, ...rest } = current;
+          return {
+            ...rest,
+            ...(limitOver || limitedUntil === undefined ? {} : { limitedUntil }),
+            schedules: current.schedules.map((each) => edits.get(each.id)?.(each) ?? each),
+          };
         });
-      } else if (bot.limitedUntil !== undefined) {
-        soonest = Math.min(soonest ?? Infinity, bot.limitedUntil);
       }
+      for (const schedule of toFire) this.fire(this.store.get(bot.id)!, schedule);
     }
     if (soonest === undefined) return;
     const wait = Math.min(Math.max(0, soonest - now), SCHEDULER_MAX_WAIT_MS);
     this.cancelTimer = (this.options.setTimer ?? defaultTimer)(() => this.arm(), wait);
   }
 
-  private advance(botId: string, scheduleId: string, from: number): void {
-    this.store.update(botId, (current) => ({
-      ...current,
-      schedules: current.schedules.map((each) => {
-        if (each.id !== scheduleId) return each;
-        const next = nextRunAfter(each.cron, from, this.options.timezone);
-        const { nextRunAt: _old, ...rest } = each;
-        void _old;
-        return next === undefined ? rest : { ...rest, nextRunAt: next };
-      }),
-    }));
+  /** The schedule with its next occurrence after `from` armed. */
+  private advanced(schedule: BotSchedule, from: number): BotSchedule {
+    const next = nextRunAfter(schedule.cron, from, this.options.timezone);
+    const { nextRunAt: _old, ...rest } = schedule;
+    void _old;
+    return next === undefined ? rest : { ...rest, nextRunAt: next };
   }
 
   private recordRun(botId: string, scheduleId: string, run: { at: number; outcome: BotRunOutcome }): void {

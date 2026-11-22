@@ -230,3 +230,30 @@ test("a room that throws while a bot is created takes the bot and its files back
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a scheduler pass writes each bot once, however many of its schedules it touches", () => {
+  withBot(
+    ({ manager, store, advance, wake }) => {
+      // A second schedule, due at the same time, and a third one paused.
+      store.update("b1", (bot) => ({
+        ...bot,
+        schedules: [...bot.schedules, { id: "s2", name: "Docs", cron: "0 * * * *", prompt: "Docs.", paused: false, createdAt: 1, runs: [] }, { id: "s3", name: "Off", cron: "0 * * * *", prompt: "Off.", paused: true, createdAt: 1, runs: [] }],
+      }));
+      manager.start();
+      advance(3 * 60 * 60 * 1000); // both missed, well past their grace
+      let writes = 0;
+      const update = store.update.bind(store);
+      store.update = (...args: Parameters<BotStore["update"]>) => {
+        writes++;
+        return update(...args);
+      };
+      wake();
+      assert.equal(writes, 1, "one write for the bot");
+      assert.deepEqual(store.get("b1")!.schedules.map((each) => each.runs.map((run) => run.outcome)), [["missed"], ["missed"], []]);
+      assert.ok(store.get("b1")!.schedules.slice(0, 2).every((each) => each.nextRunAt !== undefined && each.nextRunAt > Date.parse("2026-11-22T16:30:00Z")));
+      manager.stop();
+    },
+    false,
+    { schedulePaused: false },
+  );
+});
