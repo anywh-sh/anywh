@@ -26,6 +26,7 @@ import { checkCron, dueDecision, nextRunAfter } from "./botSchedule.js";
 import type { BotStore } from "./botStore.js";
 import {
   BOT_FIRST_RUN_NOTE,
+  botClockNote,
   botAnswerText,
   botCancelText,
   botInstructions,
@@ -193,6 +194,11 @@ export class BotManager implements RoomBots {
 
   private get store(): BotStore {
     return this.options.store;
+  }
+
+  /** The time zone schedules are read in (the host's unless given). */
+  private timeZone(): string {
+    return this.options.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   }
 
   // ------------------------------------------------------------ person
@@ -430,7 +436,10 @@ export class BotManager implements RoomBots {
   }
 
   turnNote(roomId: string): string | undefined {
-    return this.store.byRoom(roomId)?.firstRun ? BOT_FIRST_RUN_NOTE : undefined;
+    const bot = this.store.byRoom(roomId);
+    if (!bot) return undefined;
+    const clock = botClockNote(this.now(), this.timeZone());
+    return bot.firstRun ? `${BOT_FIRST_RUN_NOTE}\n\n${clock}` : clock;
   }
 
   taskRefusal(roomId: string, taskN: number): string | undefined {

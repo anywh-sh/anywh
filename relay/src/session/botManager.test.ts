@@ -11,12 +11,12 @@ type Settle = (outcome: { silenced: boolean; failed: boolean }) => void;
 
 /** A bot with one schedule, and a manager whose session keeps each turn's
  * `onSettled` for the test to call (or never call). */
-function withBot(run: (ctx: { manager: BotManager; store: BotStore; settles: Settle[]; advance: (ms: number) => void; setBusy: (busy: boolean) => void }) => void): void {
+function withBot(run: (ctx: { manager: BotManager; store: BotStore; settles: Settle[]; advance: (ms: number) => void; setBusy: (busy: boolean) => void }) => void, firstRun = false): void {
   const dir = mkdtempSync(join(tmpdir(), "anywh-botmanager-"));
   try {
     const store = new BotStore(join(dir, "p-bots.json"));
     const bot: BotRecord = {
-      id: "b1", name: "CI", mascot: { seed: "CI" }, roomId: "room-b1", paused: false, firstRun: false, createdAt: 1, nextTaskN: 1, tasks: [],
+      id: "b1", name: "CI", mascot: { seed: "CI" }, roomId: "room-b1", paused: false, firstRun, createdAt: 1, nextTaskN: 1, tasks: [],
       schedules: [{ id: "s1", name: "CI check", cron: "0 * * * *", prompt: "Check the CI.", paused: true, createdAt: 1, runs: [] }],
     };
     store.put(bot);
@@ -40,6 +40,7 @@ function withBot(run: (ctx: { manager: BotManager; store: BotStore; settles: Set
       hostConnected: () => true,
       now: () => now,
       setTimer: () => () => {},
+      timezone: "America/Sao_Paulo",
     });
     run({ manager, store, settles, advance: (ms) => (now += ms), setBusy: (value) => (busy = value) });
   } finally {
@@ -76,4 +77,19 @@ test("a run whose end never comes is taken as failed after an hour with the bot 
     settles[1]({ silenced: false, failed: false });
     assert.deepEqual(runs(store), ["failed", "replied"]);
   });
+});
+
+test("every turn of a bot tells it the time where its schedules run; the first conversation adds its note", () => {
+  withBot(({ manager }) => {
+    const note = manager.turnNote("room-b1");
+    assert.match(note ?? "", /America\/Sao_Paulo/);
+    assert.doesNotMatch(note ?? "", /first conversation/);
+    assert.equal(manager.turnNote("room-nobody"), undefined);
+  });
+  withBot(({ manager }) => {
+    const note = manager.turnNote("room-b1") ?? "";
+    assert.match(note, /first conversation/);
+    assert.match(note, /language the person writes to you in/);
+    assert.match(note, /America\/Sao_Paulo/);
+  }, true);
 });

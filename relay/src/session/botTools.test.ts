@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { botAnswerText, botCancelText, botKickoffText, botScheduleText, parseDelegateTask, parseRememberArgs, parseScheduleCreateArgs, parseTaskAskArgs, parseTaskUpdateArgs } from "./botTools.js";
+import { botAnswerText, botCancelText, botClockNote, botKickoffText, botScheduleText, parseDelegateTask, parseRememberArgs, parseScheduleCreateArgs, parseTaskAskArgs, parseTaskUpdateArgs } from "./botTools.js";
 import { botTurnKind } from "../protocol/botTurns.js";
 import { promptOffersSilence } from "../protocol/silentEvents.js";
 
@@ -42,4 +42,11 @@ test("the cancel note says what came of stopping the task's agents", () => {
   assert.match(failed, /Stopping agent w3 failed: it may still be working\./);
   assert.doesNotMatch(failed, /were stopped/);
   assert.equal(botTurnKind(botCancelText(2))?.kind, "bot_note");
+});
+
+test("the clock note gives the time where schedules run, not UTC", () => {
+  // 2026-11-22T01:16:00Z is still Saturday evening in São Paulo.
+  const note = botClockNote(Date.UTC(2026, 10, 22, 1, 16), "America/Sao_Paulo");
+  assert.match(note, /Sat, Nov 21, 2026, 22:16/);
+  assert.match(note, /America\/Sao_Paulo/);
 });
