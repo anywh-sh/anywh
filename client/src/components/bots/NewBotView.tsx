@@ -22,6 +22,14 @@ import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { cn } from "@/lib/utils";
 
+/** The intro's dot grid: the room canvas's `--canvas-grid` dots, faded toward
+ * the edges (under it, the new-session line grid, `.idle-grid`). */
+const DOT_GRID_STYLE = {
+  backgroundImage: "radial-gradient(circle, var(--canvas-grid) 1px, transparent 1.5px)",
+  backgroundSize: "24px 24px",
+  maskImage: "radial-gradient(ellipse at center, black 30%, transparent 85%)",
+} as const;
+
 /** Agents a bot can run on: the ones a room can (the agent host runs them). */
 const BOT_RUNTIMES = ["claude", "codex"];
 
@@ -377,8 +385,10 @@ function Intro({ onTemplates, onScratch }: { onTemplates: (picked?: BotTemplate)
     { icon: <span className="mx-1 block size-1.5 rounded-full bg-primary" />, title: copy.quiet, body: copy.quietBody },
   ];
   return (
-    <div className="h-full overflow-auto" data-testid="new-bot-view">
-      <div className="flex min-h-full items-center justify-center px-10 py-12" data-testid="new-bot-intro">
+    <div className="relative h-full overflow-auto" data-testid="new-bot-view">
+      <div aria-hidden className="idle-grid pointer-events-none absolute inset-0" />
+      <div aria-hidden className="pointer-events-none absolute inset-0" style={DOT_GRID_STYLE} />
+      <div className="relative flex min-h-full items-center justify-center px-10 py-12" data-testid="new-bot-intro">
         <div className="flex w-full max-w-[680px] flex-col items-center gap-6 text-center">
           <div className="flex items-end gap-4" aria-hidden>
             {BOT_TEMPLATES.map((each) => (
@@ -389,7 +399,7 @@ function Intro({ onTemplates, onScratch }: { onTemplates: (picked?: BotTemplate)
             <h1 className="text-[28px] leading-tight font-semibold text-foreground">{copy.title}</h1>
             <p className="mx-auto max-w-[540px] text-sm leading-relaxed text-muted-foreground">{dict.bots.emptyBody}</p>
           </div>
-          <div className="grid w-full grid-cols-1 border border-border text-left md:grid-cols-3">
+          <div className="grid w-full grid-cols-1 border border-border bg-background text-left md:grid-cols-3">
             {features.map((each) => (
               <div key={each.title} className="flex flex-col gap-1.5 border-border p-4 not-last:border-b md:not-last:border-r md:not-last:border-b-0">
                 <span className="flex h-3.5 items-center text-muted-foreground">{each.icon}</span>
@@ -402,7 +412,7 @@ function Intro({ onTemplates, onScratch }: { onTemplates: (picked?: BotTemplate)
             {BOT_TEMPLATES.slice(0, 3).map((each) => {
               const words = dict.bots.templates[each.id];
               return (
-                <RowButton key={each.id} size="auto" onClick={() => onTemplates(each)} className="gap-2.5 border border-border p-3 hover:bg-surface-hover">
+                <RowButton key={each.id} size="auto" onClick={() => onTemplates(each)} className="gap-2.5 border border-border bg-background p-3 hover:bg-surface-hover">
                   <Mascot seed={each.seed} size={20} />
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate text-[13px] text-foreground">{words.name}</span>
