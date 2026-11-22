@@ -44,6 +44,11 @@ import { useTabPanelActions } from "@/hooks/useTabPanelActions";
 import { useSessionNames } from "@/hooks/relay/useSessionNames";
 import { useSessionListBootstrap } from "@/hooks/tabs/useSessionListBootstrap";
 import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
+import { useBotActions } from "@/hooks/useBotActions";
+import { botTemplatesTabId, isBotPageTab, isBotTemplatesTab } from "@/lib/bots/botTabs";
+import { NewBotDialog } from "@/components/bots/NewBotDialog";
+import { useBots } from "@/lib/bots/botsStore";
+import { loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useResizableSidebar } from "@/hooks/tabs/useResizableSidebar";
 import { useIsCompactViewport } from "@/hooks/platform/useIsCompactViewport";
@@ -315,7 +320,9 @@ function AppShell() {
   // No active tab means no conversation is trying to connect at all — showing
   // "Reconnecting…" on the idle screen would be reporting a disconnect that
   // doesn't exist, since `false` here used to mean "no tab" as much as "really down".
-  const activeConnected = activeTabId ? (connectedByTab[activeTabId] ?? false) : true;
+  // A bot page (new bot, settings) has no connection of its own to report: it
+  // reads as no tab.
+  const activeConnected = activeTabId && !isBotPageTab(activeTabId) ? (connectedByTab[activeTabId] ?? false) : true;
 
   // Clears the "turn complete" badge of the tab that's visible now.
   useEffect(() => {
@@ -536,6 +543,17 @@ function AppShell() {
     planUsage.refresh(undefined, true);
   };
 
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  // The iOS drawer's sections (the desktop sidebar keeps its own, in the same
+  // place on disk).
+  const activeBots = useBots(activeProfile.id);
+  const [drawerSection, setDrawerSection] = useState<SidebarSection>(loadSidebarSection);
+  const changeDrawerSection = useCallback((section: SidebarSection) => {
+    setDrawerSection(section);
+    saveSidebarSection(section);
+  }, []);
+  const { botActions } = useBotActions({ activeProfile, tabsState, onNavigated: closeDrawer, openPane: handleOpenPane });
+
   const sidebarProps = {
     activeProfile,
     profiles,
@@ -545,7 +563,7 @@ function AppShell() {
     onToggleAllProfiles: toggleAllProfiles,
     onClearProfileFilter: clearProfileFilter,
     onOpenSearch: openSearch,
-    newSessionActive: activeTab?.isNew === true && activeTab.title === null,
+    newSessionActive: activeTab?.isNew === true && activeTab.title === null && !isBotTemplatesTab(activeTab.id),
     sessions,
     sessionsLoading,
     sessionsError,
@@ -557,6 +575,7 @@ function AppShell() {
     onNewConversation,
     onRenameSession: onRenameSessionRow,
     onDeleteSession: onDeleteSessionRow,
+    botActions,
   };
 
 
@@ -592,7 +611,7 @@ function AppShell() {
       tab={tab}
       groupId={groupId}
       profile={findProfile(tab.profileId) ?? getProfiles()[0]}
-      dock={sessionDock.getVisibleDock(tab.id, groupId, tab.room ? "agent" : "none")}
+      dock={sessionDock.getVisibleDock(tab.id, groupId, tab.room ? "agent" : tab.bot ? "bot" : "none")}
       // "This tab is the active one of its own group" — drives panel
       // visibility, dock mounting, MessageLog's scroll re-sync and the native
       // drag-drop guard. With a group split, up to one per group can be true
@@ -689,7 +708,7 @@ function AppShell() {
           rightPanelShown={(_groupId, tabId) => tabId !== null && sessionDock.isPanelShown()}
           onToggleRightPanel={(_groupId, tabId) =>
             // A panel with nothing in it opens a room on its agent's conversation, anything else on the "no selection" view.
-            sessionDock.togglePanel(tabId, tabsState.tabs.find((tab) => tab.id === tabId)?.room ? "agent" : "none")
+            sessionDock.togglePanel(tabId, ((tab) => (tab?.room ? "agent" : tab?.bot ? "bot" : "none"))(tabsState.tabs.find((tab) => tab.id === tabId)))
           }
           stripTrailing={windowControls}
           stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
@@ -713,6 +732,22 @@ function AppShell() {
     />
   );
 
+  // One "New bot" dialog for both layouts. A bot made from the templates tab
+  // takes that tab's place; from anywhere else it opens a tab of its own.
+  const newBotDialog = (
+    <NewBotDialog
+      onCreated={(bot, botProfile, request) => {
+        if (request.fromTabId !== undefined && isBotTemplatesTab(request.fromTabId)) tabsState.convertToBot(request.fromTabId, bot.roomId, bot.name, botProfile.id);
+        else tabsState.openTab(botProfile.id, bot.roomId, bot.name, false, false, true);
+        closeDrawer();
+      }}
+      onTemplates={(profileId) => {
+        tabsState.openTab(profileId, botTemplatesTabId(profileId), null, true);
+        closeDrawer();
+      }}
+    />
+  );
+
   useNativeShell({
     enabled: isIOS(),
     sessions,
@@ -732,6 +767,11 @@ function AppShell() {
     onRenameSession: handleRenameSession,
     onDeleteSession: handleDeleteSession,
     onNewConversation: handleNewConversation,
+    bots: activeBots,
+    section: drawerSection,
+    onSelectBot: botActions.onSelectBot,
+    onNewBot: botActions.onNewBot,
+    onSection: changeDrawerSection,
   });
 
   if (isIOS()) {
@@ -744,6 +784,7 @@ function AppShell() {
       <div className="flex h-full w-screen flex-col overflow-hidden bg-background text-foreground">
         <RevokedProfileBanners />
         {profileSetupDialog}
+        {newBotDialog}
         <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
         {/* `relative` stays for the web stack floating above the native
          * composer (see the comment on the desktop branch); the drawer, top
@@ -780,6 +821,7 @@ function AppShell() {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
+      {newBotDialog}
       {/* Bottom offset clears the 28px status bar with the same 12px gap the
           right edge keeps from the window. */}
       <Toaster position="bottom-right" offset={{ bottom: 40, right: 12 }} />

@@ -143,3 +143,31 @@ test("a subtask's new activity alone is a change: the agent goes out again with 
     room.close();
   }
 });
+
+test("a bot's room sends the bot whole, and again only when it changed", async () => {
+  let bot: unknown = { name: "Vigia", tasks: [] };
+  const source: RoomStateSource = { snapshot: (roomId) => (roomId === "r" ? { roomId, agents: [], summary: summarizeRoom([]), bot } : undefined) };
+  const channel = new RoomChannel(source, 5);
+  const http = createServer();
+  const wss = new WebSocketServer({ server: http });
+  wss.on("connection", (socket) => channel.watch("r", socket));
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  const socket = new WebSocket(`ws://127.0.0.1:${(http.address() as AddressInfo).port}/`);
+  const messages: Record<string, unknown>[] = [];
+  socket.on("message", (raw: Buffer) => messages.push(JSON.parse(raw.toString()) as Record<string, unknown>));
+  try {
+    await until(() => messages.length >= 1);
+    assert.deepEqual(messages[0].bot, { name: "Vigia", tasks: [] });
+    channel.touch("r");
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(messages.filter((m) => m.type === "room_bot").length, 0, "nothing changed, nothing sent");
+    bot = { name: "Vigia", tasks: [{ n: 1 }] };
+    channel.touch("r");
+    await until(() => messages.some((m) => m.type === "room_bot"));
+    assert.deepEqual(messages.find((m) => m.type === "room_bot")!.bot, { name: "Vigia", tasks: [{ n: 1 }] });
+  } finally {
+    socket.close();
+    wss.close();
+    http.close();
+  }
+});

@@ -24,6 +24,7 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "croner": "^11.0.1",
     "gpt-tokenizer": "^4.0.0",
     "node-pty": "^1.1.0",
     "smol-toml": "^1.8.0",

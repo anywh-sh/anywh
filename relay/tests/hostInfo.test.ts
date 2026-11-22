@@ -51,6 +51,11 @@ test("GET /host-info: both env vars absent hides the feature", async () => {
   assert.match(body.version as string, /^\d+\.\d+\.\d+$/);
 });
 
+test("GET /host-info names the features this relay has, bots included", async () => {
+  const body = (await (await fetch(httpUrl("/host-info"))).json()) as { features?: unknown };
+  assert.ok(Array.isArray(body.features) && body.features.includes("bots"));
+});
+
 test("GET /host-info: ANYWH_EDITOR_LOCAL=1 resolves to local for a real loopback peer", async () => {
   process.env.ANYWH_EDITOR_LOCAL = "1";
   const body = (await (await fetch(httpUrl("/host-info"))).json()) as { editor: unknown };

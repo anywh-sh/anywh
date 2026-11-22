@@ -27,6 +27,9 @@ export type LogEntry =
    * pattern as `background-job-note`, but with no per-instance label: unlike
    * an `anywh-bg` job, a wakeup carries no name of its own. */
   | { kind: "wakeup-note"; id: string }
+  /** A bot's own relay turn: a schedule firing (`label` = its name), its
+   * creation (`created`) or the person's answer to a task (`answer:<n>`). */
+  | { kind: "bot-note"; id: string; schedule: boolean; label: string }
   /** Closes a turn: how long the agent worked and everything it said, for
    * the copy button. `sentAt` is when the turn's last text landed (or now). */
   | { kind: "turn-footer"; id: string; sentAt: number; durationMs?: number; text: string };
@@ -280,6 +283,9 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       }
       if (event.synthetic === "wakeup") {
         return { ...state, entries: [...state.entries, { kind: "wakeup-note", id: newId() }] };
+      }
+      if (event.synthetic === "bot_schedule" || event.synthetic === "bot_note") {
+        return { ...state, entries: [...state.entries, { kind: "bot-note", id: newId(), schedule: event.synthetic === "bot_schedule", label: event.label ?? "" }] };
       }
       // `event.timestamp` only comes filled in during replay/history or in
       // the broadcast to OTHER devices — whoever sent the message already

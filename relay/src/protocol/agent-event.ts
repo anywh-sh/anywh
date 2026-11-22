@@ -35,6 +35,13 @@ export interface RoomReportCard {
   at: number;
 }
 
+/** What started a turn that was not a person's message: an `anywh-bg` job
+ * finishing, a `ScheduleWakeup` timer, approved tool calls, a room's digest,
+ * a bot's schedule firing (`bot_schedule`, `label` = the schedule's name), or
+ * a bot's other relay turns (`bot_note`: its creation, an answer the person
+ * gave in its task list; `label` says which). */
+export type SyntheticTurnKind = "background_job" | "wakeup" | "approval" | "room_digest" | "bot_schedule" | "bot_note";
+
 /** What a room turn showed as a card instead of a chat bubble — see the
  * `user_message` variant. `reports`: the agents an agent started reported
  * back (its digest); `instruction`: an agent above this one handed it work
@@ -153,7 +160,7 @@ export type AgentEvent =
    * it always did.
    * `timestamp` is the real on-disk time on replay, absent live (whoever
    * sent it already knows the click's own time). */
-  | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job" | "wakeup" | "approval" | "room_digest"; label?: string; room?: RoomCard }
+  | { type: "user_message"; text: string; timestamp?: string; synthetic?: SyntheticTurnKind; label?: string; room?: RoomCard }
   /** Live streaming preview of a growing text block — `index` correlates
    * multiple chunks (and, in principle, multiple concurrently-streaming
    * blocks) to the same block before it commits as `text`. A number for a

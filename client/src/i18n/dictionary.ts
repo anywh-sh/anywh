@@ -1872,4 +1872,197 @@ export interface Dictionary {
       saveFailed: string;
     };
   };
+  bots: {
+    section: string;
+    conversations: string;
+    newBot: string;
+    emptyTitle: string;
+    emptyBody: string;
+    emptyCta: string;
+    /** The sidebar's card while the profile has no bot: one line, two ways in. */
+    firstBot: {
+      title: string;
+      create: string;
+      templates: string;
+    };
+    /** Shown beside a folded Bots section: `{count}` bots need the person. */
+    collapsedNeedsYou: string;
+    status: {
+      /** `{count}`. */
+      needsYou: string;
+      /** `{count}`. */
+      working: string;
+      busy: string;
+      paused: string;
+      setup: string;
+      failed: string;
+      /** Its agent hit a usage limit; `{time}`: when it is back. */
+      limited: string;
+      /** `{name}`, `{time}`. */
+      next: string;
+      idle: string;
+    };
+    conversation: string;
+    /** `{count}`. */
+    workers: string;
+    menu: { settings: string; pause: string; resume: string; delete: string };
+    panel: {
+      open: string;
+      close: string;
+      tasks: string;
+      groups: { needs_you: string; working: string; planned: string; done: string };
+      noTasks: string;
+      /** `{name}`. */
+      noTasksBody: string;
+      automations: string;
+      /** `{name}`. */
+      noAutomations: string;
+      runNow: string;
+      pause: string;
+      resume: string;
+      remove: string;
+      paused: string;
+      running: string;
+      /** `{time}`. */
+      nextRun: string;
+      lastRun: { replied: string; silent: string; failed: string; missed: string; limited: string };
+      conversationNeedsYou: string;
+      actionFailed: string;
+    };
+    task: {
+      back: string;
+      doneMeans: string;
+      workers: string;
+      openConversation: string;
+      history: string;
+      cancel: string;
+      recommended: string;
+      answerPlaceholder: string;
+      answer: string;
+      answerFailed: string;
+      workerAsks: string;
+      status: { planned: string; working: string; needs_you: string; done: string; canceled: string };
+      worker: { working: string; waiting: string; done: string; failed: string; stopped: string; gone: string };
+    };
+    activity: {
+      /** `{n}`. */
+      created: string;
+      /** `{n}`. */
+      updated: string;
+      /** `{n}`. */
+      asked: string;
+      delegated: string;
+      remembered: string;
+      forgot: string;
+      soul: string;
+      scheduled: string;
+      scheduleChanged: string;
+      scheduleRemoved: string;
+      status: string;
+      messaged: string;
+      stopped: string;
+    };
+    turn: {
+      /** `{name}`. */
+      schedule: string;
+      created: string;
+      /** `{n}`. */
+      answer: string;
+      /** `{n}`. */
+      canceled: string;
+    };
+    /** The mascot picker: the ten characters and eight tones. */
+    mascot: {
+      characters: Record<"bip" | "visor" | "headset" | "quiff" | "helmet" | "cyclops" | "screen" | "specs" | "chip" | "propeller", string>;
+      tones: Record<"chalk" | "sand" | "sage" | "olive" | "rose" | "cloud" | "slate" | "stone", string>;
+      /** Opens the picker, after `{character} · {tone}`. */
+      change: string;
+      /** The picker's own label (its trigger and dialog name). */
+      pick: string;
+      previous: string;
+      next: string;
+      tone: string;
+    };
+    /** The "Templates" tab: what bots are, and a card per template. */
+    templatesTab: {
+      /** The tab's title. */
+      title: string;
+      heading: string;
+      anywhere: string;
+      anywhereBody: string;
+      delegates: string;
+      delegatesBody: string;
+      quiet: string;
+      quietBody: string;
+      list: string;
+      scratch: string;
+      scratchWhen: string;
+      scratchBody: string;
+      watches: string;
+      reports: string;
+    };
+    /** The "New bot" dialog. */
+    create: {
+      title: string;
+      namePlaceholder: string;
+      /** The mascot frame's label: it opens the picker. */
+      changeMascot: string;
+      soul: string;
+      soulPlaceholder: string;
+      agent: string;
+      profile: string;
+      /** A template's bot starts reading and reporting only: it is a rule of
+       * its soul, not a lock. */
+      readOnly: string;
+      /** `{when}`: the template's schedule, off until the person turns it on. */
+      scheduleOff: string;
+      /** `{when}`. */
+      scheduleOn: string;
+      fromTemplate: string;
+      create: string;
+      creating: string;
+      failed: string;
+      noHost: string;
+    };
+    templates: Record<"daily-summary" | "pr-review" | "ci-check" | "issue-triage" | "backlog-cleanup", { name: string; line: string; watches: string; does: string; reports: string; example: string; when: string; soul: string; scheduleName: string }>;
+    /** A bot from scratch: `{soul}`, what the person wrote, then the rule
+     * that it changes nothing until they say so. */
+    blankSoul: string;
+    /** Shown where bots would be when the profile's relay predates them. */
+    relayGate: {
+      title: string;
+      /** `{current}`. */
+      body: string;
+      bodyUnknown: string;
+      update: string;
+      updating: string;
+      updated: string;
+      brewHint: string;
+      manualHint: string;
+    };
+    settings: {
+      nameAndMascot: string;
+      /** The section with pausing and deleting the bot. */
+      pauseOrDelete: string;
+      soul: string;
+      memory: string;
+      memoryEmpty: string;
+      kinds: { rule: string; preference: string; fact: string };
+      edit: string;
+      remove: string;
+      save: string;
+      cancel: string;
+      automations: string;
+      bot: string;
+      rename: string;
+      pause: string;
+      resume: string;
+      pauseHint: string;
+      delete: string;
+      /** `{name}`. */
+      deleteConfirm: string;
+      saved: string;
+      saveFailed: string;
+    };
+  };
 }

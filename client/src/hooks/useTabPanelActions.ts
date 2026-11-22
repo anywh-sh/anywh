@@ -1,4 +1,5 @@
 import { useMemo, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { botByRoom } from "@/lib/bots/botsStore";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { DockPaneKind, useSessionDock } from "@/hooks/tabs/useSessionDock";
 import type { useTabs } from "@/hooks/tabs/useTabs";
@@ -117,6 +118,9 @@ export function useTabPanelActions({
         // one currently selected. No timestamp: this also fires for a rename
         // made on another device, which must not move the row, and a session
         // not listed yet is stamped "now" by the cache on its own.
+        // A bot's conversation is listed with the bots, never among the
+        // conversations (the relay leaves it out of the list the same way).
+        if (tab.bot || botByRoom(tab.id)) return;
         upsertCachedSession(tab.profileId, tab.id, title, undefined, tab.room, pending);
       },
       onActivity: (tab) => {

@@ -20,6 +20,11 @@ export function withRelayNote(text: string, note: string): string {
  * context after it was born (the rest of it names the items). */
 export const ROOM_CONTEXT_NOTE_PREFIX = "New in the room's context since you started:";
 
+/** Starts the note a bot gets on every turn (the host's time, and its
+ * first conversation's instructions until it writes its soul). The rest may
+ * span lines: it is the last thing the relay appends, so all of it goes. */
+export const BOT_TURN_NOTE_PREFIX = "For you, the bot:";
+
 /** The text without the relay notes at its end; unchanged unless it ENDS
  * with the marker followed by exactly one of the notes the relay adds (or a
  * room-context notice, which names items). Several stacked notes all go. */
@@ -39,5 +44,7 @@ function stripOne(text: string): string {
   }
   const at = text.lastIndexOf(`${RELAY_NOTE_MARKER}${ROOM_CONTEXT_NOTE_PREFIX}`);
   if (at >= 0 && !text.slice(at + RELAY_NOTE_MARKER.length).includes("\n")) return text.slice(0, at);
+  const bot = text.lastIndexOf(`${RELAY_NOTE_MARKER}${BOT_TURN_NOTE_PREFIX}`);
+  if (bot >= 0) return text.slice(0, bot);
   return text;
 }

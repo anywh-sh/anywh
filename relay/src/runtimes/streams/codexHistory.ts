@@ -1,4 +1,5 @@
 import type { AgentEvent } from "../../protocol/agent-event.js";
+import { botTurnKind } from "../../protocol/botTurns.js";
 import { splitRoomCard } from "../../protocol/roomCard.js";
 import { stripRelayNote } from "../../protocol/relayNote.js";
 import { mapCodexNotification } from "./codexAppServer.js";
@@ -47,7 +48,15 @@ export function codexTurnsToEvents(turns: StoredTurn[]): AgentEvent[] {
       if (item.type === "userMessage") {
         const { text, card } = splitRoomCard(stripRelayNote(userText(item)));
         if (text) {
-          events.push({ type: "user_message", text, ...(card ? { room: card } : {}), ...(card?.kind === "reports" ? { synthetic: "room_digest" as const } : {}), ...(startedAtMs !== undefined ? { timestamp: new Date(startedAtMs).toISOString() } : {}) });
+          const bot = botTurnKind(text);
+          events.push({
+            type: "user_message",
+            text,
+            ...(card ? { room: card } : {}),
+            ...(card?.kind === "reports" ? { synthetic: "room_digest" as const } : {}),
+            ...(bot ? { synthetic: bot.kind, label: bot.label } : {}),
+            ...(startedAtMs !== undefined ? { timestamp: new Date(startedAtMs).toISOString() } : {}),
+          });
         }
         continue;
       }

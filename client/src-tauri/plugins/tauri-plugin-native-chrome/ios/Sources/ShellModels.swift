@@ -135,6 +135,34 @@ struct DrawerGroup: Decodable, Identifiable {
   let sessions: [DrawerSession]
 }
 
+/// A bot of the drawer's Bots section. Its face arrives drawn: 256
+/// characters, row by row, `.` empty and `a`, `b`, ... the first, second, ...
+/// color of `mascotPalette`.
+struct DrawerBot: Decodable, Identifiable {
+  let id: String
+  let roomId: String
+  let name: String
+  let line: String
+  let tone: String
+  let mascot: String
+  let mascotPalette: [String]
+  let badge: String?
+  let selected: Bool
+}
+
+/// Bots and Conversations take turns in the drawer: the open section on top,
+/// the other folded to its heading at the bottom.
+struct DrawerBots: Decodable {
+  let section: String
+  let botsLabel: String
+  let conversationsLabel: String
+  let newBotLabel: String
+  let emptyTitle: String
+  let emptyBody: String
+  let waitingLabel: String
+  let items: [DrawerBot]
+}
+
 struct DrawerArgs: Decodable {
   let theme: ShellTheme
   let strings: DrawerStrings
@@ -144,6 +172,8 @@ struct DrawerArgs: Decodable {
   let error: Bool
   let hasMore: Bool
   let groups: [DrawerGroup]
+  /// Optional: absent from a web build without bots.
+  let bots: DrawerBots?
 }
 
 struct GestureHintArgs: Decodable {
@@ -181,6 +211,14 @@ struct EffortEvent: Encodable {
 
 struct ProfileEvent: Encodable {
   let profileId: String
+}
+
+struct BotEvent: Encodable {
+  let botId: String
+}
+
+struct SectionEvent: Encodable {
+  let section: String
 }
 
 extension UIColor {
@@ -237,4 +275,7 @@ final class DrawerStore: ObservableObject {
   var onRetry: () -> Void = {}
   var onRename: (DrawerSession, String) -> Void = { _, _ in }
   var onDelete: (DrawerSession) -> Void = { _ in }
+  var onSelectBot: (DrawerBot) -> Void = { _ in }
+  var onNewBot: () -> Void = {}
+  var onSection: (String) -> Void = { _ in }
 }

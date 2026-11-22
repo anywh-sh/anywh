@@ -27,6 +27,8 @@ function identity(entry: LogEntry): string {
       return `error\0${entry.message}`;
     case "background-job-note":
       return `background-job-note\0${entry.label}`;
+    case "bot-note":
+      return `bot-note\0${entry.label}`;
     case "turn-footer":
       return `turn-footer\0${entry.text}`;
     case "stopped":

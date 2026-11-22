@@ -1,4 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { BotActivityLine } from "@/components/bots/BotActivityLine";
+import { BotNote } from "@/components/bots/BotNote";
+import { botActivityOf } from "@/lib/bots/botActivity";
 import { Loader2 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -176,10 +179,18 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
           />
         </LogEntryRow>
       );
-    case "tool-call":
+    case "tool-call": {
+      const botActivity = botActivityOf(entry);
+      return (
+        <LogEntryRow key={entry.id} className={botActivity ? "py-0.5" : undefined}>
+          {botActivity ? <BotActivityLine activity={botActivity} /> : <ToolCallCard call={entry} />}
+        </LogEntryRow>
+      );
+    }
+    case "bot-note":
       return (
         <LogEntryRow key={entry.id}>
-          <ToolCallCard call={entry} />
+          <BotNote schedule={entry.schedule} label={entry.label} />
         </LogEntryRow>
       );
     case "turn-footer":

@@ -9,6 +9,7 @@ import type { RoomCanvasStore } from "../session/roomCanvas.js";
 import type { RoomContextStore } from "../session/roomContextStore.js";
 import type { ContextTally } from "../session/roomContextUsage.js";
 import type { RoomManager } from "../session/roomManager.js";
+import type { BotManager } from "../session/botManager.js";
 import type { SessionStore } from "../session/sessionStore.js";
 
 /** Shared server-lifetime state a route handler needs — everything else
@@ -42,6 +43,8 @@ export interface RouteContext {
   /** Each room's canvas (layout only), persisted beside the sessions file. */
   readonly roomCanvas: RoomCanvasStore;
   readonly roomManager: RoomManager;
+  /** The profile's bots (rooms with an identity, a task list and schedules). */
+  readonly botManager: BotManager;
   /** Each room's context folder and its index. */
   readonly roomContext: RoomContextStore;
   /** How full each room agent's context window is. */

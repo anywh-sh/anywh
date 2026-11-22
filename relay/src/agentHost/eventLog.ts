@@ -486,12 +486,19 @@ export class LogReader {
       }
       let target = first;
       for (const segment of segments) if (segment.base <= offset) target = segment;
+      let handle: FileHandle;
       try {
-        this.handle = await open(target.path, "r");
+        handle = await open(target.path, "r");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // retention raced us
         throw error;
       }
+      // Closed while the file was opening: nothing else would close it now.
+      if (this.closed) {
+        await handle.close().catch(() => {});
+        return { kind: "end" };
+      }
+      this.handle = handle;
       this.segment = target;
       // The active segment is never compacted, so its physical and logical
       // positions agree and we can seek. A sealed one may have been, so it is

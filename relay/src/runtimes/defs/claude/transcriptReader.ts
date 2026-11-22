@@ -5,6 +5,7 @@ import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
 import { isNoReply, markSilent, promptOffersSilence, ROOM_DIGEST_PREFIX } from "../../../protocol/silentEvents.js";
+import { botTurnKind } from "../../../protocol/botTurns.js";
 import { stripRelayNote } from "../../../protocol/relayNote.js";
 import { splitRoomCard } from "../../../protocol/roomCard.js";
 
@@ -136,7 +137,15 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
   let turnUserEvent: Extract<AgentEvent, { type: "user_message" }> | undefined;
   let turnOffered = false;
   let turnAssistantTexts: string[] = [];
+  /** Its text blocks since the last tool call: with tools allowed, the answer. */
+  let turnTextsSinceTool: string[] = [];
   let turnUsedTool = false;
+  /** A bot's scheduled run: tool calls do not keep it from being silent... */
+  let turnToolsAllowed = false;
+  /** ...unless one of them changed what the person sees (a task, a
+   * delegation, a schedule, its memory, a plan, a native subagent): live,
+   * those release the turn. */
+  let turnBotChange = false;
   // Live, a Stop (`stopped: true`) is never silenced. The transcript has no
   // stop record of its own, only the "[Request interrupted by user]" user
   // line Claude Code appends right after an interrupted turn, so that line
@@ -151,11 +160,15 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
    * `protocol/silentEvents.ts`): one `user_message` + `turn_ended`, so the turn
    * count still matches the transcript's `user` lines. Returns whether it did. */
   function collapseIfSilent(): boolean {
-    if (!turnUserEvent || !turnOffered || turnUsedTool || turnInterrupted || !isNoReply(turnAssistantTexts.join("\n"))) return false;
+    if (!turnUserEvent || !turnOffered || (turnUsedTool && !turnToolsAllowed) || turnBotChange || turnInterrupted) return false;
+    if (!isNoReply((turnToolsAllowed ? turnTextsSinceTool : turnAssistantTexts).join("\n"))) return false;
     messages.length = turnStartIdx;
     // A card is the person's notification of the report, so it stays visible
     // (live, `runTurn` broadcasts it outside the held turn).
-    messages.push({ type: "agent_event", event: turnUserEvent.room ? turnUserEvent : markSilent(turnUserEvent) });
+    // A room's card and a schedule's note stay, as they did live: only the
+    // answer was silent.
+    const keepsNote = turnUserEvent.room !== undefined || (turnUserEvent.type === "user_message" && turnUserEvent.synthetic === "bot_schedule");
+    messages.push({ type: "agent_event", event: keepsNote ? turnUserEvent : markSilent(turnUserEvent) });
     messages.push({ type: "agent_event", event: markSilent({ type: "turn_ended", stopped: false }) });
     return true;
   }
@@ -200,8 +213,16 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
         for (const block of content) {
           if (typeof block !== "object" || block === null) continue;
           const kind = (block as { type?: unknown }).type;
-          if (kind === "tool_use") turnUsedTool = true;
-          else if (isTextBlock(block)) turnAssistantTexts.push(block.text);
+          if (kind === "tool_use") {
+            turnUsedTool = true;
+            turnTextsSinceTool = [];
+            const name = (block as { name?: unknown }).name;
+            if (typeof name === "string" && releasesSilentRun(name)) turnBotChange = true;
+          }
+          else if (isTextBlock(block)) {
+            turnAssistantTexts.push(block.text);
+            turnTextsSinceTool.push(block.text);
+          }
         }
       }
       // Real timestamp of the line (same as `user_prompt` below) —
@@ -238,7 +259,10 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       turnUserEvent = undefined;
       turnOffered = false;
       turnAssistantTexts = [];
+      turnTextsSinceTool = [];
       turnUsedTool = false;
+      turnToolsAllowed = false;
+      turnBotChange = false;
       turnInterrupted = false;
       messages.push({ type: "agent_event", event: { type: "turn_started", ...(lineMs !== undefined ? { startedAt: lineMs } : {}) } });
       // Real timestamp of the line — the client uses this to show
@@ -254,8 +278,18 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       });
       const synthetic = backgroundJobPrompt(humanText);
       const digest = card?.kind === "reports" || humanText.startsWith(ROOM_DIGEST_PREFIX);
+      const bot = botTurnKind(humanText);
       const pushed = messages.at(-1)?.event;
-      if (card && !digest && pushed?.type === "user_message") {
+      if (bot && pushed?.type === "user_message") {
+        // A bot's own relay turn (a schedule, an answer, its creation): a
+        // note, as live. A schedule's run may have looked things up before
+        // answering NO_REPLY, so only its last text decides the silence.
+        const event: AgentEvent = { ...pushed, synthetic: bot.kind, label: bot.label };
+        messages[messages.length - 1] = { type: "agent_event", event };
+        turnUserEvent = event;
+        turnOffered = bot.kind === "bot_schedule";
+        turnToolsAllowed = bot.kind === "bot_schedule";
+      } else if (card && !digest && pushed?.type === "user_message") {
         const event: AgentEvent = { ...pushed, room: card };
         messages[messages.length - 1] = { type: "agent_event", event };
       } else if ((synthetic || digest) && pushed?.type === "user_message") {
@@ -323,3 +357,15 @@ function backgroundJobPrompt(text: string): { label: string | undefined } | unde
 
 /** Text Claude Code writes as a user line when the user interrupts a turn. */
 const INTERRUPT_MARKER = "[Request interrupted by user";
+
+/** Tool calls that release a bot's held scheduled run live
+ * (`sharedSession.ts`'s `HeldTurn`), by name as the transcript records them:
+ * the bot's own room tools that change something visible, and the built-ins
+ * whose events release it there — `TodoWrite` (a `plan`) and a native
+ * subagent (`Task`, `Agent` in newer CLIs; a `subagent`). */
+function releasesSilentRun(name: string): boolean {
+  if (name === "TodoWrite" || name === "Task" || name === "Agent") return true;
+  // An edit or a new file is never hidden, as live (its `edit`/`write` subject).
+  if (name === "Write" || name === "Edit" || name === "MultiEdit" || name === "NotebookEdit") return true;
+  return name.startsWith("mcp__anywh-room__") && name !== "mcp__anywh-room__bot_status";
+}

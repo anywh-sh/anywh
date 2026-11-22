@@ -5,8 +5,12 @@
 import type { WebSocket } from "ws";
 import type { RoomAgentView, RoomSnapshot, RoomSummary } from "./roomState.js";
 
+/** A room's state as the channel sends it: a bot's room also carries the
+ * bot (its tasks and schedules), sent whole whenever it changes. */
+export type ChannelSnapshot = RoomSnapshot & { bot?: unknown };
+
 export interface RoomStateSource {
-  snapshot(roomId: string): RoomSnapshot | undefined;
+  snapshot(roomId: string): ChannelSnapshot | undefined;
 }
 
 interface Watched {
@@ -14,6 +18,7 @@ interface Watched {
   /** What each agent looked like when it was last sent (as JSON). */
   sent: Map<string, string>;
   sentSummary: string;
+  sentBot: string;
   timer: NodeJS.Timeout | undefined;
 }
 
@@ -32,7 +37,7 @@ export class RoomChannel {
     if (!snapshot) return false;
     let watched = this.rooms.get(roomId);
     if (!watched) {
-      watched = { sockets: new Set(), sent: new Map(), sentSummary: "", timer: undefined };
+      watched = { sockets: new Set(), sent: new Map(), sentSummary: "", sentBot: "", timer: undefined };
       this.rooms.set(roomId, watched);
     }
     const first = watched.sockets.size === 0;
@@ -79,9 +84,10 @@ export class RoomChannel {
     for (const socket of watched.sockets) socket.close(1000, "room deleted");
   }
 
-  private remember(watched: Watched, snapshot: RoomSnapshot): void {
+  private remember(watched: Watched, snapshot: ChannelSnapshot): void {
     watched.sent = new Map(snapshot.agents.map((agent) => [agent.agentId, JSON.stringify(agent)]));
     watched.sentSummary = JSON.stringify(snapshot.summary);
+    watched.sentBot = JSON.stringify(snapshot.bot ?? null);
   }
 
   private flush(roomId: string, watched: Watched): void {
@@ -108,6 +114,11 @@ export class RoomChannel {
     if (summaryJson !== watched.sentSummary) {
       watched.sentSummary = summaryJson;
       messages.push({ type: "room_summary", roomId, summary: snapshot.summary satisfies RoomSummary });
+    }
+    const botJson = JSON.stringify(snapshot.bot ?? null);
+    if (botJson !== watched.sentBot) {
+      watched.sentBot = botJson;
+      if (snapshot.bot !== undefined) messages.push({ type: "room_bot", roomId, bot: snapshot.bot });
     }
     for (const message of messages) {
       const payload = JSON.stringify(message);

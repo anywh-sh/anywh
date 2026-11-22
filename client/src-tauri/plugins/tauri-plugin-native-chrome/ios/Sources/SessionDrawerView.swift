@@ -45,10 +45,127 @@ struct SessionDrawerView: View {
     VStack(alignment: .leading, spacing: 14) {
       header(theme)
       if args.profiles.count > 1 { profilePicker(args, theme) }
-      list(args, theme)
+      if let bots = args.bots {
+        // Bots and Conversations take turns: the open one fills the drawer,
+        // the other folds to its heading at the bottom.
+        if bots.section == "bots" {
+          sectionHeading(bots.botsLabel, open: true, bots: bots, theme: theme, showAdd: true)
+          botList(bots, theme)
+          Spacer(minLength: 0)
+          sectionHeading(bots.conversationsLabel, open: false, bots: bots, theme: theme, showAdd: false)
+        } else {
+          sectionHeading(bots.conversationsLabel, open: true, bots: bots, theme: theme, showAdd: false)
+          list(args, theme)
+          Spacer(minLength: 0)
+          sectionHeading(bots.botsLabel, open: false, bots: bots, theme: theme, showAdd: true)
+        }
+      } else {
+        list(args, theme)
+      }
     }
     .padding(.horizontal, 16)
     .padding(.top, 8)
+  }
+
+  /// A section's heading. Tapping the folded one opens it (and folds the
+  /// other); the folded Bots heading still says when a bot waits.
+  private func sectionHeading(_ label: String, open: Bool, bots: DrawerBots, theme: ShellTheme, showAdd: Bool) -> some View {
+    HStack(spacing: 8) {
+      Button {
+        if !open { store.onSection(bots.section == "bots" ? "conversations" : "bots") }
+      } label: {
+        HStack(spacing: 6) {
+          Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))
+          Text(label)
+            .font(.system(size: 11, design: .monospaced))
+            .tracking(1.2)
+            .textCase(.uppercase)
+          if !open && showAdd && !bots.waitingLabel.isEmpty {
+            Circle().fill(Color(hex: theme.primary)).frame(width: 6, height: 6)
+            Text(bots.waitingLabel).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Color(hex: theme.primary))
+          }
+          Spacer(minLength: 0)
+        }
+        .foregroundStyle(Color(hex: theme.faint))
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      if showAdd {
+        Button {
+          store.onNewBot()
+        } label: {
+          Image(systemName: "plus").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: theme.muted)).frame(width: 32, height: 32)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(bots.newBotLabel)
+      }
+    }
+    .padding(.horizontal, 4)
+    .overlay(alignment: .top) {
+      if !open { Rectangle().fill(Color(hex: theme.border)).frame(height: 1) }
+    }
+  }
+
+  private func botList(_ bots: DrawerBots, _ theme: ShellTheme) -> some View {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 0) {
+        if bots.items.isEmpty {
+          VStack(spacing: 10) {
+            Text(bots.emptyTitle).font(.system(size: 12, design: .monospaced)).foregroundStyle(Color(hex: theme.muted))
+            Text(bots.emptyBody).font(.system(size: 12)).multilineTextAlignment(.center).foregroundStyle(Color(hex: theme.faint))
+            Button(bots.newBotLabel) { store.onNewBot() }.buttonStyle(.bordered).controlSize(.small)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 36)
+        }
+        ForEach(bots.items) { bot in
+          botRow(bot, theme)
+        }
+      }
+    }
+    .scrollIndicators(.hidden)
+  }
+
+  private func botRow(_ bot: DrawerBot, _ theme: ShellTheme) -> some View {
+    Button {
+      store.onSelectBot(bot)
+    } label: {
+      HStack(spacing: 12) {
+        MascotView(pixels: bot.mascot, palette: bot.mascotPalette.map { Color(hex: $0) })
+          .frame(width: 32, height: 32)
+          .overlay(alignment: .bottomTrailing) { badge(bot.badge, theme) }
+        VStack(alignment: .leading, spacing: 2) {
+          Text(bot.name)
+            .font(.system(size: 16, weight: bot.selected ? .semibold : .regular))
+            .foregroundStyle(Color(hex: bot.selected ? theme.foreground : theme.muted))
+            .lineLimit(1)
+          Text(bot.line)
+            .font(.system(size: 10.5, design: .monospaced))
+            .foregroundStyle(Color(hex: bot.tone == "attention" ? theme.primary : bot.tone == "fail" ? theme.destructive : theme.faint))
+            .lineLimit(1)
+        }
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 9)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(Rectangle().fill(bot.selected ? Color(hex: theme.elevated) : .clear))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+  }
+
+  @ViewBuilder
+  private func badge(_ kind: String?, _ theme: ShellTheme) -> some View {
+    switch kind {
+    case "needsYou": Circle().fill(Color(hex: theme.primary)).frame(width: 9, height: 9)
+    case "failed": Rectangle().fill(Color(hex: theme.destructive)).frame(width: 8, height: 8)
+    case "working": Circle().fill(Color(hex: theme.faint)).frame(width: 8, height: 8)
+    case "paused": Rectangle().fill(Color(hex: theme.muted)).frame(width: 8, height: 8)
+    case "limit": Image(systemName: "clock").font(.system(size: 8, weight: .semibold)).foregroundStyle(Color(hex: theme.destructive))
+    default: EmptyView()
+    }
   }
 
   private func header(_ theme: ShellTheme) -> some View {
@@ -277,6 +394,28 @@ private extension View {
       self
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(border.opacity(0.08), lineWidth: 1))
+    }
+  }
+}
+
+/// A bot's pixel face, drawn from the cells the web side computed: sixteen
+/// rows of sixteen, each `.` (empty) or a letter naming a palette color,
+/// square edges at every size.
+struct MascotView: View {
+  let pixels: String
+  let palette: [Color]
+
+  var body: some View {
+    Canvas { context, size in
+      let cells = Array(pixels.unicodeScalars)
+      guard cells.count == 256 else { return }
+      let cell = min(size.width, size.height) / 16
+      for (index, scalar) in cells.enumerated() where scalar != "." {
+        let colorIndex = Int(scalar.value) - 97
+        guard colorIndex >= 0, colorIndex < palette.count else { continue }
+        let rect = CGRect(x: CGFloat(index % 16) * cell, y: CGFloat(index / 16) * cell, width: cell, height: cell)
+        context.fill(Path(rect), with: .color(palette[colorIndex]))
+      }
     }
   }
 }

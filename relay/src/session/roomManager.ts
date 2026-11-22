@@ -52,6 +52,7 @@ import {
   workerInstructions,
 } from "./roomTools.js";
 import type { RoomWorktrees, WorktreeInfo } from "./roomWorktrees.js";
+import { BOT_ONLY_TOOL_NAMES, BOT_TOOLS, parseDelegateTask } from "./botTools.js";
 import { buildNotice } from "./roomContextIndex.js";
 import type { RoomContextStore } from "./roomContextStore.js";
 import type { PersistedChoice, SessionStore } from "./sessionStore.js";
@@ -96,6 +97,29 @@ export interface RoomSessions {
   renameTitle(id: string, title: string): boolean;
   /** Replaces the session's provisional title with a generated one. */
   generateTitle(id: string, text: string): void;
+}
+
+/** What a bot adds to its room (see bot.ts): the bot manager answers these
+ * for a room that is a bot's. A bot's principal is the bot itself — a full
+ * agent in its permission mode, not a read-only one — with the bot's own
+ * tools beside the room's, and its workers are archived once their work is
+ * over (a room that never ends would otherwise list them forever). */
+export interface RoomBots {
+  isBotRoom(roomId: string): boolean;
+  /** The bot's standing instructions and the folders it reads. */
+  setup(roomId: string): { instructions: string; addDirs: readonly string[] } | undefined;
+  /** A tool only bots have; `undefined` when `name` is not one. */
+  callTool(roomId: string, name: string, args: unknown): Promise<RoomToolResult> | undefined;
+  /** A worker was started for task `taskN` (if any). */
+  delegated(roomId: string, workerId: string, taskN: number | undefined): void;
+  /** Checked before delegating: why `taskN` cannot take a worker, if so. */
+  taskRefusal(roomId: string, taskN: number): string | undefined;
+  /** Whether the worker belongs to a task that is not over. */
+  hasOpenTask(roomId: string, workerId: string): boolean;
+  /** What `bot_status` adds to the room's status (tasks, schedules). */
+  status(roomId: string): Record<string, unknown>;
+  /** A note for the bot alone on its next turn, if any. */
+  turnNote(roomId: string): string | undefined;
 }
 
 export interface RoomManagerOptions {
@@ -169,6 +193,10 @@ export interface CreateRoomInput {
   cwd?: unknown;
   title?: unknown;
   firstMessage?: unknown;
+  /** The principal's session id, chosen by the caller (a bot registers itself
+   * under it first, so the session is born knowing it is a bot). A fresh one
+   * when absent. */
+  roomId?: string;
 }
 
 export type CreateRoomResult = { ok: true; roomId: string } | { ok: false; error: string };
@@ -215,8 +243,33 @@ export class RoomManager implements RoomToolHost {
    * waits behind another (the cache is warm). */
   private readonly released = new Set<string>();
 
+  private bots?: RoomBots;
+
   constructor(private readonly options: RoomManagerOptions) {
     this.now = options.now ?? Date.now;
+  }
+
+  /** Wired after construction: the bot manager needs this manager too. */
+  setBots(bots: RoomBots): void {
+    this.bots = bots;
+  }
+
+  /** Whether `sessionId` is a bot (the principal of a bot's room). */
+  isBotPrincipal(sessionId: string): boolean {
+    const room = this.store.getRoom(sessionId);
+    return room?.role === "principal" && this.bots?.isBotRoom(room.roomId) === true;
+  }
+
+  /** A bot's worker whose work is over and was handed to the bot, and which
+   * no open task holds: left out of what the bot and the person see live
+   * (its session stays, reachable from its task). Never in an ordinary room,
+   * whose canvas shows every card. */
+  private archived(id: string, room: RoomMembership): boolean {
+    if (room.role !== "worker" || !this.bots?.isBotRoom(room.roomId)) return false;
+    const state = this.stateOf(id, room);
+    if (state !== "done" && state !== "failed" && state !== "blocked" && state !== "stopped") return false;
+    if (this.store.getRoom(room.roomId)?.undeliveredReports?.includes(id)) return false;
+    return !this.bots.hasOpenTask(room.roomId, id);
   }
 
   private get store(): SessionStore {
@@ -248,6 +301,20 @@ export class RoomManager implements RoomToolHost {
     // Its prompt, index included, is built now and frozen by the CLI at its
     // first request: what arrives after this is told in a message.
     if (room.contextSeenAt === undefined && context) this.store.setRoom(sessionId, { ...room, contextSeenAt: this.now() });
+    if (this.isBotPrincipal(sessionId)) {
+      const bot = this.bots!.setup(room.roomId);
+      if (!bot) return undefined;
+      return {
+        // Wired as a worker is: a full agent in its permission mode, whose
+        // tool calls needing approval are put to the person (`approve`).
+        role: "worker",
+        instructions: bot.instructions,
+        tools: BOT_TOOLS,
+        addDirs: [...bot.addDirs],
+        bridgeServerName: ROOM_MCP_SERVER_NAME,
+        bridgeUrl: this.options.bridge.urlFor(sessionId),
+      };
+    }
     return {
       role: room.role,
       instructions: room.role === "principal" ? principalInstructions(this.runtimes(), context) : workerInstructions(context),
@@ -263,6 +330,7 @@ export class RoomManager implements RoomToolHost {
   toolsFor(sessionId: string): readonly RoomToolSpec[] | undefined {
     const room = this.store.getRoom(sessionId);
     if (!room || this.admit(sessionId) !== undefined) return undefined;
+    if (this.isBotPrincipal(sessionId)) return [...BOT_TOOLS, APPROVE_TOOL];
     // A worker's CLI also asks the relay about tool calls that need approval.
     return room.role === "worker" ? [...roomToolsFor(room.role), APPROVE_TOOL] : roomToolsFor(room.role);
   }
@@ -272,6 +340,10 @@ export class RoomManager implements RoomToolHost {
    * (called once the turn went through). */
   turnNote(sessionId: string): { text: string; commit: () => void } | undefined {
     const room = this.store.getRoom(sessionId);
+    if (room && this.isBotPrincipal(sessionId)) {
+      const text = this.bots!.turnNote(room.roomId);
+      return text === undefined ? undefined : { text, commit: () => undefined };
+    }
     const context = this.options.context;
     if (!room || !context || room.contextSeenAt === undefined) return undefined;
     const fresh = context.itemsAfter(room.roomId, room.contextSeenAt);
@@ -289,12 +361,26 @@ export class RoomManager implements RoomToolHost {
   async callTool(sessionId: string, name: string, args: unknown): Promise<RoomToolResult> {
     const room = this.store.getRoom(sessionId);
     if (!room) return fail("This session is not an agent of a room.");
+    const bot = this.isBotPrincipal(sessionId);
+    // The bot's own tools go to its manager; the room's (delegate, ...) stay here.
+    if (bot && BOT_ONLY_TOOL_NAMES.has(name)) {
+      if (name === "bot_status") return this.roomStatus(sessionId, room, this.bots!.status(room.roomId));
+      return (await this.bots!.callTool(room.roomId, name, args)) ?? fail(`Unknown tool "${name}".`);
+    }
     switch (name) {
-      case "delegate":
+      case "delegate": {
         // What agents wrote into the folder since the last look is in the
         // index the new worker is born with.
         await this.options.context?.sync(room.roomId).catch(() => undefined);
-        return this.delegate(sessionId, room, args);
+        if (!bot) return this.delegate(sessionId, room, args);
+        const task = parseDelegateTask(args);
+        if (!task.ok) return fail(task.error);
+        const refusal = task.value === undefined ? undefined : this.bots!.taskRefusal(room.roomId, task.value);
+        if (refusal) return fail(refusal);
+        const result = this.delegate(sessionId, room, args);
+        if (!result.isError) this.bots!.delegated(room.roomId, (JSON.parse(result.text) as { agentId: string }).agentId, task.value);
+        return result;
+      }
       case "report": {
         const result = this.report(sessionId, room, args);
         if (!result.isError) await this.adoptResultFiles(sessionId, room, args);
@@ -351,7 +437,8 @@ export class RoomManager implements RoomToolHost {
     if (input.firstMessage !== undefined && !(typeof input.firstMessage === "string" && input.firstMessage.trim() !== "" && input.firstMessage.length <= ROOM_TASK_MAX)) {
       return { ok: false, error: "firstMessage must be a non-empty string" };
     }
-    const roomId = randomUUID();
+    if (input.roomId !== undefined && (input.roomId === "" || this.store.has(input.roomId))) return { ok: false, error: "roomId is taken" };
+    const roomId = input.roomId ?? randomUUID();
     this.store.recordId(roomId);
     this.store.setAgentId(roomId, agentId);
     if (cwd) this.store.setCwd(roomId, cwd);
@@ -555,7 +642,7 @@ export class RoomManager implements RoomToolHost {
   snapshot(roomId: string): RoomSnapshot | undefined {
     if (this.store.getRoom(roomId)?.role !== "principal") return undefined;
     const agents = this.members(roomId)
-      .filter(({ room }) => room.stopped?.reason !== "removed")
+      .filter(({ id, room }) => room.stopped?.reason !== "removed" && !this.archived(id, room))
       .sort((a, b) => (a.room.role === b.room.role ? 0 : a.room.role === "principal" ? -1 : 1))
       .map(({ id, room }) => this.agentView(id, room));
     return { roomId, agents, summary: summarizeRoom(agents) };
@@ -703,6 +790,12 @@ export class RoomManager implements RoomToolHost {
    * from what is persisted, not from the process, which may be asleep. */
   private awaitingUser(id: string): boolean {
     return this.store.getPendingChoice(id) !== undefined || this.store.getPendingApproval(id) !== undefined;
+  }
+
+  /** Where a member stands now, or `undefined` for one that is not in a room. */
+  agentState(id: string): RoomAgentState | undefined {
+    const room = this.store.getRoom(id);
+    return room ? this.stateOf(id, room) : undefined;
   }
 
   private stateOf(id: string, room: RoomMembership): RoomAgentState {
@@ -1221,7 +1314,8 @@ export class RoomManager implements RoomToolHost {
   private launchWorker(roomId: string, defaultParentId: string, args: DelegateArgs, createdBy: "user" | "agent"): RoomToolResult {
     const runtimes = this.runtimes();
     if (!runtimes.includes(args.runtime)) return fail(`Unknown runtime "${args.runtime}". Use one of: ${runtimes.join(", ")}.`);
-    const members = this.members(roomId).filter((member) => member.room.stopped?.reason !== "removed");
+    // An archived worker of a bot frees its name: the bot no longer sees it.
+    const members = this.members(roomId).filter((member) => member.room.stopped?.reason !== "removed" && !this.archived(member.id, member.room));
     let parentId = defaultParentId;
     if (args.parentId !== undefined) {
       const resolved = this.resolveAgent(args.parentId, members, "in this room");
@@ -1310,7 +1404,7 @@ export class RoomManager implements RoomToolHost {
     const parsed = parseMessageAgentArgs(rawArgs);
     if (!parsed.ok) return fail(parsed.error);
     const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
-    const below = this.members(caller.roomId).filter((member) => member.room.stopped?.reason !== "removed" && isDescendant(member.id, callerId, parentOf));
+    const below = this.members(caller.roomId).filter((member) => member.room.stopped?.reason !== "removed" && !this.archived(member.id, member.room) && isDescendant(member.id, callerId, parentOf));
     const resolved = this.resolveAgent(parsed.value.agent, below, "below you in this room");
     if ("error" in resolved) return fail(resolved.error);
     const agentId = resolved.id;
@@ -1342,7 +1436,7 @@ export class RoomManager implements RoomToolHost {
     const parsed = parseStopAgentArgs(rawArgs);
     if (!parsed.ok) return fail(parsed.error);
     const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
-    const below = this.members(caller.roomId).filter((member) => member.room.stopped?.reason !== "removed" && isDescendant(member.id, callerId, parentOf));
+    const below = this.members(caller.roomId).filter((member) => member.room.stopped?.reason !== "removed" && !this.archived(member.id, member.room) && isDescendant(member.id, callerId, parentOf));
     const resolved = this.resolveAgent(parsed.value.agent, below, "below you in this room");
     if ("error" in resolved) return fail(resolved.error);
     const name = this.nameOf(resolved.id);
@@ -1356,7 +1450,7 @@ export class RoomManager implements RoomToolHost {
    * session answers at once (it defers: the call is refused, the turn ends,
    * the person is asked) so nothing is held open for a person. */
   private async approve(callerId: string, caller: RoomMembership, args: unknown): Promise<RoomToolResult> {
-    if (caller.role !== "worker") return fail("Only an agent started in the room is asked about tool calls.");
+    if (caller.role !== "worker" && !this.isBotPrincipal(callerId)) return fail("Only an agent started in the room is asked about tool calls.");
     const input = typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {};
     const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
     const decision = await this.options.sessions
@@ -1365,8 +1459,8 @@ export class RoomManager implements RoomToolHost {
     return ok(JSON.stringify(decision));
   }
 
-  private roomStatus(callerId: string, caller: RoomMembership): RoomToolResult {
-    const workers = this.members(caller.roomId).filter((member) => member.id !== callerId && member.room.role === "worker" && member.room.stopped?.reason !== "removed");
+  private roomStatus(callerId: string, caller: RoomMembership, extra: Record<string, unknown> = {}): RoomToolResult {
+    const workers = this.members(caller.roomId).filter((member) => member.id !== callerId && member.room.role === "worker" && member.room.stopped?.reason !== "removed" && !this.archived(member.id, member.room));
     const { areas, areaOf } = roomAreas(this.options.canvasAreas?.(caller.roomId) ?? [], workers.map(({ id, room }) => ({ id, ...(room.area ? { area: room.area } : {}) })));
     const agents = workers.map(({ id, room }) => {
       const runtime = this.store.getAgentId(id);
@@ -1389,6 +1483,6 @@ export class RoomManager implements RoomToolHost {
       };
     });
     const listedAreas = areas.map((area) => ({ name: area.name, agents: area.agentIds.map((id) => this.nameOf(id)) }));
-    return ok(JSON.stringify({ agents, areas: listedAreas, liveLimit: ROOM_MAX_LIVE_AGENTS }));
+    return ok(JSON.stringify({ ...extra, agents, ...(this.bots?.isBotRoom(caller.roomId) ? {} : { areas: listedAreas }), liveLimit: ROOM_MAX_LIVE_AGENTS }));
   }
 }

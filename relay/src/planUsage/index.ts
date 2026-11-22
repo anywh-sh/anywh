@@ -14,7 +14,7 @@ export type {
 } from "./types.js";
 export { PLAN_WINDOW_MINS } from "./types.js";
 
-export { clampPercent, epochSecondsToMs, sameResetsAt, snapWindowDuration, sortWindows, windowIdentity } from "./windows.js";
+export { clampPercent, epochSecondsToMs, sameResetsAt, snapWindowDuration, sortWindows, spentWindowResetAt, windowIdentity } from "./windows.js";
 
 export type { ClaudeRateLimitReading, ClaudeRateLimitStatus } from "./claudeEvent.js";
 export { claudeReadingStatus, parseClaudeRateLimitEvent } from "./claudeEvent.js";

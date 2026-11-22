@@ -9,7 +9,6 @@ import { FolderPickerDialog } from "@/components/chat/FolderPickerDialog";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { SettingsRow, SettingsSectionHeading } from "@/components/settings/SettingsRow";
 import { useDefaultPaths } from "@/hooks/useDefaultPaths";
-import { useLocalRelayProbe } from "@/hooks/platform/useLocalRelayProbe";
 import { useRevokedProfiles } from "@/hooks/profiles/useProfileRevoked";
 import {
   DEFAULT_MODEL_PREFERENCE,
@@ -19,7 +18,7 @@ import {
 } from "@/hooks/relay/useModelPreference";
 import { useDict } from "@/i18n";
 import { APP_VERSION, MIN_RELAY_VERSION } from "@/lib/install/appVersion";
-import { onInstallDone, startLocalInstall } from "@/lib/install/localRelay";
+import { useRelayUpdate } from "@/hooks/relay/useRelayUpdate";
 import { getModelCatalogs } from "@/lib/composer/modelCatalog";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { currentPlatform } from "@/lib/platform/platform";
@@ -357,44 +356,15 @@ function IdentityRows({ profile, effectiveColorIndex }: { profile: Profile; effe
  */
 function RelayDriftRow({ profile }: { profile: Profile }) {
   const dict = useDict().settings.profile.relay;
-  const probe = useLocalRelayProbe();
   const platform = currentPlatform();
-  const [status, setStatus] = useState<"idle" | "running" | "done" | "failed">("idle");
-  const [error, setError] = useState<string | null>(null);
+  const update = useRelayUpdate(profile);
+  const { probe, status, error } = update;
 
   if (profile.host !== "127.0.0.1" || !probe?.installedVersion) return null;
 
   const drift = evaluateRelayDrift(probe.installedVersion, APP_VERSION, MIN_RELAY_VERSION, platform);
   if (drift.severity === "none") return null;
-
-  async function handleUpdate(): Promise<void> {
-    setStatus("running");
-    setError(null);
-    try {
-      // The existing `.env`'s own host/port/home win the installer's resume
-      // check (add-profile.sh) as long as they match what's already on
-      // file, which this profile's own fields always do — so this is a
-      // plain re-run, not a reprovision. It refreshes the relay tree on
-      // disk and deliberately leaves the running service alone (same
-      // reasoning as add-profile.sh's own "must not be the thing that
-      // restarts a relay with a conversation in flight").
-      const registered = probe?.profiles.find((p) => p.id === profile.id);
-      await startLocalInstall({
-        profileId: profile.id,
-        relayHost: profile.host,
-        profileHome: registered?.homeOverride ?? undefined,
-        mode: "prod",
-      });
-      const unlisten = await onInstallDone((event) => {
-        setStatus(event.ok ? "done" : "failed");
-        if (!event.ok) setError(event.failure?.message ?? null);
-        unlisten();
-      });
-    } catch (err) {
-      setStatus("failed");
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
+  const handleUpdate = update.run;
 
   return (
     <SettingsRow
