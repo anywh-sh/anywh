@@ -267,7 +267,11 @@ export interface MascotLayer {
 }
 
 /** The figure as colored layers of 1-cell-high runs, bottom to top. */
-export function mascotLayers(choice: MascotChoice, state: MascotState = "idle"): MascotLayer[] {
+export function mascotLayers(mascot: MascotChoice, state: MascotState = "idle"): MascotLayer[] {
+  // Read defensively: a relay from before characters sends a seed instead,
+  // and an unknown id must draw Bip, never throw (this runs in the shell's
+  // render, where a throw blanks the whole app).
+  const choice = mascotChoiceOf(mascot);
   const c = MASCOT_CHARACTERS[choice.character];
   const colors = palette(MASCOT_TONES[choice.tone], state);
 

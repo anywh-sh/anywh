@@ -47,6 +47,11 @@ describe("mascot", () => {
     for (const letter of new Set(pixels.replace(/\./g, ""))) expect(letter.charCodeAt(0) - 97).toBeLessThan(palette.length);
   });
 
+  it("draws a mascot in an older relay's shape (a seed) as Bip instead of throwing", () => {
+    const legacy = { seed: "Vigia" } as unknown as Parameters<typeof mascotPixels>[0];
+    expect(mascotPixels(legacy, "idle")).toEqual(mascotPixels({ character: "bip", tone: "areia" }, "idle"));
+  });
+
   it("reads whatever the relay sent as a mascot, falling back to Bip in its tone", () => {
     expect(mascotChoiceOf({ character: "tela", tone: "rosa" })).toEqual({ character: "tela", tone: "rosa" });
     expect(mascotChoiceOf({ character: "tela" })).toEqual({ character: "tela", tone: "ardosia" });
