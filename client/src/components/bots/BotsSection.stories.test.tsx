@@ -21,8 +21,9 @@ describe("Bots sidebar section stories", () => {
     expect(screen.getByRole("button", { name: "Triagem" })).toHaveTextContent(en.bots.status.setup);
   });
 
-  it("Empty invites the first bot", () => {
+  it("Empty is one row inviting the first bot, with how many templates wait", () => {
     render(<Empty />);
-    expect(screen.getByRole("button", { name: en.bots.emptyCta })).toBeInTheDocument();
+    const row = screen.getByRole("button", { name: new RegExp(en.bots.emptyCta) });
+    expect(row).toHaveTextContent(en.bots.templatesReady.replace("{count}", "5"));
   });
 });

@@ -2,7 +2,6 @@ import { memo, useMemo, useState, type ReactNode } from "react";
 import { MessageSquare, Pause, Play, Plus, Settings, Trash2 } from "lucide-react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { RowButton } from "@/components/ui/row-button";
-import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -15,6 +14,7 @@ import { useDict, useLocale } from "@/i18n";
 import { useBots } from "@/lib/bots/botsStore";
 import { botStatusLine, shortWhen } from "@/lib/bots/botStatusLine";
 import { mascotStateOf } from "@/lib/bots/mascot";
+import { BOT_TEMPLATES } from "@/lib/bots/templates";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import type { Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
@@ -61,14 +61,18 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
   }
 
   if (bots.length === 0) {
+    // One row, like a bot's: the way in, and how many templates wait there.
     return (
-      <div className="flex flex-col items-center gap-3 px-5 py-6 text-center">
-        <span className="font-mono text-xs text-muted-foreground">{dict.bots.emptyTitle}</span>
-        <span className="max-w-52 text-xs leading-relaxed text-text-faint">{dict.bots.emptyBody}</span>
-        <Button type="button" variant="outline" size="xs" onClick={actions.onNewBot}>
-          <Plus className="size-3" />
-          {dict.bots.emptyCta}
-        </Button>
+      <div className="flex flex-col px-2 pb-2">
+        <RowButton size="auto" onClick={actions.onNewBot} className="gap-2.5 py-1.5">
+          <span aria-hidden className="flex size-6 shrink-0 items-center justify-center border border-dashed border-border text-text-faint">
+            <Plus className="size-3" />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-[length:calc(13px*var(--chrome-scale))] text-foreground/90">{dict.bots.emptyCta}</span>
+            <span className="truncate font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint">{dict.bots.templatesReady.replace("{count}", String(BOT_TEMPLATES.length))}</span>
+          </span>
+        </RowButton>
       </div>
     );
   }
