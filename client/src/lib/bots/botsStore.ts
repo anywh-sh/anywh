@@ -45,6 +45,25 @@ export function botByRoom(roomId: string): BotSummary | undefined {
   return undefined;
 }
 
+/** The bot with id `botId`, in any profile. */
+export function botById(botId: string): BotSummary | undefined {
+  for (const bots of byProfile.values()) {
+    const found = bots.find((bot) => bot.id === botId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** `botByRoom`, kept current as the list changes. */
+export function useBotByRoom(roomId: string): BotSummary | undefined {
+  return useSyncExternalStore(subscribeBots, () => botByRoom(roomId));
+}
+
+/** `botById`, kept current as the list changes. */
+export function useBotById(botId: string): BotSummary | undefined {
+  return useSyncExternalStore(subscribeBots, () => botById(botId));
+}
+
 export function subscribeBots(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

@@ -105,8 +105,10 @@ describe("bots in the sidebar", () => {
     act(() => {
       botSocket.emitMessage({ type: "session_title", title: "CI check" });
     });
-    // The title reaches the tab, the path that used to list it.
+    // The title reaches the tab, the path that used to list it; the tab wears
+    // the bot's face, as its sidebar row does.
     await waitFor(() => expect(screen.getByRole("tab", { name: /CI check/ })).toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: /CI check/ }).querySelector("[data-mascot-state]")).not.toBeNull();
     expect(screen.getByText("A conversation")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^CI check/ })).not.toBeInTheDocument();
   });
@@ -121,7 +123,8 @@ describe("bots in the sidebar", () => {
     await user.pointer({ keys: "[MouseRight]", target: await screen.findByRole("button", { name: "Vigia" }) });
     await user.click(await screen.findByRole("menuitem", { name: en.bots.menu.settings }));
     expect(await screen.findByTestId("bot-settings-view")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: new RegExp(en.bots.settings.title.replace("{name}", "Vigia")) })).toBeInTheDocument();
+    const settingsTab = screen.getByRole("tab", { name: new RegExp(en.bots.settings.title.replace("{name}", "Vigia")) });
+    expect(settingsTab.querySelector("[data-mascot-state]")).not.toBeNull();
   });
 
   it("a bot that leaves the list (deleted here or elsewhere) takes its conversation and settings tabs with it", async () => {

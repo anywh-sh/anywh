@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { Mascot } from "@/components/bots/Mascot";
+import { useBotById, useBotByRoom } from "@/lib/bots/botsStore";
+import { mascotStateOf } from "@/lib/bots/mascot";
 import { isNewBotTab, settingsTabBotId } from "@/lib/bots/botTabs";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { Plus, X } from "lucide-react";
@@ -212,6 +215,8 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               )}
             </span>
             {tab.room && <RoomGlyph size={14} className="shrink-0" aria-label={dict.sala.roomGlyph} role="img" />}
+            {tab.bot && <BotTabFace roomId={tab.id} />}
+            {settingsTabBotId(tab.id) !== undefined && <BotTabFace botId={settingsTabBotId(tab.id)} />}
             <span className="min-w-0 flex-1 truncate">{tab.titlePending === true ? <TitleSkeleton className="w-24" /> : title}</span>
           </TabTrigger>
           <Button
@@ -409,4 +414,14 @@ export function TabGroupStrip({
       />
     </>
   );
+}
+
+/** A bot's face on its tabs (its conversation, its settings), as on its
+ * sidebar row; nothing while the bot is not known (its list not in yet). */
+function BotTabFace({ roomId, botId }: { roomId?: string; botId?: string }) {
+  const byRoom = useBotByRoom(roomId ?? "");
+  const byId = useBotById(botId ?? "");
+  const bot = roomId !== undefined ? byRoom : byId;
+  if (!bot) return null;
+  return <Mascot seed={bot.mascot.seed} state={mascotStateOf(bot)} size={14} />;
 }
