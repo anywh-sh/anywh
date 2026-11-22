@@ -103,8 +103,7 @@ export const Sidebar = memo(function Sidebar({
         />
       </div>
 
-      {/* One rule under search and new session, whichever section opens below. */}
-      <div className="flex shrink-0 flex-col border-b border-border px-2 pt-1 pb-1.5">
+      <div className="flex shrink-0 flex-col px-2 pt-1 pb-1.5">
         <RowButton onClick={onOpenSearch} aria-label={dict.shell.sidebar.search}>
           <Search className="size-3.5 shrink-0" />
           <span className="flex-1">{dict.shell.sidebar.search}</span>
