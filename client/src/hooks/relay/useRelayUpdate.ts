@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocalRelayProbe } from "@/hooks/platform/useLocalRelayProbe";
-import { onInstallDone, startLocalInstall } from "@/lib/install/localRelay";
+import { onInstallDone, startLocalInstall, type InstallDoneEvent } from "@/lib/install/localRelay";
 import { currentPlatform } from "@/lib/platform/platform";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -24,6 +24,9 @@ export function useRelayUpdate(profile: Profile): RelayUpdate {
   const probe = useLocalRelayProbe();
   const [status, setStatus] = useState<RelayUpdate["status"]>("idle");
   const [error, setError] = useState<string | null>(null);
+  // The install's done listener, removed when it fires or when this unmounts.
+  const unlistenRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => unlistenRef.current?.(), []);
   const local = profile.host === "127.0.0.1" && probe?.installedVersion != null;
   const kind: RelayUpdateKind = !local ? "manual" : currentPlatform() === "macos" ? "brew" : "in-app";
 
@@ -40,13 +43,29 @@ export function useRelayUpdate(profile: Profile): RelayUpdate {
       // reasoning as add-profile.sh's own "must not be the thing that
       // restarts a relay with a conversation in flight").
       const registered = probe?.profiles.find((p) => p.id === profile.id);
-      await startLocalInstall({ profileId: profile.id, relayHost: profile.host, profileHome: registered?.homeOverride ?? undefined, mode: "prod" });
-      const unlisten = await onInstallDone((event) => {
+      // Listening before starting: an install that ends at once (nothing to
+      // update, or failing on its first step) can report before the start
+      // resolves. Its event is kept until this run's id is known.
+      let runId: string | null = null;
+      const early: InstallDoneEvent[] = [];
+      const finish = (event: InstallDoneEvent): void => {
         setStatus(event.ok ? "done" : "failed");
         if (!event.ok) setError(event.failure?.message ?? null);
-        unlisten();
+        unlistenRef.current?.();
+        unlistenRef.current = null;
+      };
+      unlistenRef.current?.();
+      unlistenRef.current = await onInstallDone((event) => {
+        if (runId === null) early.push(event);
+        else if (event.runId === runId) finish(event);
       });
+      const info = await startLocalInstall({ profileId: profile.id, relayHost: profile.host, profileHome: registered?.homeOverride ?? undefined, mode: "prod" });
+      runId = info.runId;
+      const done = early.find((event) => event.runId === runId);
+      if (done) finish(done);
     } catch (err) {
+      unlistenRef.current?.();
+      unlistenRef.current = null;
       setStatus("failed");
       setError(err instanceof Error ? err.message : String(err));
     }
