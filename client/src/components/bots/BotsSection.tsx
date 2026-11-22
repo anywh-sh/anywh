@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { MessageSquare, Pause, Play, Plus, Settings, Trash2 } from "lucide-react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { RowButton } from "@/components/ui/row-button";
@@ -160,29 +160,46 @@ function BotTree({ profile, bot, selectedSession, actions }: { profile: Profile;
     () => channel.agents.filter((agent) => agent.role === "worker" && (agent.state === "working" || agent.state === "queued" || agent.state === "awaiting_user" || agent.state === "waiting")),
     [channel.agents],
   );
+  const working = live.filter((agent) => agent.state === "working").length;
   return (
-    <div className="ml-[19px] flex flex-col border-l border-border pl-1.5">
-      <RowButton size="auto" className="h-7 gap-2" selected={selectedSession === bot.roomId} onClick={() => actions.onSelectBot(bot)}>
-        <MessageSquare className="size-3.5 shrink-0" aria-hidden />
-        <span className="truncate">{dict.bots.conversation}</span>
-      </RowButton>
-      {live.length > 0 && (
-        <span className="px-2 pt-1.5 pb-0.5 font-mono text-[length:calc(10.5px*var(--chrome-scale))] text-text-faint">
-          {dict.bots.workers.replace("{count}", String(live.filter((agent) => agent.state === "working").length))}
-        </span>
-      )}
-      {live.map((agent) => (
-        <RowButton key={agent.agentId} size="auto" className="h-7 gap-2" selected={selectedSession === agent.agentId} onClick={() => actions.onOpenAgent(bot, agent.agentId, agent.title)}>
-          {agent.state === "awaiting_user" ? (
-            <span role="img" aria-label={dict.bots.task.worker.waiting} className="mx-[3px] size-1.5 shrink-0 rounded-full bg-primary" />
-          ) : agent.state === "working" ? (
-            <Spinner size="sm" label={dict.bots.task.worker.working} role="img" />
-          ) : (
-            <span aria-hidden className="mx-[3px] size-1.5 shrink-0 border border-text-faint" />
-          )}
-          <span className="truncate">{agent.title ?? agent.agentId.slice(0, 8)}</span>
+    <div className="ml-[19px] flex flex-col">
+      <TreeItem last={live.length === 0}>
+        <RowButton size="auto" className="h-7 gap-2" selected={selectedSession === bot.roomId} onClick={() => actions.onSelectBot(bot)}>
+          <MessageSquare className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate">{dict.bots.conversation}</span>
         </RowButton>
+      </TreeItem>
+      {live.length > 0 && (
+        <TreeItem tick={false}>
+          <span className="block px-2 pt-1.5 pb-0.5 font-mono text-[length:calc(10.5px*var(--chrome-scale))] text-text-faint">{dict.bots.workers.replace("{count}", String(working))}</span>
+        </TreeItem>
+      )}
+      {live.map((agent, index) => (
+        <TreeItem key={agent.agentId} last={index === live.length - 1}>
+          <RowButton size="auto" className="h-7 gap-2" selected={selectedSession === agent.agentId} onClick={() => actions.onOpenAgent(bot, agent.agentId, agent.title)}>
+            {agent.state === "awaiting_user" ? (
+              <span role="img" aria-label={dict.bots.task.worker.waiting} className="mx-[3px] size-1.5 shrink-0 rounded-full bg-primary" />
+            ) : agent.state === "working" ? (
+              <Spinner size="sm" label={dict.bots.task.worker.working} role="img" />
+            ) : (
+              <span aria-hidden className="mx-[3px] size-1.5 shrink-0 border border-text-faint" />
+            )}
+            <span className="truncate">{agent.title ?? agent.agentId.slice(0, 8)}</span>
+          </RowButton>
+        </TreeItem>
       ))}
+    </div>
+  );
+}
+
+/** One row of a bot's tree, hung from the line down the bot's face: a tick
+ * to the row (none for a label), and the line stops at the last row (an L). */
+function TreeItem({ last = false, tick = true, children }: { last?: boolean; tick?: boolean; children: ReactNode }) {
+  return (
+    <div className="relative pl-2.5">
+      <span aria-hidden className={cn("absolute top-0 left-0 border-l border-border", last ? "h-1/2" : "h-full")} />
+      {tick && <span aria-hidden className="absolute top-1/2 left-0 w-2 border-t border-border" />}
+      {children}
     </div>
   );
 }
