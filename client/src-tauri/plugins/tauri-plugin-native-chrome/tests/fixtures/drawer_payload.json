@@ -1,0 +1,86 @@
+{
+  "theme": {
+    "background": "#112233",
+    "sidebar": "#112233",
+    "elevated": "#112233",
+    "card": "#112233",
+    "foreground": "#112233",
+    "muted": "#112233",
+    "faint": "#112233",
+    "border": "#112233",
+    "primary": "#112233",
+    "primaryForeground": "#112233",
+    "destructive": "#112233",
+    "tint": "#112233",
+    "success": "#112233"
+  },
+  "strings": {
+    "allChats": "All chats",
+    "loadFailed": "Could not load the conversations.",
+    "retry": "Try again",
+    "emptyTitle": "no sessions yet",
+    "emptyBody": "Open a project and send the first instruction — the history stays on your machine.",
+    "rename": "Rename session",
+    "renameTitle": "Rename session",
+    "renameDescription": "Pick a new name for this conversation.",
+    "delete": "Delete session",
+    "deleteTitle": "Delete session",
+    "deleteBody": "Delete the session \"{title}\"? This can't be undone here — Claude Code's own transcript is untouched.",
+    "cancel": "Cancel",
+    "save": "Save",
+    "agentWorking": "Agent working in this session",
+    "backgroundJob": "Background job running in this session"
+  },
+  "profiles": [
+    {
+      "id": "a",
+      "label": "Personal",
+      "color": "#7aa2f7"
+    }
+  ],
+  "activeProfileId": "a",
+  "loading": false,
+  "hasMore": false,
+  "error": false,
+  "groups": [
+    {
+      "id": "today",
+      "label": "Today 1",
+      "sessions": [
+        {
+          "id": "s1",
+          "profileId": "a",
+          "title": "A conversation",
+          "meta": "Sep 20, 2026, 11:55 AM",
+          "color": "#7aa2f7",
+          "running": false,
+          "backgroundJob": false,
+          "selected": false
+        }
+      ]
+    }
+  ],
+  "bots": {
+    "section": "conversations",
+    "botsLabel": "Bots",
+    "conversationsLabel": "Conversations",
+    "newBotLabel": "New bot",
+    "emptyTitle": "no bots yet",
+    "emptyBody": "A bot has a name, a job and a memory. You ask in its conversation; it hands the work to agents and only calls you when it needs you.",
+    "waitingLabel": "1 need you",
+    "items": [
+      {
+        "id": "vigia",
+        "roomId": "room-vigia",
+        "name": "Vigia",
+        "line": "1 needs you",
+        "tone": "attention",
+        "mascot": "....####.........##.......########....########....ooo##ooo....ooo##ooo....########....########....###oo###..#####oo#############################",
+        "mascotColor": "#d6bd95",
+        "faceColor": "#11100e",
+        "badge": "needsYou",
+        "selected": false
+      }
+    ]
+  }
+}

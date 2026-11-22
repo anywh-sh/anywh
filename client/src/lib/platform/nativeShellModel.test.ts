@@ -3,6 +3,7 @@ import { en } from "@/i18n/en";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import type { Profile } from "@/lib/profiles/profiles";
 import { buildDrawerPayload, buildShellTheme, buildTopBarPayload } from "./nativeShellModel";
+import drawerFixture from "../../../src-tauri/plugins/tauri-plugin-native-chrome/tests/fixtures/drawer_payload.json";
 
 const NOW = new Date(2026, 8, 20, 12, 0, 0).getTime();
 const theme = buildShellTheme(() => "#112233");
@@ -44,6 +45,28 @@ function build(over: Partial<Parameters<typeof buildDrawerPayload>[0]> = {}) {
 }
 
 describe("buildDrawerPayload", () => {
+  it("produces exactly the JSON the Rust side passes on to Swift, bots included (shared fixture)", () => {
+    const payload = buildDrawerPayload({
+      sessions: [session("s1", "a", 5)].map((each) => ({ ...each, title: "A conversation" })),
+      profiles: [profile("a", "Personal")],
+      activeProfileId: "a",
+      selectedSessionId: null,
+      running: new Set(),
+      backgroundJobSessions: new Set(),
+      loading: false,
+      error: false,
+      dict: en,
+      locale: "en",
+      theme,
+      profileCssColor: () => "#7aa2f7",
+      resolve: (css) => css,
+      now: NOW,
+      bots: [{ id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { seed: "Vigia" }, paused: false, firstRun: false, needsYou: 1, working: 0, busy: false, lastRunFailed: false, createdAt: 1 }],
+      section: "conversations",
+    });
+    expect(JSON.parse(JSON.stringify(payload))).toEqual(drawerFixture);
+  });
+
   it("groups by recency and puts the count in the heading", () => {
     const payload = build({ sessions: [session("1", "a", 5), session("2", "a", 10), session("3", "a", 60 * 24 * 3)] });
     expect(payload.groups.map((g) => g.id)).toEqual(["today", "week"]);
