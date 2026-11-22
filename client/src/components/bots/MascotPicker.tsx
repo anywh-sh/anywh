@@ -5,7 +5,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Mascot } from "@/components/bots/Mascot";
 import { useDict } from "@/i18n";
 import { defaultChoice, MASCOT_ORDER, MASCOT_TONE_ORDER, MASCOT_TONES, type MascotChoice } from "@/lib/bots/mascot";
-import { cn } from "@/lib/utils";
 
 /** The dot grid behind a mascot's frame: the room canvas's grid token. */
 export const MASCOT_FRAME_STYLE = {
@@ -90,8 +89,9 @@ export function MascotPickerPanel({ value, onChange }: { value: MascotChoice; on
               aria-label={copy.tones[tone]}
               title={copy.tones[tone]}
               onClick={() => onChange({ character: value.character, tone })}
-              className={cn("size-[22px] p-0 outline-offset-2", selected && "outline outline-1 outline-foreground")}
-              style={{ background: MASCOT_TONES[tone] }}
+              className="size-[22px] p-0"
+              // The ring around the tone picked: the panel's color, then a line.
+              style={{ background: MASCOT_TONES[tone], boxShadow: selected ? "0 0 0 2px var(--background), 0 0 0 3px var(--foreground)" : undefined }}
             />
           );
         })}
