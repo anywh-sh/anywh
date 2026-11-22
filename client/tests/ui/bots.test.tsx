@@ -146,7 +146,7 @@ describe("bots in the sidebar", () => {
     await waitFor(() => expect(screen.queryAllByRole("tab")).toHaveLength(0));
   });
 
-  it("with no bot, the sidebar card opens the presentation, and Templates moves the open tab to the templates", async () => {
+  it("with no bot, the sidebar card's New bot opens the dialog, and Templates opens the templates tab", async () => {
     const user = userEvent.setup();
     renderApp();
     const watch = await watchSocket();
@@ -155,20 +155,47 @@ describe("bots in the sidebar", () => {
     });
     const card = await screen.findByTestId("bots-first-card");
     await user.click(within(card).getByRole("button", { name: en.bots.firstBot.create }));
-    expect(await screen.findByTestId("new-bot-intro")).toBeInTheDocument();
+    expect(await screen.findByTestId("new-bot-dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("new-bot-dialog")).not.toBeInTheDocument());
     await user.click(within(card).getByRole("button", { name: en.bots.firstBot.templates }));
-    await waitFor(() => expect(screen.queryByTestId("new-bot-intro")).not.toBeInTheDocument());
-    expect(screen.getByText(en.bots.create.step1)).toBeInTheDocument();
+    expect(await screen.findByTestId("bot-templates-view")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: new RegExp(en.bots.templatesTab.title) })).toBeInTheDocument();
   });
 
-  it("the + of the Bots heading opens the new bot as a tab, and opening it again focuses the same tab", async () => {
+  it("a template's card opens New bot filled in, and the bot made takes the templates tab's place", async () => {
     const user = userEvent.setup();
     renderApp();
     await watchSocket();
+    // The relay's POST /bots, on top of the fake relay's own routes.
+    const created: Record<string, unknown>[] = [];
+    const relayFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", (input: string | URL, init?: { method?: string; body?: string }) => {
+      if (new URL(String(input)).pathname === "/bots" && init?.method === "POST") {
+        const body = JSON.parse(init.body ?? "{}") as Record<string, unknown>;
+        created.push(body);
+        return Promise.resolve(new Response(JSON.stringify({ bot: { ...vigia, id: "new", roomId: "room-new", name: body.name, mascot: body.mascot, needsYou: 0, firstRun: true } }), { status: 201 }));
+      }
+      return relayFetch(input, init);
+    });
+
     await user.click((await screen.findAllByRole("button", { name: en.bots.newBot }))[0]);
-    expect(await screen.findByTestId("new-bot-view")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: new RegExp(en.bots.create.title) })).toBeInTheDocument();
-    await user.click((await screen.findAllByRole("button", { name: en.bots.newBot }))[0]);
-    expect(screen.getAllByTestId("new-bot-view")).toHaveLength(1);
+    const dialog = await screen.findByTestId("new-bot-dialog");
+    await user.click(within(dialog).getByRole("button", { name: en.bots.create.fromTemplate }));
+    expect(await screen.findByTestId("bot-templates-view")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId("new-bot-dialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByTestId("bot-template-pr-review"));
+    expect(await screen.findByDisplayValue(en.bots.templates["pr-review"].name)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: new RegExp(`^${en.bots.create.create}`) }));
+
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0]).toMatchObject({ name: en.bots.templates["pr-review"].name, mascot: { character: "oculos", tone: "giz" }, templateId: "pr-review" });
+    await waitFor(() => expect(screen.queryByTestId("bot-templates-view")).not.toBeInTheDocument());
+    await waitFor(() => {
+      const tabs = JSON.parse(localStorage.getItem("anywh:tabs") ?? "[]") as { id: string; bot?: boolean }[];
+      expect(tabs.map((tab) => tab.id)).toEqual(["room-new"]);
+      expect(tabs[0].bot).toBe(true);
+    });
   });
 });

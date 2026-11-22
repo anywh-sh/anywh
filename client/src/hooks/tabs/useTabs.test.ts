@@ -2,7 +2,7 @@ import { act } from "react";
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MAX_GROUPS, useTabs } from "@/hooks/tabs/useTabs";
-import { newBotTabId } from "@/lib/bots/botTabs";
+import { botTemplatesTabId } from "@/lib/bots/botTabs";
 
 beforeEach(() => {
   localStorage.clear();
@@ -486,10 +486,10 @@ describe("useTabs — new bot", () => {
   it("the new-bot tab becomes the bot's tab in place, marked as a bot", () => {
     const { result } = renderHook(() => useTabs());
     act(() => result.current.openTab("p", "s1", "one"));
-    act(() => result.current.openTab("p", newBotTabId("p"), null, true));
+    act(() => result.current.openTab("p", botTemplatesTabId("p"), null, true));
     act(() => result.current.openTab("p", "s2", "two"));
-    act(() => result.current.setActiveTab(newBotTabId("p")));
-    act(() => result.current.convertToBot(newBotTabId("p"), "room-b", "Vigia"));
+    act(() => result.current.setActiveTab(botTemplatesTabId("p")));
+    act(() => result.current.convertToBot(botTemplatesTabId("p"), "room-b", "Vigia"));
     const group = result.current.groups[0];
     expect(group.tabIds).toEqual(["s1", "room-b", "s2"]);
     expect(group.activeTabId).toBe("room-b");
@@ -499,16 +499,16 @@ describe("useTabs — new bot", () => {
   it("when the bot's tab is already open, the new-bot tab just closes into it", () => {
     const { result } = renderHook(() => useTabs());
     act(() => result.current.openTab("p", "room-b", "Vigia", false, false, true));
-    act(() => result.current.openTab("p", newBotTabId("p"), null, true));
-    act(() => result.current.convertToBot(newBotTabId("p"), "room-b", "Vigia"));
+    act(() => result.current.openTab("p", botTemplatesTabId("p"), null, true));
+    act(() => result.current.convertToBot(botTemplatesTabId("p"), "room-b", "Vigia"));
     expect(result.current.groups[0].tabIds).toEqual(["room-b"]);
     expect(result.current.groups[0].activeTabId).toBe("room-b");
   });
 
   it("a bot made on another profile takes its tab to that profile", () => {
     const { result } = renderHook(() => useTabs());
-    act(() => result.current.openTab("p", newBotTabId("p"), null, true));
-    act(() => result.current.convertToBot(newBotTabId("p"), "room-b", "Vigia", "q"));
+    act(() => result.current.openTab("p", botTemplatesTabId("p"), null, true));
+    act(() => result.current.convertToBot(botTemplatesTabId("p"), "room-b", "Vigia", "q"));
     expect(result.current.tabs.find((tab) => tab.id === "room-b")?.profileId).toBe("q");
   });
 });

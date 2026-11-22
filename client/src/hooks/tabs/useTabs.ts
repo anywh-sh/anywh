@@ -366,7 +366,7 @@ export function useTabs() {
     setState((prev) => replaceTabWithRoom(prev, tabId, roomId, title));
   }, []);
 
-  /** The new-bot tab created its bot: the same tab, now the bot's. */
+  /** A bot was made from the templates tab: the same tab, now the bot's. */
   const convertToBot = useCallback((tabId: string, roomId: string, title: string, profileId?: string) => {
     setState((prev) => replaceTabWithBot(prev, tabId, roomId, title, profileId));
   }, []);

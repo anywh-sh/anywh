@@ -5,7 +5,8 @@ import { deleteBot, patchBot } from "@/lib/bots/botClient";
 import { handleBotSettingsRequests, openBotSettings } from "@/lib/bots/botSettingsRequest";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { subscribeBotRemovals } from "@/lib/bots/botsStore";
-import { botSettingsTabId, newBotTabId, setNewBotStart } from "@/lib/bots/botTabs";
+import { botSettingsTabId, botTemplatesTabId } from "@/lib/bots/botTabs";
+import { openNewBot } from "@/lib/bots/newBotRequest";
 import type { Profile } from "@/lib/profiles/profiles";
 
 interface UseBotActionsArgs {
@@ -17,8 +18,9 @@ interface UseBotActionsArgs {
 
 /**
  * What the bots do in the shell: opening a bot's conversation (a tab marked
- * as a bot, so its side panel is the task list), one of its agents, and the
- * two bot pages, each a tab: a new bot, and a bot's settings. The actions
+ * as a bot, so its side panel is the task list), one of its agents, the "New
+ * bot" dialog, and the two bot pages, each a tab: the templates, and a bot's
+ * settings. The actions
  * object keeps one identity for the app's life (the sidebar is memoized).
  */
 export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotActionsArgs): { botActions: BotsSectionActions; openBotTab: (profileId: string, bot: BotSummary) => void } {
@@ -47,9 +49,12 @@ export function useBotActions({ activeProfile, tabsState, onNavigated }: UseBotA
         latest.current.onNavigated();
       },
       onNewBot: (start) => {
-        if (start) setNewBotStart(profile().id, start);
-        latest.current.tabsState.openTab(profile().id, newBotTabId(profile().id), null, true);
-        latest.current.onNavigated();
+        if (start === "templates") {
+          latest.current.tabsState.openTab(profile().id, botTemplatesTabId(profile().id), null, true);
+          latest.current.onNavigated();
+          return;
+        }
+        openNewBot({ profileId: profile().id });
       },
       onBotSettings: (bot) => openBotSettings({ profileId: profile().id, botId: bot.id, name: bot.name }),
       onTogglePaused: (bot) => {

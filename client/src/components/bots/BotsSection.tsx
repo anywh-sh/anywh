@@ -24,7 +24,7 @@ export interface BotsSectionActions {
   onSelectBot: (bot: BotSummary) => void;
   /** Opens one of the bot's agents as a tab. */
   onOpenAgent: (bot: BotSummary, agentId: string, title: string | null) => void;
-  /** Opens the new-bot tab; `templates` skips the first-bot presentation. */
+  /** Opens the "New bot" dialog, or with `templates` the templates tab. */
   onNewBot: (start?: "templates") => void;
   onBotSettings: (bot: BotSummary) => void;
   onTogglePaused: (bot: BotSummary) => void;

@@ -87,7 +87,6 @@ export function useTabPanelActions({
     () => ({
       onTurnActiveChange: (tabId, active) => tabsState.setRunning(tabId, active),
       onOpenSession: (profile, sessionId, title) => tabsState.openTab(profile.id, sessionId, title, false, false),
-      onBotCreated: (tab, bot, profileId) => tabsState.convertToBot(tab.id, bot.roomId, bot.name, profileId),
       onBotDeleted: (tab, roomId) => {
         tabsState.closeTab(tab.id);
         tabsState.closeTab(roomId);

@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Mascot } from "@/components/bots/Mascot";
 import { useBotById, useBotByRoom } from "@/lib/bots/botsStore";
 import { mascotStateOf } from "@/lib/bots/mascot";
-import { isNewBotTab, settingsTabBotId } from "@/lib/bots/botTabs";
+import { isBotTemplatesTab, settingsTabBotId } from "@/lib/bots/botTabs";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
-import { Plus, X } from "lucide-react";
+import { LayoutGrid, Plus, X } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -116,7 +116,9 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
   const title =
     settingsTabBotId(tab.id) !== undefined
       ? dict.bots.settings.title.replace("{name}", tab.title ?? "")
-      : (tab.title ?? (isNewBotTab(tab.id) ? dict.bots.create.title : dict.common.untitledSession));
+      : isBotTemplatesTab(tab.id)
+        ? dict.bots.templatesTab.title
+        : (tab.title ?? dict.common.untitledSession);
 
   return (
     <Tooltip>
@@ -198,7 +200,8 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
                 clears (a finished turn is marked "seen" the moment its tab
                 is opened). */}
             <span className="flex size-3.5 shrink-0 items-center justify-center">
-              {((tab.isNew && tab.title === null) || isNewBotTab(tab.id)) && !tab.isRunning && !tab.hasUnreadCompletion && (
+              {isBotTemplatesTab(tab.id) && <LayoutGrid className="size-3.5 shrink-0" aria-hidden="true" />}
+              {tab.isNew && tab.title === null && !isBotTemplatesTab(tab.id) && !tab.isRunning && !tab.hasUnreadCompletion && (
                 // A conversation that has not started: the tab wears the same plus as
                 // the new-session row it came from.
                 <Plus className="size-3.5 shrink-0" aria-hidden="true" />

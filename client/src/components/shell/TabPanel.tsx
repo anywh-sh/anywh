@@ -1,8 +1,8 @@
 import { memo, useMemo, type ReactNode } from "react";
-import { NewBotView } from "@/components/bots/NewBotView";
-import { isNewBotTab, settingsTabBotId } from "@/lib/bots/botTabs";
+import { BotTemplatesView } from "@/components/bots/BotTemplatesView";
+import { isBotTemplatesTab, settingsTabBotId } from "@/lib/bots/botTabs";
+import { openNewBot } from "@/lib/bots/newBotRequest";
 import { BotSettingsView } from "@/components/bots/BotSettingsView";
-import type { BotSummary } from "@/lib/bots/botTypes";
 import { createPortal } from "react-dom";
 import { ChatPanel, type BackgroundJobActions, type TurnProgress } from "@/components/chat/ChatPanel";
 import { RoomCardActionsContext } from "@/components/chat/roomCardActions";
@@ -69,8 +69,6 @@ export interface TabPanelActions {
   /** Opens (or focuses) another session of the profile as a tab: a room's
    * agent, from its panel. */
   onOpenSession: (profile: Profile, sessionId: string, title: string | null) => void;
-  /** The new-bot tab created its bot: `tab` becomes the bot's tab. */
-  onBotCreated: (tab: Tab, bot: BotSummary, profileId: string) => void;
   /** A bot was deleted from its settings tab: that tab and the bot's close. */
   onBotDeleted: (tab: Tab, roomId: string) => void;
   /** A bot was renamed from its settings tab. */
@@ -279,9 +277,10 @@ export const TabPanel = memo(function TabPanel({
   // folder is the principal's, which the relay resolves from the room's id
   // (a room's id is its principal's session id), so the file tree and the
   // terminal work on it exactly as they do on a conversation.
-  // Creating a bot: the whole tab is the flow, with no conversation or dock.
-  if (isNewBotTab(tab.id)) {
-    return <NewBotView profile={profile} onCreated={(bot, botProfile) => actions.onBotCreated(tab, bot, botProfile.id)} />;
+  // The bot templates: the whole tab, with no conversation or dock. A card
+  // opens "New bot", and the bot made from it takes this tab's place.
+  if (isBotTemplatesTab(tab.id)) {
+    return <BotTemplatesView onPick={(templateId) => openNewBot({ profileId: profile.id, templateId, fromTabId: tab.id })} />;
   }
   const settingsFor = settingsTabBotId(tab.id);
   if (settingsFor !== undefined) {

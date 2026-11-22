@@ -45,7 +45,8 @@ import { useSessionNames } from "@/hooks/relay/useSessionNames";
 import { useSessionListBootstrap } from "@/hooks/tabs/useSessionListBootstrap";
 import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
 import { useBotActions } from "@/hooks/useBotActions";
-import { isBotPageTab, isNewBotTab } from "@/lib/bots/botTabs";
+import { botTemplatesTabId, isBotPageTab, isBotTemplatesTab } from "@/lib/bots/botTabs";
+import { NewBotDialog } from "@/components/bots/NewBotDialog";
 import { useBots } from "@/lib/bots/botsStore";
 import { loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
@@ -562,7 +563,7 @@ function AppShell() {
     onToggleAllProfiles: toggleAllProfiles,
     onClearProfileFilter: clearProfileFilter,
     onOpenSearch: openSearch,
-    newSessionActive: activeTab?.isNew === true && activeTab.title === null && !isNewBotTab(activeTab.id),
+    newSessionActive: activeTab?.isNew === true && activeTab.title === null && !isBotTemplatesTab(activeTab.id),
     sessions,
     sessionsLoading,
     sessionsError,
@@ -731,6 +732,22 @@ function AppShell() {
     />
   );
 
+  // One "New bot" dialog for both layouts. A bot made from the templates tab
+  // takes that tab's place; from anywhere else it opens a tab of its own.
+  const newBotDialog = (
+    <NewBotDialog
+      onCreated={(bot, botProfile, request) => {
+        if (request.fromTabId !== undefined && isBotTemplatesTab(request.fromTabId)) tabsState.convertToBot(request.fromTabId, bot.roomId, bot.name, botProfile.id);
+        else tabsState.openTab(botProfile.id, bot.roomId, bot.name, false, false, true);
+        closeDrawer();
+      }}
+      onTemplates={(profileId) => {
+        tabsState.openTab(profileId, botTemplatesTabId(profileId), null, true);
+        closeDrawer();
+      }}
+    />
+  );
+
   useNativeShell({
     enabled: isIOS(),
     sessions,
@@ -767,6 +784,7 @@ function AppShell() {
       <div className="flex h-full w-screen flex-col overflow-hidden bg-background text-foreground">
         <RevokedProfileBanners />
         {profileSetupDialog}
+        {newBotDialog}
         <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
         {/* `relative` stays for the web stack floating above the native
          * composer (see the comment on the desktop branch); the drawer, top
@@ -803,6 +821,7 @@ function AppShell() {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
+      {newBotDialog}
       {/* Bottom offset clears the 28px status bar with the same 12px gap the
           right edge keeps from the window. */}
       <Toaster position="bottom-right" offset={{ bottom: 40, right: 12 }} />

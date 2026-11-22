@@ -1981,54 +1981,50 @@ export interface Dictionary {
       next: string;
       tone: string;
     };
-    create: {
-      /** The presentation shown on "+" while the profile has no bot yet. */
-      intro: {
-        title: string;
-        anywhere: string;
-        anywhereBody: string;
-        delegates: string;
-        delegatesBody: string;
-        quiet: string;
-        quietBody: string;
-        /** `{count}`: how many templates there are. */
-        seeTemplates: string;
-      };
-      /** `{step}`: 1 or 2. */
-      stepOf: string;
-      /** Back from step 2 to the templates. */
-      templatesBack: string;
+    /** The "Templates" tab: what bots are, and a card per template. */
+    templatesTab: {
+      /** The tab's title. */
       title: string;
-      step1: string;
-      step1Body: string;
-      describePlaceholder: string;
-      fromScratch: string;
-      orTemplate: string;
+      heading: string;
+      anywhere: string;
+      anywhereBody: string;
+      delegates: string;
+      delegatesBody: string;
+      quiet: string;
+      quietBody: string;
+      list: string;
+      scratch: string;
+      scratchWhen: string;
+      scratchBody: string;
       watches: string;
-      does: string;
       reports: string;
-      example: string;
-      useTemplate: string;
-      step2: string;
-      name: string;
-      mascot: string;
+    };
+    /** The "New bot" dialog. */
+    create: {
+      title: string;
+      namePlaceholder: string;
+      /** The mascot frame's label: it opens the picker. */
+      changeMascot: string;
       soul: string;
-      soulHint: string;
+      soulPlaceholder: string;
       agent: string;
       profile: string;
-      startsWith: string;
+      /** A template's bot starts reading and reporting only: it is a rule of
+       * its soul, not a lock. */
       readOnly: string;
-      /** Under `readOnly`: it is a rule of the soul, not a lock. */
-      readOnlyHint: string;
-      schedulesOff: string;
-      back: string;
-      /** `{name}`. */
+      /** `{when}`: the template's schedule, off until the person turns it on. */
+      scheduleOff: string;
+      /** `{when}`. */
+      scheduleOn: string;
+      fromTemplate: string;
       create: string;
       creating: string;
       failed: string;
       noHost: string;
     };
     templates: Record<"daily-summary" | "pr-review" | "ci-check" | "issue-triage" | "backlog-cleanup", { name: string; line: string; watches: string; does: string; reports: string; example: string; when: string; soul: string; scheduleName: string }>;
+    /** A bot from scratch: `{soul}`, what the person wrote, then the rule
+     * that it changes nothing until they say so. */
     blankSoul: string;
     /** Shown where bots would be when the profile's relay predates them. */
     relayGate: {
