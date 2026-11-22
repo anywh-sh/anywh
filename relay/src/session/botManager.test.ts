@@ -39,8 +39,8 @@ function withBot(
     const manager = new BotManager({
       store,
       files: {} as never,
-      sessionStore: { getAgentId: () => "claude" } as never,
-      rooms: {} as never,
+      sessionStore: { getAgentId: () => "claude", listRoomMembers: () => [], getPendingChoice: () => undefined, getPendingApproval: () => undefined, getRoom: () => undefined, getTitle: () => null } as never,
+      rooms: { agentState: () => undefined } as never,
       sessions: { getOrCreate: () => session, peek: () => session, renameTitle: () => true, deleteSession: () => true },
       runtimes: () => ["claude"],
       hostConnected: () => true,
@@ -173,4 +173,14 @@ test("while limited a due schedule waits; once the limit passes it runs once, ho
     false,
     { schedulePaused: false },
   );
+});
+
+test("reading a bot's view never records anything, even with a stale run", () => {
+  withBot(({ manager, store, advance }) => {
+    assert.equal(manager.runScheduleNow("b1", "s1").ok, true);
+    advance(61 * 60 * 1000);
+    const view = manager.view("room-b1");
+    assert.equal(view?.schedules[0].running, false, "a stale run is not shown as running");
+    assert.deepEqual(runs(store), [], "and the view recorded nothing");
+  });
 });

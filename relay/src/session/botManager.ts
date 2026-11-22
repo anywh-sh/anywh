@@ -802,13 +802,23 @@ export class BotManager implements RoomBots {
     }
   }
 
-  /** Whether a run of the schedule is under way. One that started long ago
-   * while the bot is idle is taken as over and forgotten. */
+  /** Whether a run of the schedule is under way, read only: one that
+   * started long ago while the bot is idle does not count. Views use this;
+   * they must never record anything. */
+  private runIsLive(bot: BotRecord, scheduleId: string): boolean {
+    const startedAt = this.running.get(`${bot.id}:${scheduleId}`);
+    if (startedAt === undefined) return false;
+    return this.now() - startedAt < RUN_STALE_MS || this.options.sessions.peek(bot.roomId)?.isBusy() === true;
+  }
+
+  /** Whether a run of the schedule is under way, for the scheduler and Run
+   * now: a stale one (see `runIsLive`) is taken as over, recorded as
+   * failed, and forgotten. */
   private isRunning(bot: BotRecord, scheduleId: string): boolean {
+    if (this.runIsLive(bot, scheduleId)) return true;
     const key = `${bot.id}:${scheduleId}`;
     const startedAt = this.running.get(key);
     if (startedAt === undefined) return false;
-    if (this.now() - startedAt < RUN_STALE_MS || this.options.sessions.peek(bot.roomId)?.isBusy() === true) return true;
     this.running.delete(key);
     this.recordRun(bot.id, scheduleId, { at: startedAt, outcome: "failed" });
     return false;
@@ -900,7 +910,7 @@ export class BotManager implements RoomBots {
         prompt: schedule.prompt,
         paused: schedule.paused,
         ...(schedule.nextRunAt !== undefined && !schedule.paused ? { nextRunAt: schedule.nextRunAt } : {}),
-        running: this.isRunning(bot, schedule.id),
+        running: this.runIsLive(bot, schedule.id),
         runs: schedule.runs,
       })),
     };
