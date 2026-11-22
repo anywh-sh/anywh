@@ -1331,6 +1331,7 @@ export const ptBr: Dictionary = {
     emptyTitle: "nenhum bot ainda",
     emptyBody: "Um bot tem nome, função e memória. Você pede na conversa dele; ele passa o trabalho para agentes e só te chama quando precisa de você.",
     emptyCta: "Criar seu primeiro bot",
+    templatesReady: "{count} modelos prontos",
     collapsedNeedsYou: "{count} precisam de você",
     status: {
       needsYou: "{count} precisa de você",
@@ -1402,6 +1403,16 @@ export const ptBr: Dictionary = {
       canceled: "Você cancelou a tarefa #{n}",
     },
     create: {
+      intro: {
+        title: "Colegas que ficam de olho por você",
+        anywhere: "Acione de onde estiver",
+        anywhereBody: "Pela conversa dele ou num agendamento. Também pelo celular.",
+        delegates: "Delega para agentes",
+        delegatesBody: "Os mesmos agentes da sala, um por tarefa.",
+        quiet: "Só te chama quando precisa",
+        quietBody: "Execução sem novidade fica em silêncio.",
+        seeTemplates: "Ver os {count} modelos",
+      },
       stepOf: "Novo bot · {step} de 2",
       templatesBack: "Modelos",
       inSidebar: "Na sidebar",
@@ -1409,7 +1420,7 @@ export const ptBr: Dictionary = {
       step1: "O que ele deve fazer?",
       step1Body: "Um bot fica de olho em algo, faz o trabalho pesado com agentes e só te chama quando precisa de você.",
       describePlaceholder: "Descreva com suas palavras: \"toda segunda, atualize as dependências e abra PRs\"",
-      fromScratch: "Continuar",
+      fromScratch: "Criar do zero",
       orTemplate: "Ou comece de um modelo",
       watches: "Observa",
       does: "Faz",

@@ -4,15 +4,34 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import * as stories from "./NewBotView.stories";
 import { en } from "@/i18n/en";
+import { storyBots, storyProfile } from "@/components/bots/botStoryData";
+import { resetBotsStore, setBots } from "@/lib/bots/botsStore";
 
 const copy = en.bots;
-const { Templates } = composeStories(stories);
+const { Templates, FirstBot } = composeStories(stories);
 
 describe("New bot tab stories", () => {
-  afterEach(() => act(() => cleanup()));
+  afterEach(() => {
+    act(() => cleanup());
+    resetBotsStore();
+  });
+
+  /** The bots store as the story's `beforeEach` sets it in Storybook. */
+  function renderStory(Story: typeof Templates) {
+    setBots(storyProfile.id, Story === FirstBot ? [] : storyBots);
+    return render(<Story />);
+  }
+
+  it("a profile with no bot opens on a presentation, whose ways in lead to the templates", async () => {
+    renderStory(FirstBot);
+    expect(screen.getByTestId("new-bot-intro")).toBeInTheDocument();
+    expect(screen.getByText(copy.create.intro.title)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: copy.create.intro.seeTemplates.replace("{count}", "5") }));
+    expect(screen.getByText(copy.create.step1)).toBeInTheDocument();
+  });
 
   it("lists the five templates and previews the one picked", async () => {
-    render(<Templates />);
+    renderStory(Templates);
     const view = await screen.findByTestId("new-bot-view");
     expect(within(view).getByText(copy.create.stepOf.replace("{step}", "1"))).toBeInTheDocument();
     for (const id of ["ci-check", "pr-review", "issue-triage", "daily-summary", "backlog-cleanup"] as const) {
@@ -23,7 +42,7 @@ describe("New bot tab stories", () => {
   });
 
   it("a template fills step two with its name and soul, says its schedule starts off, and goes back to the templates", async () => {
-    render(<Templates />);
+    renderStory(Templates);
     await userEvent.click(await screen.findByRole("button", { name: copy.create.useTemplate }));
     expect(screen.getByDisplayValue(copy.templates["ci-check"].name)).toBeInTheDocument();
     expect(screen.getByText(copy.create.schedulesOff)).toBeInTheDocument();
@@ -34,7 +53,7 @@ describe("New bot tab stories", () => {
   });
 
   it("from scratch needs a description first, and starts the soul from it", async () => {
-    render(<Templates />);
+    renderStory(Templates);
     const scratch = await screen.findByRole("button", { name: copy.create.fromScratch });
     expect(scratch).toBeDisabled();
     await userEvent.type(screen.getByRole("textbox", { name: copy.create.step1 }), "watch my deploys");
@@ -43,7 +62,7 @@ describe("New bot tab stories", () => {
   });
 
   it("a drawn face stays as it is while the name is typed, and the template's schedule can start on", async () => {
-    const { container } = render(<Templates />);
+    const { container } = renderStory(Templates);
     await userEvent.click(await screen.findByRole("button", { name: copy.create.useTemplate }));
     const face = () => container.querySelector('svg[width="96"]')?.innerHTML;
     const before = face();

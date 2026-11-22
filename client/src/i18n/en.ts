@@ -1331,6 +1331,7 @@ export const en: Dictionary = {
     emptyTitle: "no bots yet",
     emptyBody: "A bot has a name, a job and a memory. You ask in its conversation; it hands the work to agents and only calls you when it needs you.",
     emptyCta: "Create your first bot",
+    templatesReady: "{count} templates ready",
     collapsedNeedsYou: "{count} need you",
     status: {
       needsYou: "{count} needs you",
@@ -1402,6 +1403,16 @@ export const en: Dictionary = {
       canceled: "You canceled task #{n}",
     },
     create: {
+      intro: {
+        title: "Teammates that keep an eye out for you",
+        anywhere: "Ask from anywhere",
+        anywhereBody: "In its conversation or on a schedule. From your phone too.",
+        delegates: "Hands the work to agents",
+        delegatesBody: "The same agents as a room's, one per task.",
+        quiet: "Only calls you when it needs you",
+        quietBody: "A run with nothing new stays silent.",
+        seeTemplates: "See the {count} templates",
+      },
       stepOf: "New bot · {step} of 2",
       templatesBack: "Templates",
       inSidebar: "In the sidebar",
@@ -1409,7 +1420,7 @@ export const en: Dictionary = {
       step1: "What should it do?",
       step1Body: "A bot keeps an eye on something, does the heavy work with agents and only calls you when it needs you.",
       describePlaceholder: "Describe it in your words: \"every Monday, update the dependencies and open PRs\"",
-      fromScratch: "Continue",
+      fromScratch: "From scratch",
       orTemplate: "Or start from a template",
       watches: "Watches",
       does: "Does",

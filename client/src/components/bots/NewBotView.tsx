@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { CalendarClock, ChevronLeft, Dices, Lock } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Dices, Lock, MessageSquare, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { RowButton } from "@/components/ui/row-button";
@@ -15,9 +15,11 @@ import { lacksFeature, useRelayFeatures } from "@/hooks/relay/useRelayFeatures";
 import { useDict } from "@/i18n";
 import { BotRequestError, createBot } from "@/lib/bots/botClient";
 import type { BotSummary } from "@/lib/bots/botTypes";
+import { getBots } from "@/lib/bots/botsStore";
 import { rerollSeed } from "@/lib/bots/mascot";
 import { BOT_TEMPLATES, type BotTemplate } from "@/lib/bots/templates";
-import type { Profile } from "@/lib/profiles/profiles";
+import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
+import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { cn } from "@/lib/utils";
 
 /** Agents a bot can run on: the ones a room can (the agent host runs them). */
@@ -25,8 +27,9 @@ const BOT_RUNTIMES = ["claude", "codex"];
 
 interface NewBotViewProps {
   profile: Profile;
-  /** The bot exists: the tab becomes its conversation. */
-  onCreated: (bot: BotSummary) => void;
+  /** The bot exists (on `profile`, the one picked): the tab becomes its
+   * conversation. */
+  onCreated: (bot: BotSummary, profile: Profile) => void;
   /** The agents to offer, instead of asking the relay (the stories). */
   agents?: string[];
 }
@@ -39,10 +42,17 @@ interface NewBotViewProps {
  * schedule is created off, and its soul starts with a "Never" section: a new
  * bot reads and reports until the person says otherwise.
  */
-export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotViewProps) {
+export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents }: NewBotViewProps) {
   const dict = useDict();
   const copy = dict.bots.create;
-  const [step, setStep] = useState<1 | 2>(1);
+  // A profile with no bot yet opens on a presentation; one that has bots goes
+  // straight to the templates.
+  const [step, setStep] = useState<"intro" | 1 | 2>(() => (getBots(tabProfile.id).length === 0 ? "intro" : 1));
+  // Where the bot will live: the tab's profile unless the person picks another.
+  const profiles = useProfiles();
+  const [profileId, setProfileId] = useState(tabProfile.id);
+  const profile = profiles.find((each) => each.id === profileId) ?? tabProfile;
+  const purposeRef = useRef<HTMLInputElement>(null);
   const [purpose, setPurpose] = useState("");
   const [template, setTemplate] = useState<BotTemplate | null>(null);
   const [focusedTemplate, setFocusedTemplate] = useState<BotTemplate>(BOT_TEMPLATES[0]);
@@ -103,7 +113,7 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
         agentId,
         ...(template && words ? { templateId: template.id, schedules: [{ name: words.scheduleName, cron: template.cron, prompt: template.prompt, paused: !scheduleOn }] } : {}),
       });
-      onCreated(bot);
+      onCreated(bot, profile);
     } catch (caught) {
       setError(caught instanceof BotRequestError && caught.status === 503 ? copy.noHost : copy.failed);
       setBusy(false);
@@ -121,6 +131,22 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
   }
 
   const focusedWords = dict.bots.templates[focusedTemplate.id];
+
+  if (step === "intro") {
+    return (
+      <Intro
+        onTemplates={(picked) => {
+          if (picked) setFocusedTemplate(picked);
+          setStep(1);
+        }}
+        onScratch={() => {
+          setStep(1);
+          requestAnimationFrame(() => purposeRef.current?.focus());
+        }}
+      />
+    );
+  }
+
   const stepLabel = copy.stepOf.replace("{step}", String(step));
 
   return (
@@ -143,12 +169,26 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
 
           {step === 1 ? (
             <>
-              <div className="flex gap-2 border border-border bg-bg-chrome p-2">
-                <Input value={purpose} onChange={(event) => setPurpose(event.target.value)} placeholder={copy.describePlaceholder} className="flex-1 border-transparent bg-transparent" aria-label={copy.step1} />
-                <Button variant="outline" disabled={purpose.trim() === ""} onClick={() => startFrom(null)}>
+              <form
+                className="flex items-center gap-2 border border-border bg-bg-chrome py-1.5 pr-1.5 pl-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (purpose.trim() !== "") startFrom(null);
+                }}
+              >
+                <Input
+                  ref={purposeRef}
+                  value={purpose}
+                  onChange={(event) => setPurpose(event.target.value)}
+                  placeholder={copy.describePlaceholder}
+                  className="h-9 flex-1 border-0 bg-transparent px-0 font-sans text-sm focus-visible:ring-0"
+                  aria-label={copy.step1}
+                />
+                <Button type="submit" variant="outline" size="sm" disabled={purpose.trim() === ""}>
                   {copy.fromScratch}
+                  <ChevronRight />
                 </Button>
-              </div>
+              </form>
               <div className="flex flex-col gap-3">
                 <span className="font-mono text-[11px] text-text-faint">{copy.orTemplate}</span>
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -201,6 +241,27 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
                   <div className="flex flex-col gap-1.5">
                     <span className="font-mono text-[11px] text-text-faint">{copy.agent}</span>
                     <Segmented id="new-bot-agent" kind="radio" label={copy.agent} value={agentId} onChange={setAgentId} options={agents.map((id) => ({ value: id, label: agentName(dict.chat.composer.agentNames, id), icon: <AgentLogo agentId={id} className="size-3.5 shrink-0" /> }))} />
+                  </div>
+                )}
+                {profiles.length > 1 && (
+                  <div className="flex flex-col gap-1.5">
+                    <span className="font-mono text-[11px] text-text-faint">{copy.profile}</span>
+                    <div className="flex flex-col border border-border" role="radiogroup" aria-label={copy.profile}>
+                      {profiles.map((each) => (
+                        <RowButton
+                          key={each.id}
+                          role="radio"
+                          aria-checked={each.id === profile.id}
+                          selected={each.id === profile.id}
+                          onClick={() => setProfileId(each.id)}
+                          className="gap-2.5 border-b border-border px-3 last:border-b-0"
+                        >
+                          <span aria-hidden className={cn("size-2 shrink-0", profileColorClass(each.id))} />
+                          <span className="flex-1 truncate">{each.label}</span>
+                          <span className="font-mono text-[11px] text-text-faint">{each.host}</span>
+                        </RowButton>
+                      ))}
+                    </div>
                   </div>
                 )}
                 <div className="flex flex-col gap-1.5">
@@ -273,7 +334,20 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
         )}
         <div className="flex shrink-0 flex-col gap-2 p-4 lg:border-t lg:border-border lg:p-6">
           {step === 1 ? (
-            <Button onClick={() => startFrom(focusedTemplate)}>{copy.useTemplate}</Button>
+            <>
+              <p className="hidden items-center gap-2 font-mono text-[11px] text-text-faint lg:flex">
+                <Lock className="size-3 shrink-0" />
+                {copy.readOnly}
+              </p>
+              <p className="mb-2 hidden items-center gap-2 font-mono text-[11px] text-text-faint lg:flex">
+                <CalendarClock className="size-3 shrink-0" />
+                {copy.schedulesOff}
+              </p>
+              <Button onClick={() => startFrom(focusedTemplate)}>
+                {copy.useTemplate}
+                <ArrowRight />
+              </Button>
+            </>
           ) : (
             <>
               {error && <p className="text-sm text-destructive">{error}</p>}
@@ -285,6 +359,70 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
         </div>
       </aside>
 
+    </div>
+  );
+}
+
+/**
+ * What a bot is, for a profile that has none yet: the faces of the
+ * templates, three lines on how bots work, a few templates to start from, and
+ * the two ways in (all the templates, or from scratch).
+ */
+function Intro({ onTemplates, onScratch }: { onTemplates: (picked?: BotTemplate) => void; onScratch: () => void }) {
+  const dict = useDict();
+  const copy = dict.bots.create.intro;
+  const features = [
+    { icon: <MessageSquare className="size-3.5" />, title: copy.anywhere, body: copy.anywhereBody },
+    { icon: <Network className="size-3.5" />, title: copy.delegates, body: copy.delegatesBody },
+    { icon: <span className="mx-1 block size-1.5 rounded-full bg-primary" />, title: copy.quiet, body: copy.quietBody },
+  ];
+  return (
+    <div className="h-full overflow-auto" data-testid="new-bot-view">
+      <div className="flex min-h-full items-center justify-center px-10 py-12" data-testid="new-bot-intro">
+        <div className="flex w-full max-w-[680px] flex-col items-center gap-6 text-center">
+          <div className="flex items-end gap-4" aria-hidden>
+            {BOT_TEMPLATES.map((each) => (
+              <Mascot key={each.id} seed={each.seed} size={40} />
+            ))}
+          </div>
+          <div className="flex flex-col gap-3">
+            <h1 className="text-[28px] leading-tight font-semibold text-foreground">{copy.title}</h1>
+            <p className="mx-auto max-w-[540px] text-sm leading-relaxed text-muted-foreground">{dict.bots.emptyBody}</p>
+          </div>
+          <div className="grid w-full grid-cols-1 border border-border text-left md:grid-cols-3">
+            {features.map((each) => (
+              <div key={each.title} className="flex flex-col gap-1.5 border-border p-4 not-last:border-b md:not-last:border-r md:not-last:border-b-0">
+                <span className="flex h-3.5 items-center text-muted-foreground">{each.icon}</span>
+                <span className="text-[13px] font-medium text-foreground">{each.title}</span>
+                <span className="text-xs leading-relaxed text-muted-foreground">{each.body}</span>
+              </div>
+            ))}
+          </div>
+          <div className="grid w-full grid-cols-1 gap-2 text-left md:grid-cols-3">
+            {BOT_TEMPLATES.slice(0, 3).map((each) => {
+              const words = dict.bots.templates[each.id];
+              return (
+                <RowButton key={each.id} size="auto" onClick={() => onTemplates(each)} className="gap-2.5 border border-border p-3 hover:bg-surface-hover">
+                  <Mascot seed={each.seed} size={20} />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-[13px] text-foreground">{words.name}</span>
+                    <span className="truncate font-mono text-[10.5px] text-text-faint">{words.when}</span>
+                  </span>
+                </RowButton>
+              );
+            })}
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={() => onTemplates()}>
+              {copy.seeTemplates.replace("{count}", String(BOT_TEMPLATES.length))}
+              <ArrowRight />
+            </Button>
+            <Button variant="outline" onClick={onScratch}>
+              {dict.bots.create.fromScratch}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

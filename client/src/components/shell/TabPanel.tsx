@@ -70,7 +70,7 @@ export interface TabPanelActions {
    * agent, from its panel. */
   onOpenSession: (profile: Profile, sessionId: string, title: string | null) => void;
   /** The new-bot tab created its bot: `tab` becomes the bot's tab. */
-  onBotCreated: (tab: Tab, bot: BotSummary) => void;
+  onBotCreated: (tab: Tab, bot: BotSummary, profileId: string) => void;
   /** A bot was deleted from its settings tab: that tab and the bot's close. */
   onBotDeleted: (tab: Tab, roomId: string) => void;
   /** A bot was renamed from its settings tab. */
@@ -281,7 +281,7 @@ export const TabPanel = memo(function TabPanel({
   // terminal work on it exactly as they do on a conversation.
   // Creating a bot: the whole tab is the flow, with no conversation or dock.
   if (isNewBotTab(tab.id)) {
-    return <NewBotView profile={profile} onCreated={(bot) => actions.onBotCreated(tab, bot)} />;
+    return <NewBotView profile={profile} onCreated={(bot, botProfile) => actions.onBotCreated(tab, bot, botProfile.id)} />;
   }
   const settingsFor = settingsTabBotId(tab.id);
   if (settingsFor !== undefined) {

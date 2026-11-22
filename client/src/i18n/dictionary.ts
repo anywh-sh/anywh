@@ -1879,6 +1879,8 @@ export interface Dictionary {
     emptyTitle: string;
     emptyBody: string;
     emptyCta: string;
+    /** Under "create your first bot" in the sidebar; `{count}`: templates. */
+    templatesReady: string;
     /** Shown beside a folded Bots section: `{count}` bots need the person. */
     collapsedNeedsYou: string;
     status: {
@@ -1964,6 +1966,18 @@ export interface Dictionary {
       canceled: string;
     };
     create: {
+      /** The presentation shown on "+" while the profile has no bot yet. */
+      intro: {
+        title: string;
+        anywhere: string;
+        anywhereBody: string;
+        delegates: string;
+        delegatesBody: string;
+        quiet: string;
+        quietBody: string;
+        /** `{count}`: how many templates there are. */
+        seeTemplates: string;
+      };
       /** `{step}`: 1 or 2. */
       stepOf: string;
       /** Back from step 2 to the templates. */

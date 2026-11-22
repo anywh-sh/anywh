@@ -504,4 +504,11 @@ describe("useTabs — new bot", () => {
     expect(result.current.groups[0].tabIds).toEqual(["room-b"]);
     expect(result.current.groups[0].activeTabId).toBe("room-b");
   });
+
+  it("a bot made on another profile takes its tab to that profile", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => result.current.openTab("p", newBotTabId("p"), null, true));
+    act(() => result.current.convertToBot(newBotTabId("p"), "room-b", "Vigia", "q"));
+    expect(result.current.tabs.find((tab) => tab.id === "room-b")?.profileId).toBe("q");
+  });
 });

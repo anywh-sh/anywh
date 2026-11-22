@@ -163,9 +163,10 @@ export function replaceTabWithRoom(state: TabsState, tabId: string, roomId: stri
 }
 
 /** The state with the new-bot tab `tabId` turned into the bot's tab (its
- * room's principal), in the same place of the same group. Unchanged when
+ * room's principal, on `profileId` when the bot was made on another
+ * profile), in the same place of the same group. Unchanged when
  * there is no such tab. Pure. */
-export function replaceTabWithBot(state: TabsState, tabId: string, roomId: string, title: string): TabsState {
+export function replaceTabWithBot(state: TabsState, tabId: string, roomId: string, title: string, profileId?: string): TabsState {
   if (!state.tabs.some((tab) => tab.id === tabId)) return state;
   // The bot's tab may already be open elsewhere: keep that one.
   if (state.tabs.some((tab) => tab.id === roomId)) {
@@ -177,7 +178,7 @@ export function replaceTabWithBot(state: TabsState, tabId: string, roomId: strin
     });
     return normalize({ tabs, groups, focusedGroupId: state.focusedGroupId });
   }
-  const tabs = state.tabs.map((tab) => (tab.id === tabId ? { ...tab, id: roomId, title, isNew: false, bot: true } : tab));
+  const tabs = state.tabs.map((tab) => (tab.id === tabId ? { ...tab, id: roomId, title, isNew: false, bot: true, ...(profileId !== undefined ? { profileId } : {}) } : tab));
   const groups = state.groups.map((group) => ({
     ...group,
     tabIds: group.tabIds.map((id) => (id === tabId ? roomId : id)),
@@ -366,8 +367,8 @@ export function useTabs() {
   }, []);
 
   /** The new-bot tab created its bot: the same tab, now the bot's. */
-  const convertToBot = useCallback((tabId: string, roomId: string, title: string) => {
-    setState((prev) => replaceTabWithBot(prev, tabId, roomId, title));
+  const convertToBot = useCallback((tabId: string, roomId: string, title: string, profileId?: string) => {
+    setState((prev) => replaceTabWithBot(prev, tabId, roomId, title, profileId));
   }, []);
 
   const closeTab = useCallback((tabId: string) => {
