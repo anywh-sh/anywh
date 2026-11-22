@@ -195,7 +195,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
                 clears (a finished turn is marked "seen" the moment its tab
                 is opened). */}
             <span className="flex size-3.5 shrink-0 items-center justify-center">
-              {tab.isNew && tab.title === null && !tab.isRunning && !tab.hasUnreadCompletion && (
+              {((tab.isNew && tab.title === null) || isNewBotTab(tab.id)) && !tab.isRunning && !tab.hasUnreadCompletion && (
                 // A conversation that has not started: the tab wears the same plus as
                 // the new-session row it came from.
                 <Plus className="size-3.5 shrink-0" aria-hidden="true" />
