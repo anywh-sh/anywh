@@ -1,5 +1,5 @@
-import { Button } from "@/components/ui/button";
-import { useRelayUpdate } from "@/hooks/relay/useRelayUpdate";
+import { RelayUpgradeAction } from "@/components/shell/RelayUpgradeBanner";
+import { useLegacyRelayUpgrade } from "@/hooks/relay/useLegacyRelayUpgrade";
 import { useDict } from "@/i18n";
 import { isUnreleasedVersion } from "@/lib/install/appVersion";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -9,15 +9,15 @@ export const RELAY_UPDATE_COMMAND = "curl -fsSL https://anywh.sh/install | sh -s
 
 /**
  * Where bots would be when the profile's relay predates them: which version
- * brings them, which one it runs, and the way to update it from here — the
- * button when the app can do it, otherwise the command for the machine that
- * can. The in-app update restarts the relay once it is installed, and the
- * relay's graceful shutdown waits for turns in flight. A relay new enough to
- * update itself never shows this: the app updates it on launch.
+ * brings them, which one it runs, and the way to update it — the same
+ * one-button update the notice offers (useLegacyRelayUpgrade), which waits
+ * for conversations to finish before restarting the relay. When the app
+ * cannot offer it (a relay that does not say its version), the command for
+ * the machine that can.
  */
 export function BotsRelayGate({ profile, relayVersion }: { profile: Profile; relayVersion?: string }) {
   const dict = useDict().bots.relayGate;
-  const update = useRelayUpdate(profile);
+  const { state, start } = useLegacyRelayUpgrade(profile);
   // Only the relay's own version is named: this app's version is not the
   // first that brings bots, only one that has them. A build from source has
   // no release number to name.
@@ -28,22 +28,13 @@ export function BotsRelayGate({ profile, relayVersion }: { profile: Profile; rel
       <p className="text-xs leading-relaxed text-muted-foreground">
         {known ? dict.body.replace("{current}", `v${relayVersion}`) : dict.bodyUnknown}
       </p>
-      {update.kind === "in-app" ? (
-        update.status === "done" ? (
-          <p className="text-xs text-muted-foreground">{dict.updated}</p>
-        ) : (
-          <div className="flex flex-col items-start gap-1.5">
-            <Button variant="outline" size="xs" onClick={() => void update.run()} loading={update.status === "running"}>
-              {update.status === "running" ? dict.updating : dict.update}
-            </Button>
-            {update.error && <span className="text-xs text-destructive">{update.error}</span>}
-          </div>
-        )
+      {state.phase !== "hidden" ? (
+        <RelayUpgradeAction state={state} onUpdate={start} align="start" />
       ) : (
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-text-faint">{update.kind === "brew" ? dict.brewHint : dict.manualHint}</span>
+          <span className="text-xs text-text-faint">{dict.manualHint}</span>
           <code className="border border-border bg-bg-chrome px-2 py-1 font-mono text-[11px] break-all text-foreground select-all">
-            {update.kind === "brew" ? "brew upgrade anywh-relay" : RELAY_UPDATE_COMMAND}
+            {RELAY_UPDATE_COMMAND}
           </code>
         </div>
       )}

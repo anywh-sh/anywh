@@ -168,7 +168,6 @@ pub fn run_with(
             relay_setup::relay_setup_suggest_address,
             relay_setup::relay_setup_start,
             relay_setup::relay_setup_cancel,
-            relay_setup::relay_setup_restart,
             relay_setup::relay_setup_status,
             updater::app_install_source,
             updater::app_check_latest_release,

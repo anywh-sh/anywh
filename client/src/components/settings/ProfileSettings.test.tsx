@@ -1,143 +1,81 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetLegacyRelayUpgrades } from "@/hooks/relay/useLegacyRelayUpgrade";
 import { en } from "@/i18n/en";
-import type { InstallDoneEvent, LocalRelayProbe } from "@/lib/install/localRelay";
 import type { Profile } from "@/lib/profiles/profiles";
 
-function probe(overrides: Partial<LocalRelayProbe> = {}): LocalRelayProbe {
-  return {
-    platform: "linux",
-    supported: true,
-    containerized: null,
-    installDir: "/home/user/.local/share/anywh",
-    installed: true,
-    installedVersion: "0.1.0",
-    unitInstalled: true,
-    envDir: "/home/user/.config/anywh/env",
-    profiles: [],
-    orphanDefault: false,
-    previousRun: null,
-    ...overrides,
-  };
-}
-
-const { localInstallPossibleMock, probeLocalRelayMock, startLocalInstallMock, onInstallDoneMock, currentPlatformMock, restartLocalRelayMock } = vi.hoisted(() => ({
-  restartLocalRelayMock: vi.fn((_profileId: string): Promise<void> => Promise.resolve()),
-  localInstallPossibleMock: vi.fn(() => true),
-  probeLocalRelayMock: vi.fn(async (): Promise<LocalRelayProbe | null> => probe()),
-  startLocalInstallMock: vi.fn(async () => ({ runId: "r1", logPath: "/tmp/r1.log", started: true })),
-  onInstallDoneMock: vi.fn(async (_handler: (event: InstallDoneEvent) => void) => () => {}),
-  currentPlatformMock: vi.fn(() => "linux"),
-}));
-
-vi.mock("@/lib/install/localRelay", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/install/localRelay")>();
-  return {
-    ...actual,
-    localInstallPossible: localInstallPossibleMock,
-    probeLocalRelay: probeLocalRelayMock,
-    startLocalInstall: startLocalInstallMock,
-    onInstallDone: onInstallDoneMock,
-    restartLocalRelay: restartLocalRelayMock,
-  };
-});
-// Drift only exists against a released app: git keeps APP_VERSION at the
+// The update is offered against a released app: git keeps APP_VERSION at the
 // unreleased placeholder, and only the release build stamps a real one. This
 // is the app as a release build sees itself.
 vi.mock("@/lib/install/appVersion", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/install/appVersion")>();
   return { ...actual, APP_VERSION: "0.2.0" };
 });
-vi.mock("@/lib/platform/platform", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/platform/platform")>();
-  return { ...actual, currentPlatform: currentPlatformMock };
-});
 
 import { ProfileSettings } from "@/components/settings/ProfileSettings";
 
 const copy = en.settings.profile.relay;
+const upgrade = en.shell.relayUpgrade;
 
 const localProfile: Profile = { id: "default", label: "Default", host: "127.0.0.1", relayPort: 8765 };
 const remoteProfile: Profile = { id: "remote", label: "Remote", host: "100.64.0.1", relayPort: 8765 };
 
 function renderProfile(profile: Profile) {
-  return render(
-    <ProfileSettings profile={profile} allProfiles={[profile]} effectiveColorIndex={0} onProfileRemoved={() => {}} />,
+  return render(<ProfileSettings profile={profile} allProfiles={[profile]} effectiveColorIndex={0} onProfileRemoved={() => {}} />);
+}
+
+/** The relay is the network edge: `GET /host-info` answers as `info`,
+ * `GET /sessions` with no conversations, anything else is refused. */
+function relayAnswers(info: { version?: string; features?: string[] }): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string) => {
+      const path = new URL(input).pathname;
+      if (path === "/host-info") return Promise.resolve(new Response(JSON.stringify({ hostname: "h", platform: "linux", editor: null, ...info })));
+      if (path === "/sessions") return Promise.resolve(new Response(JSON.stringify({ sessions: [] })));
+      return Promise.reject(new TypeError("Failed to fetch"));
+    }),
   );
 }
 
-// No relay answers in this file: refused at once, rather than a real
-// request (and its timeout) outliving the test.
 beforeEach(() => {
-  vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+  resetLegacyRelayUpgrades();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   cleanup();
-  localInstallPossibleMock.mockReset().mockReturnValue(true);
-  probeLocalRelayMock.mockReset().mockResolvedValue(probe());
-  startLocalInstallMock.mockClear();
-  restartLocalRelayMock.mockClear();
-  onInstallDoneMock.mockReset().mockResolvedValue(() => {});
-  currentPlatformMock.mockReset().mockReturnValue("linux");
 });
 
-describe("ProfileSettings: local relay drift", () => {
-  it("says nothing for a profile whose relay isn't on this machine", async () => {
+describe("ProfileSettings: relay too old to update itself", () => {
+  it("says nothing for a relay that updates itself", async () => {
+    relayAnswers({ version: "0.1.0", features: ["bots", "self_update"] });
+    renderProfile(localProfile);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByText(copy.title)).not.toBeInTheDocument();
+  });
+
+  it("says nothing when the relay is already on the app's version", async () => {
+    relayAnswers({ version: "0.2.0", features: ["bots"] });
+    renderProfile(localProfile);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByText(copy.title)).not.toBeInTheDocument();
+  });
+
+  it("offers the update for an older relay, on this machine or another one", async () => {
+    relayAnswers({ version: "0.1.0", features: ["bots"] });
     renderProfile(remoteProfile);
-    // Give the (never-called, since this profile isn't loopback) probe a
-    // tick to prove its absence isn't just a timing accident.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.queryByText(copy.title)).not.toBeInTheDocument();
+    expect(await screen.findByText(copy.description.replace("{relayVersion}", "0.1.0").replace("{appVersion}", "0.2.0"))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: upgrade.update })).toBeInTheDocument();
   });
 
-  it("says nothing when the local relay is already current", async () => {
-    probeLocalRelayMock.mockResolvedValue(probe({ installedVersion: "999.0.0" }));
+  it("pressing it checks for conversations first, and says so when the relay's machine cannot be reached, with the command to run there", async () => {
+    relayAnswers({ version: "0.1.0", features: ["bots"] });
     renderProfile(localProfile);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.queryByText(copy.title)).not.toBeInTheDocument();
-  });
-
-  it("offers to update an out-of-date local relay on Linux", async () => {
-    renderProfile(localProfile);
-    expect(await screen.findByText(copy.title)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: copy.update })).toBeInTheDocument();
-  });
-
-  it("re-runs the installer against this same profile's host, restarts its relay, and reports success", async () => {
-    let doneHandler: ((event: InstallDoneEvent) => void) | undefined;
-    onInstallDoneMock.mockImplementation(async (handler: (event: InstallDoneEvent) => void) => {
-      doneHandler = handler;
-      return () => {};
-    });
-    renderProfile(localProfile);
-    const button = await screen.findByRole("button", { name: copy.update });
-    const user = userEvent.setup();
-
-    await user.click(button);
-
-    expect(startLocalInstallMock).toHaveBeenCalledWith({
-      profileId: "default",
-      relayHost: "127.0.0.1",
-      profileHome: undefined,
-      mode: "prod",
-    });
-    expect(await screen.findByText(copy.updating)).toBeInTheDocument();
-
-    expect(restartLocalRelayMock).not.toHaveBeenCalled();
-    doneHandler?.({ runId: "r1", exitCode: 0, ok: true, profile: null, failure: null });
-    expect(await screen.findByText(copy.updated)).toBeInTheDocument();
-    expect(restartLocalRelayMock).toHaveBeenCalledWith("default");
-  });
-
-  it("shows the brew command instead of a button on macOS, never calling the in-app installer", async () => {
-    currentPlatformMock.mockReturnValue("macos");
-    renderProfile(localProfile);
-
-    expect(await screen.findByText(copy.brewHint)).toBeInTheDocument();
-    expect(screen.getByText("brew upgrade anywh-relay")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: copy.update })).not.toBeInTheDocument();
+    await userEvent.setup().click(await screen.findByRole("button", { name: upgrade.update }));
+    // No terminal can be opened here (no relay behind the WebSocket).
+    expect(await screen.findByText(upgrade.failedReasons.terminal, {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByText(upgrade.runThere)).toBeInTheDocument();
   });
 });

@@ -5,7 +5,7 @@ import * as stories from "./RelayUpgradeBanner.stories";
 import { MANUAL_UPGRADE_COMMAND } from "@/hooks/relay/useLegacyRelayUpgrade";
 import { en } from "@/i18n/en";
 
-const { Available, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, FailedWithoutReason, Simulated } = composeStories(stories);
+const { Available, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, InstallerFailed, Simulated } = composeStories(stories);
 const copy = en.shell.relayUpgrade;
 
 describe("Relay update notice stories", () => {
@@ -22,7 +22,7 @@ describe("Relay update notice stories", () => {
     expect(onUpdate).toHaveBeenCalledOnce();
   });
 
-  it("while it works, says what it is doing and offers neither the button nor dismissing", () => {
+  it("while it works, says what it is doing and offers no button", () => {
     const cases: [typeof Checking, string][] = [
       [Checking, copy.checking],
       [WaitingForOne, copy.waitingOne],
@@ -34,7 +34,6 @@ describe("Relay update notice stories", () => {
       render(<Story />);
       expect(screen.getByRole("status")).toHaveTextContent(text);
       expect(screen.queryByRole("button", { name: copy.update })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: copy.dismiss })).not.toBeInTheDocument();
       act(() => cleanup());
     }
   });
@@ -45,14 +44,26 @@ describe("Relay update notice stories", () => {
     expect(screen.queryByRole("button", { name: copy.update })).not.toBeInTheDocument();
   });
 
-  it("a failure gives the reason, the command for the relay's machine, and the button to try again", () => {
+  it("a failure says why in the person's language, gives the command for the relay's machine, and the button to try again", () => {
     render(<Failed />);
-    expect(screen.getByText(copy.failedWithReason.replace("{error}", "the relay's terminal closed before the update ran"))).toBeInTheDocument();
+    expect(screen.getByText(copy.failedReasons.terminal)).toBeInTheDocument();
+    expect(screen.getByText(copy.runThere)).toBeInTheDocument();
     expect(screen.getByText(MANUAL_UPGRADE_COMMAND)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: copy.update })).toBeInTheDocument();
     act(() => cleanup());
-    render(<FailedWithoutReason />);
-    expect(screen.getByText(copy.failed)).toBeInTheDocument();
+    render(<InstallerFailed />);
+    expect(screen.getByText(copy.failedReasons.installer)).toBeInTheDocument();
+    expect(screen.getByText("checksum mismatch for anywh-relay-0.2.50-linux-x64.tar.gz")).toBeInTheDocument();
+  });
+
+  it("checking and waiting can be called off; an update already running cannot", () => {
+    const onDismiss = vi.fn();
+    render(<WaitingForOne onDismiss={onDismiss} />);
+    fireEvent.click(screen.getByRole("button", { name: copy.dismiss }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+    act(() => cleanup());
+    render(<Updating />);
+    expect(screen.queryByRole("button", { name: copy.dismiss })).not.toBeInTheDocument();
   });
 
   it("the simulated flow walks from the button to done", () => {

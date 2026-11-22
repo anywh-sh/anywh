@@ -230,17 +230,6 @@ export interface Dictionary {
         title: string;
         /** `{relayVersion}`, `{appVersion}` */
         description: string;
-        update: string;
-        updating: string;
-        /** The installer never restarts a service it finds already
-         * running — re-running it must not be what drops an in-flight
-         * conversation — so this is the one honest thing to say about
-         * what a successful run just did. */
-        updated: string;
-        /** Homebrew owns the relay on macOS (relay_setup.rs refuses to
-         * pass --version there for the same reason) — shown above the
-         * literal command instead of a button that can't do anything. */
-        brewHint: string;
       };
     };
     danger: {
@@ -1399,10 +1388,17 @@ export interface Dictionary {
       updating: string;
       restarting: string;
       done: string;
+      /** Why it stopped, one sentence per reason. */
+      failedReasons: {
+        not_installed: string;
+        installer: string;
+        terminal: string;
+        not_back: string;
+        still_busy: string;
+        unsupported: string;
+      };
       /** Shown above the command to run on the relay's machine. */
-      failed: string;
-      /** `{error}` — the reason the update stopped. */
-      failedWithReason: string;
+      runThere: string;
       dismiss: string;
     };
     /** The single, app-wide dialog a newer GitHub release triggers — opened
@@ -2055,10 +2051,6 @@ export interface Dictionary {
       /** `{current}`. */
       body: string;
       bodyUnknown: string;
-      update: string;
-      updating: string;
-      updated: string;
-      brewHint: string;
       manualHint: string;
     };
     settings: {

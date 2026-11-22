@@ -162,14 +162,6 @@ export function startLocalInstall(params: InstallStartParams): Promise<InstallRu
   return invoke<InstallRunInfo>("relay_setup_start", { params });
 }
 
-/** Restarts a local profile's relay service (Linux) so a tree the installer
- * just refreshed is what runs. Returns once the restart is queued; the relay
- * itself waits for turns in flight before exiting. */
-export function restartLocalRelay(profileId: string): Promise<void> {
-  if (!inTauri()) return Promise.reject(new Error(NOT_IN_TAURI));
-  return invoke<void>("relay_setup_restart", { profileId });
-}
-
 export function cancelLocalInstall(): Promise<void> {
   if (!inTauri()) return Promise.reject(new Error(NOT_IN_TAURI));
   return invoke<void>("relay_setup_cancel");

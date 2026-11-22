@@ -630,8 +630,15 @@ export const ptBr: Dictionary = {
       updating: "Atualizando o relay…",
       restarting: "Reiniciando o relay…",
       done: "O relay está atualizado.",
-      failed: "Não deu para atualizar daqui. Na máquina do relay, rode:",
-      failedWithReason: "Não deu para atualizar daqui ({error}). Na máquina do relay, rode:",
+      failedReasons: {
+        not_installed: "Nenhum relay instalado pelo instalador do anywh responde naquela máquina, então o app não mexe nele.",
+        installer: "O instalador parou antes de terminar.",
+        terminal: "O app não conseguiu rodar a atualização na máquina do relay.",
+        not_back: "O relay não voltou na versão nova.",
+        still_busy: "Havia conversas rodando o tempo todo, então o relay ficou como estava.",
+        unsupported: "O app não sabe atualizar um relay nesse sistema.",
+      },
+      runThere: "Na máquina do relay, rode:",
       dismiss: "Dispensar aviso",
     },
     updateModal: {
@@ -872,11 +879,7 @@ export const ptBr: Dictionary = {
       },
       relay: {
         title: "Versão do relay",
-        description: "O relay desta máquina está na {relayVersion} — o anywh em si está na {appVersion}.",
-        update: "Atualizar o relay",
-        updating: "Atualizando…",
-        updated: "Atualizado — o relay reinicia com ele assim que nenhuma resposta estiver em andamento.",
-        brewHint: "O Homebrew é dono deste relay no macOS:",
+        description: "O relay deste perfil está na {relayVersion} — o anywh em si está na {appVersion}.",
       },
     },
     danger: {
@@ -1525,10 +1528,6 @@ export const ptBr: Dictionary = {
       title: "Os bots precisam de um relay mais novo",
       body: "O relay deste perfil está na {current}, anterior aos bots: atualize e eles aparecem.",
       bodyUnknown: "O relay deste perfil é anterior aos bots: atualize e eles aparecem.",
-      update: "Atualizar o relay",
-      updating: "Atualizando…",
-      updated: "Atualizado — os bots aparecem assim que o relay reiniciar, quando nenhuma resposta estiver em andamento.",
-      brewHint: "No macOS o relay é do Homebrew. Neste Mac, rode:",
       manualHint: "Este relay roda em outra máquina. Lá, rode:",
     },
     settings: {

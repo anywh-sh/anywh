@@ -630,8 +630,15 @@ export const en: Dictionary = {
       updating: "Updating the relay…",
       restarting: "Restarting the relay…",
       done: "The relay is up to date.",
-      failed: "Couldn't update it from here. On the relay's machine, run:",
-      failedWithReason: "Couldn't update it from here ({error}). On the relay's machine, run:",
+      failedReasons: {
+        not_installed: "No relay installed by the anywh installer answers on that machine, so the app won't touch it.",
+        installer: "The installer stopped before finishing.",
+        terminal: "The app couldn't run the update on the relay's machine.",
+        not_back: "The relay didn't come back on the new version.",
+        still_busy: "Conversations kept running, so the relay was left as it was.",
+        unsupported: "The app can't update a relay on that system.",
+      },
+      runThere: "On the relay's machine, run:",
       dismiss: "Dismiss notice",
     },
     updateModal: {
@@ -872,11 +879,7 @@ export const en: Dictionary = {
       },
       relay: {
         title: "Relay version",
-        description: "This machine's relay is on {relayVersion} — anywh itself is on {appVersion}.",
-        update: "Update the relay",
-        updating: "Updating…",
-        updated: "Updated — the relay restarts on it as soon as no reply is running.",
-        brewHint: "Homebrew owns this relay on macOS:",
+        description: "This profile's relay is on {relayVersion} — anywh itself is on {appVersion}.",
       },
     },
     danger: {
@@ -1525,10 +1528,6 @@ export const en: Dictionary = {
       title: "Bots need a newer relay",
       body: "This profile's relay is on {current}, which predates bots: update it and they are here.",
       bodyUnknown: "This profile's relay predates bots: update it and they are here.",
-      update: "Update the relay",
-      updating: "Updating…",
-      updated: "Updated — bots arrive as soon as the relay restarts, once no reply is running.",
-      brewHint: "Homebrew owns this relay on macOS. On this Mac, run:",
       manualHint: "This relay runs on another machine. There, run:",
     },
     settings: {

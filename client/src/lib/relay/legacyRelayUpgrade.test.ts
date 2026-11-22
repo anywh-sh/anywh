@@ -18,22 +18,31 @@ describe("needsLegacyUpgrade", () => {
 });
 
 describe("upgradeCommand", () => {
-  it("on Linux pins the installer to the app's release, in the service's own tree, then restarts only that running service", () => {
-    const command = upgradeCommand({ platform: "linux", profileId: "home", version: "0.2.50" }) ?? "";
-    expect(command).toContain("curl -fsSL https://anywh.sh/install-relay | sh -s -- --version v0.2.50 --porcelain");
-    expect(command).toContain("&& systemctl --user --no-block try-restart anywh-relay@home;");
-    expect(command).toContain('run="$(systemctl --user show -p WorkingDirectory --value anywh-relay@home 2>/dev/null)"');
+  const linux = (extra: Partial<Parameters<typeof upgradeCommand>[0]> = {}) => upgradeCommand({ platform: "linux", port: 8765, version: "0.2.50", ...extra }) ?? "";
+
+  it("finds the service on the relay's machine, never from the app's profile id", () => {
+    const command = linux();
+    // The terminal's own cgroup names the relay's unit; else what listens on its port.
+    expect(command).toContain('unit="$(sed -n "s|^.*/\\(anywh-relay@[a-z0-9-]*\\.service\\)$|\\1|p" /proc/self/cgroup | head -n 1)"');
+    expect(command).toContain('ss -ltnpH "sport = :8765"');
+    expect(command).not.toContain("anywh-relay@home");
+  });
+
+  it("downloads the installer to a file before running it, pinned to the app's release, then restarts only that running service", () => {
+    const command = linux();
+    expect(command).toContain('curl -fsSL https://anywh.sh/install-relay -o "$script" && sh "$script" --version v0.2.50 --porcelain && systemctl --user --no-block try-restart "$unit"');
     expect(command).toContain('ANYWH_INSTALL_DIR="$dir"');
-    expect(command).toMatch(new RegExp(`echo ${UPGRADE_EXIT_MARKER}=\\$\\?'$`));
+    expect(command).toMatch(new RegExp(`echo ${UPGRADE_EXIT_MARKER}=\\$status'$`));
     // One sh -c '...' with no inner single quote: the same under any shell.
     expect(command.trimStart().startsWith("sh -c '")).toBe(true);
     expect(command.trimStart().slice("sh -c '".length, -1)).not.toContain("'");
   });
 
-  it("refuses before touching a file unless the service runs, from a release tree, not a checkout", () => {
-    const command = upgradeCommand({ platform: "linux", profileId: "home", version: "0.2.50" }) ?? "";
+  it("refuses before touching a file unless that service runs, from a release tree, not a checkout", () => {
+    const command = linux();
     const guard = command.slice(0, command.indexOf("curl "));
-    expect(guard).toContain("is-active anywh-relay@home");
+    expect(guard).toContain('[ -z "$unit" ]');
+    expect(guard).toContain('is-active "$unit"');
     expect(guard).toContain('[ "$(basename "$run")" != relay ]');
     expect(guard).toContain('[ ! -f "$run/dist/server.js" ]');
     expect(guard).toContain('[ ! -f "$dir/infra/systemd/add-profile.sh" ]');
@@ -43,16 +52,20 @@ describe("upgradeCommand", () => {
     expect(parseUpgradeOutput(command)).toEqual({});
   });
 
-  it("on macOS upgrades and restarts the Homebrew relay", () => {
-    const command = upgradeCommand({ platform: "darwin", profileId: "default", version: "0.2.50" }) ?? "";
-    expect(command).toContain("brew upgrade anywh-relay && brew services restart anywh-relay");
+  it("a test can name the unit outright", () => {
+    expect(linux({ unit: "anywh-su-e2e.service" })).toContain("unit=anywh-su-e2e.service;");
   });
 
-  it("nothing for another platform, or for an id or version that could carry anything else", () => {
-    expect(upgradeCommand({ platform: "win32", profileId: "home", version: "0.2.50" })).toBeNull();
-    expect(upgradeCommand({ platform: "linux", profileId: "home; rm -rf ~", version: "0.2.50" })).toBeNull();
-    expect(upgradeCommand({ platform: "linux", profileId: "home", version: "0.2.50'; reboot; '" })).toBeNull();
-    expect(upgradeCommand({ platform: "linux", profileId: "home", version: "0.2.50", unit: "x; reboot" })).toBeNull();
+  it("on macOS upgrades and restarts the Homebrew relay", () => {
+    expect(upgradeCommand({ platform: "darwin", port: 8765, version: "0.2.50" })).toContain("brew upgrade anywh-relay && brew services restart anywh-relay");
+  });
+
+  it("nothing for another platform, or for a port, version or unit that could carry anything else", () => {
+    expect(upgradeCommand({ platform: "win32", port: 8765, version: "0.2.50" })).toBeNull();
+    expect(upgradeCommand({ platform: "linux", port: 0, version: "0.2.50" })).toBeNull();
+    expect(upgradeCommand({ platform: "linux", port: 8765.5, version: "0.2.50" })).toBeNull();
+    expect(upgradeCommand({ platform: "linux", port: 8765, version: "0.2.50'; reboot; '" })).toBeNull();
+    expect(upgradeCommand({ platform: "linux", port: 8765, version: "0.2.50", unit: "x; reboot" })).toBeNull();
   });
 });
 

@@ -47,7 +47,6 @@ export function RelayUpgradeNotice({
   if (state.phase === "hidden") return null;
   const [before, after = ""] = dict.body.split("{profile}");
   const progress = progressText(state, dict);
-  const busy = progress !== null;
 
   return (
     <div className="flex shrink-0 items-start gap-3 border-b border-border bg-bg-sidebar px-4 py-3" data-testid="relay-upgrade-notice">
@@ -75,9 +74,9 @@ export function RelayUpgradeNotice({
         )}
         {state.phase === "failed" && (
           <div className="flex flex-col gap-1 pt-1">
-            <span className="text-xs text-destructive">
-              {state.error ? dict.failedWithReason.replace("{error}", state.error) : dict.failed}
-            </span>
+            <span className="text-xs text-destructive">{dict.failedReasons[state.reason]}</span>
+            {state.detail && <span className="font-mono text-[11px] text-muted-foreground">{state.detail}</span>}
+            <span className="text-xs text-muted-foreground">{dict.runThere}</span>
             <code className="border border-border bg-bg-chrome px-2 py-1 font-mono text-[11px] break-all text-foreground select-all">
               {state.command}
             </code>
@@ -90,12 +89,48 @@ export function RelayUpgradeNotice({
             {dict.update}
           </Button>
         )}
-        {!busy && (
+        {/* Checking or waiting can be called off; an update already running cannot. */}
+        {state.phase !== "updating" && state.phase !== "restarting" && (
           <Button variant="ghost" size="icon-sm" aria-label={dict.dismiss} onClick={onDismiss}>
             <X className="size-3.5" />
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The update as a compact control, for the places that offer it next to
+ * other things (a profile's settings, the bots section): the button, what
+ * it is doing, or why it stopped — the same run the notice shows.
+ */
+export function RelayUpgradeAction({ state, onUpdate, align = "end" }: { state: LegacyUpgradeState; onUpdate: () => void; align?: "start" | "end" }) {
+  const dict = useDict().shell.relayUpgrade;
+  const progress = progressText(state, dict);
+  const items = align === "end" ? "items-end text-right" : "items-start";
+  if (state.phase === "hidden") return null;
+  if (progress) {
+    return (
+      <span className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+        <Spinner size="sm" />
+        {progress}
+      </span>
+    );
+  }
+  if (state.phase === "done") return <span className="text-xs text-muted-foreground">{dict.done}</span>;
+  return (
+    <div className={`flex flex-col gap-1.5 ${items}`}>
+      <Button variant="outline" size="sm" onClick={onUpdate}>
+        {dict.update}
+      </Button>
+      {state.phase === "failed" && (
+        <>
+          <span className="text-xs text-destructive">{dict.failedReasons[state.reason]}</span>
+          <span className="text-xs text-muted-foreground">{dict.runThere}</span>
+          <code className="border border-border bg-bg-chrome px-2 py-1 text-left font-mono text-[11px] break-all text-foreground select-all">{state.command}</code>
+        </>
+      )}
     </div>
   );
 }

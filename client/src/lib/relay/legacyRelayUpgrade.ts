@@ -42,42 +42,49 @@ export function needsLegacyUpgrade(info: Pick<HostInfo, "version" | "features">,
  * The shell line that updates the relay on its own machine and restarts it,
  * ending with `UPGRADE_EXIT_MARKER=<status>`. Wrapped in `sh -c '...'` so it
  * means the same under whatever shell the terminal opens (bash, zsh, fish).
- * - Linux: the installer pinned to `version`, into the directory the
- *   profile's service runs from, then a restart of that service — only
- *   when that service is running from a tree the installer laid out.
- *   `unit` overrides the service name (tests).
- * - macOS: Homebrew owns the relay, so it is upgraded and restarted there.
+ *
+ * Linux: which service to update is found on that machine, never guessed
+ * from the app's profile id (an imported profile's id names no unit). The
+ * terminal runs inside the relay's own service, so its cgroup names the
+ * unit; failing that, the unit of whatever listens on the relay's port. It
+ * is then updated only if it is running from a tree the installer laid out
+ * (a built relay next to the installer's infra/, not a source checkout):
+ * the installer swaps `<dir>/relay` and `<dir>/infra` wholesale, wherever it
+ * is pointed, so anything else refuses before touching a file. The
+ * installer is downloaded to a file first, so a failed download fails the
+ * command instead of feeding an empty script to `sh`. `unit` overrides the
+ * detection (tests).
+ *
+ * macOS: Homebrew owns the relay, so it is upgraded and restarted there.
  * `null` for any other platform: there is nothing to run.
  */
-export function upgradeCommand(options: { platform: string; profileId: string; version: string; installerUrl?: string; unit?: string }): string | null {
-  const { platform, profileId, version } = options;
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(profileId) || !/^\d+\.\d+\.\d+$/.test(version)) return null;
+export function upgradeCommand(options: { platform: string; port: number; version: string; installerUrl?: string; unit?: string }): string | null {
+  const { platform, port, version } = options;
+  if (!Number.isInteger(port) || port <= 0 || port > 65535 || !/^\d+\.\d+\.\d+$/.test(version)) return null;
   const done = `echo ${UPGRADE_EXIT_MARKER}=$?`;
   if (platform === "linux") {
-    const unit = options.unit ?? `anywh-relay@${profileId}`;
-    if (!/^[A-Za-z0-9@._-]+$/.test(unit)) return null;
+    if (options.unit !== undefined && !/^[A-Za-z0-9@._-]+$/.test(options.unit)) return null;
     const installer = options.installerUrl ?? RELAY_INSTALLER_URL;
-    // (The failure line and its status are echoed with quotes splitting
-    // them, so the command line the terminal echoes back never reads as
-    // that failure itself.)
-    // Only a running service whose tree the installer laid out is updated:
-    // its directory must hold a built relay next to the installer's infra/,
-    // and must not be a source checkout. Anything else (no such service on
-    // this machine, a template with no instance, a checkout run as a
-    // service) refuses before touching a file — the installer swaps
-    // `<dir>/relay` and `<dir>/infra` wholesale, wherever it is pointed.
+    const unitOf = (file: string) => `sed -n "s|^.*/\\(anywh-relay@[a-z0-9-]*\\.service\\)$|\\1|p" ${file} | head -n 1`;
     const steps = [
       `set -u`,
-      `run="$(systemctl --user show -p WorkingDirectory --value ${unit} 2>/dev/null)"`,
+      options.unit !== undefined
+        ? `unit=${options.unit}`
+        : `unit="$(${unitOf("/proc/self/cgroup")})"; if [ -z "$unit" ] && command -v ss >/dev/null 2>&1; then pid="$(ss -ltnpH "sport = :${String(port)}" 2>/dev/null | sed -n "s/.*pid=\\([0-9]*\\).*/\\1/p" | head -n 1)"; if [ -n "$pid" ]; then unit="$(${unitOf('"/proc/$pid/cgroup"')})"; fi; fi`,
+      `run=""; if [ -n "$unit" ]; then run="$(systemctl --user show -p WorkingDirectory --value "$unit" 2>/dev/null)"; fi`,
       `dir="$(dirname "$run")"`,
-      `if [ "$(systemctl --user is-active ${unit} 2>/dev/null)" != active ] || [ "$(basename "$run")" != relay ] || [ ! -f "$run/dist/server.js" ] || [ ! -f "$dir/infra/systemd/add-profile.sh" ] || [ -e "$dir/.git" ]; then echo "ANYWH" "fail check not_installed ${unit} is not a running relay installed from a release"; echo "${UPGRADE_EXIT_MARKER}"=3; exit 0; fi`,
+      // The failure line and its status are echoed with quotes splitting
+      // them, so the command line the terminal echoes back never reads as
+      // that failure itself.
+      `if [ -z "$unit" ] || [ "$(systemctl --user is-active "$unit" 2>/dev/null)" != active ] || [ "$(basename "$run")" != relay ] || [ ! -f "$run/dist/server.js" ] || [ ! -f "$dir/infra/systemd/add-profile.sh" ] || [ -e "$dir/.git" ]; then echo "ANYWH" "fail check not_installed no running relay installed from a release serves port ${String(port)}"; echo "${UPGRADE_EXIT_MARKER}"=3; exit 0; fi`,
       // The service's own Node first: the installer needs one, and a
       // service's PATH often lacks it (nvm).
-      `node_bin="$(systemctl --user show -p ExecStart --value ${unit} | sed -n "s/^{ path=\\([^ ;]*\\).*/\\1/p")"`,
-      `[ -n "$node_bin" ] && PATH="$(dirname "$node_bin"):$PATH"`,
+      `node_bin="$(systemctl --user show -p ExecStart --value "$unit" | sed -n "s/^{ path=\\([^ ;]*\\).*/\\1/p")"`,
+      `if [ -n "$node_bin" ]; then PATH="$(dirname "$node_bin"):$PATH"; fi`,
       `ANYWH_INSTALL_DIR="$dir"; export ANYWH_INSTALL_DIR PATH`,
-      `curl -fsSL ${installer} | sh -s -- --version v${version} --porcelain && systemctl --user --no-block try-restart ${unit}`,
-      done,
+      `script="$(mktemp)"`,
+      `curl -fsSL ${installer} -o "$script" && sh "$script" --version v${version} --porcelain && systemctl --user --no-block try-restart "$unit"`,
+      `status=$?; rm -f "$script"; echo ${UPGRADE_EXIT_MARKER}=$status`,
     ];
     return ` sh -c '${steps.join("; ")}'`;
   }
@@ -118,8 +125,8 @@ export function installerSucceeded(raw: string): boolean {
 }
 
 /** Conversations to look at: a turn in flight is recent by definition. */
-const RECENT_MS = 12 * 60 * 60 * 1000;
-const MAX_PROBED = 40;
+const RECENT_MS = 24 * 60 * 60 * 1000;
+const MAX_PROBED = 100;
 
 /** Asks one conversation whether a turn is running: its first `turn_state`. */
 async function probeTurn(profile: Profile, sessionId: string, timeoutMs: number): Promise<boolean> {
@@ -132,8 +139,9 @@ async function probeTurn(profile: Profile, sessionId: string, timeoutMs: number)
       socket.close();
       resolve(busy);
     };
-    // No answer in time: nothing to wait for that this check could see.
-    const timer = setTimeout(() => finish(false), timeoutMs);
+    // No answer in time, or no connection: it cannot be said to be idle,
+    // so it counts as running (the caller gives up waiting at some point).
+    const timer = setTimeout(() => finish(true), timeoutMs);
     socket.addEventListener("message", (event) => {
       let parsed: { type?: unknown; active?: unknown };
       try {
@@ -143,7 +151,7 @@ async function probeTurn(profile: Profile, sessionId: string, timeoutMs: number)
       }
       if (parsed.type === "turn_state") finish(parsed.active === true);
     });
-    socket.addEventListener("error", () => finish(false));
+    socket.addEventListener("error", () => finish(true));
   });
 }
 

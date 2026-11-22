@@ -38,11 +38,12 @@ export const Restarting: Story = { args: { state: { phase: "restarting" } } };
 export const Done: Story = { args: { state: { phase: "done" } } };
 
 /** The app could not run it there (no terminal on that machine): the command. */
-export const Failed: Story = {
-  args: { state: { phase: "failed", error: "the relay's terminal closed before the update ran", command: MANUAL_UPGRADE_COMMAND } },
-};
+export const Failed: Story = { args: { state: { phase: "failed", reason: "terminal", command: MANUAL_UPGRADE_COMMAND } } };
 
-export const FailedWithoutReason: Story = { args: { state: { phase: "failed", error: null, command: MANUAL_UPGRADE_COMMAND } } };
+/** The installer stopped: its own words under the reason. */
+export const InstallerFailed: Story = {
+  args: { state: { phase: "failed", reason: "installer", detail: "checksum mismatch for anywh-relay-0.2.50-linux-x64.tar.gz", command: MANUAL_UPGRADE_COMMAND } },
+};
 
 const SIMULATED: readonly LegacyUpgradeState[] = [
   { phase: "checking" },
