@@ -763,13 +763,17 @@ export class BotManager implements RoomBots {
       kind: "bot_schedule",
       label: schedule.name,
       onSettled: (outcome) => {
-        this.turnSettled(bot.id, outcome);
         // A run already taken as stale was recorded then, and a newer one
         // may hold the key by now.
-        if (this.running.get(key) !== at) return;
-        this.running.delete(key);
-        if (!this.store.get(bot.id)?.schedules.some((each) => each.id === schedule.id)) return;
-        this.recordRun(bot.id, schedule.id, { at, outcome: outcome.limited ? "limited" : outcome.failed ? "failed" : outcome.silenced ? "silent" : "replied" });
+        if (this.running.get(key) === at) {
+          this.running.delete(key);
+          if (this.store.get(bot.id)?.schedules.some((each) => each.id === schedule.id)) {
+            this.recordRun(bot.id, schedule.id, { at, outcome: outcome.limited ? "limited" : outcome.failed ? "failed" : outcome.silenced ? "silent" : "replied" });
+          }
+        }
+        // Last: what it does to a limit re-arms the scheduler, which must
+        // see this run as over.
+        this.turnSettled(bot.id, outcome);
       },
     });
   }
@@ -788,12 +792,12 @@ export class BotManager implements RoomBots {
       this.arm();
       return;
     }
+    // Ended now rather than dropped: the scheduler still sees which runs the
+    // limit held (their time is before it), fires their one catch-up, and
+    // then clears it.
     if (!outcome.failed && bot.limitedUntil !== undefined && bot.limitedUntil > this.now()) {
-      this.store.update(botId, (current) => {
-        const { limitedUntil: _gone, ...rest } = current;
-        void _gone;
-        return rest;
-      });
+      const now = this.now();
+      this.store.update(botId, (current) => ({ ...current, limitedUntil: now }));
       this.arm();
     }
   }

@@ -122,11 +122,34 @@ test("a run that hits a usage limit is neither a failure nor a success, and hold
     assert.equal(manager.runScheduleNow("b1", "s1").ok, true);
     settles[0]({ silenced: false, failed: true, limited: true });
     assert.equal(store.get("b1")!.limitedUntil, now() + HOUR, "an hour when nobody says when");
-    // A turn that goes through ends the limit early.
+    // A turn that goes through ends the limit now.
     assert.equal(manager.runScheduleNow("b1", "s1").ok, true);
     settles[1]({ silenced: false, failed: false });
-    assert.equal(store.get("b1")!.limitedUntil, undefined);
+    assert.equal(store.get("b1")!.limitedUntil, now());
   });
+});
+
+test("a turn that goes through before the reset still lets the run the limit held catch up", () => {
+  const HOUR = 60 * 60 * 1000;
+  withBot(
+    ({ manager, store, settles, advance, now, wake }) => {
+      manager.start();
+      store.update("b1", (bot) => ({ ...bot, limitedUntil: now() + 5 * HOUR }));
+      advance(2 * HOUR); // 11:00 came and went while limited, past its grace
+      wake();
+      assert.equal(settles.length, 0);
+      // The person's request goes through: the plan is back early.
+      manager.runScheduleNow("b1", "s1");
+      settles[0]({ silenced: false, failed: false });
+      assert.equal(settles.length, 2, "the held run fires once, instead of being recorded as missed");
+      assert.equal(store.get("b1")!.limitedUntil, undefined);
+      settles[1]({ silenced: true, failed: false });
+      assert.deepEqual(runs(store), ["replied", "silent"]);
+      manager.stop();
+    },
+    false,
+    { schedulePaused: false },
+  );
 });
 
 test("while limited a due schedule waits; once the limit passes it runs once, however late, and the limit clears", () => {
