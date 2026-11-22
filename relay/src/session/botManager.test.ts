@@ -203,3 +203,30 @@ test("reopening a closed task is refused at the open-task limit, as creating one
   });
   await check;
 });
+
+test("a room that throws while a bot is created takes the bot and its files back out", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-botmanager-"));
+  try {
+    const store = new BotStore(join(dir, "p-bots.json"));
+    const files: string[] = [];
+    const manager = new BotManager({
+      store,
+      files: { create: (id: string) => files.push(id), remove: (id: string) => files.splice(files.indexOf(id), 1) } as never,
+      sessionStore: {} as never,
+      rooms: {
+        createRoom: () => {
+          throw new Error("disk full");
+        },
+      } as never,
+      sessions: {} as never,
+      runtimes: () => ["claude"],
+      hostConnected: () => true,
+      setTimer: () => () => {},
+    });
+    assert.throws(() => manager.create({ name: "Órfão", soul: "I watch." }), /disk full/);
+    assert.deepEqual(store.list(), [], "no bot left without its room");
+    assert.deepEqual(files, [], "nor its files");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -243,10 +243,21 @@ export class BotManager implements RoomBots {
     // list), with nothing to patch up afterwards.
     this.options.files.create(id, input.soul);
     this.store.put(bot);
-    const room = this.options.rooms.createRoom({ agentId: input.agentId, model: input.model, effort: input.effort, permissionMode: input.permissionMode, cwd: input.cwd, title: name, roomId });
-    if (!room.ok) {
+    // A room that is refused, or that throws partway, takes the bot back
+    // out: never a bot listed whose conversation does not exist.
+    const undo = (): void => {
       this.store.delete(id);
       this.options.files.remove(id);
+    };
+    let room: CreateRoomResult;
+    try {
+      room = this.options.rooms.createRoom({ agentId: input.agentId, model: input.model, effort: input.effort, permissionMode: input.permissionMode, cwd: input.cwd, title: name, roomId });
+    } catch (error) {
+      undo();
+      throw error;
+    }
+    if (!room.ok) {
+      undo();
       return { ok: false, status: 400, error: room.error };
     }
     this.options.sessions.getOrCreate(roomId).submitBotTurn(botKickoffText(), { kind: "bot_note", label: "created", onSettled: (outcome) => this.turnSettled(id, outcome) });
