@@ -1426,6 +1426,7 @@ export const en: Dictionary = {
       profile: "Runs on",
       startsWith: "Starts with",
       readOnly: "It only reads and reports until you say otherwise",
+      readOnlyHint: "Written in its soul; you can change it there or in its settings.",
       schedulesOff: "Its schedules stay off until you turn them on",
       back: "Back",
       create: "Create {name}",

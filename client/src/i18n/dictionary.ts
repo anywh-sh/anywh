@@ -1991,6 +1991,8 @@ export interface Dictionary {
       profile: string;
       startsWith: string;
       readOnly: string;
+      /** Under `readOnly`: it is a rule of the soul, not a lock. */
+      readOnlyHint: string;
       schedulesOff: string;
       back: string;
       /** `{name}`. */

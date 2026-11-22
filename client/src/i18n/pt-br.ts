@@ -1426,6 +1426,7 @@ export const ptBr: Dictionary = {
       profile: "Onde roda",
       startsWith: "Começa com",
       readOnly: "Só lê e reporta até você dizer o contrário",
+      readOnlyHint: "Está escrito no soul dele; mude ali ou nas configurações.",
       schedulesOff: "Os agendamentos ficam desligados até você ligar",
       back: "Voltar",
       create: "Criar {name}",

@@ -9,6 +9,8 @@ import { TextButton } from "@/components/ui/text-button";
 import { Mascot } from "@/components/bots/Mascot";
 import { BotsRelayGate } from "@/components/bots/BotsRelayGate";
 import { useHostAgents, agentName } from "@/components/chat/AgentModelEffortButton";
+import { AgentLogo } from "@/components/chat/AgentLogo";
+import { Switch } from "@/components/ui/switch";
 import { lacksFeature, useRelayFeatures } from "@/hooks/relay/useRelayFeatures";
 import { useDict } from "@/i18n";
 import { BotRequestError, createBot } from "@/lib/bots/botClient";
@@ -46,7 +48,11 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
   const [focusedTemplate, setFocusedTemplate] = useState<BotTemplate>(BOT_TEMPLATES[0]);
   const [name, setName] = useState("");
   const [soul, setSoul] = useState("");
+  // The face the person drew with "draw another": kept as is from then on, so
+  // typing the name no longer changes it.
+  const [drawnSeed, setDrawnSeed] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [scheduleOn, setScheduleOn] = useState(false);
   const [agentId, setAgentId] = useState("claude");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,11 +65,20 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
   }, [agents, agentId]);
 
   // A template keeps its own face whatever it is renamed to; a bot from
-  // scratch takes its face from its name.
-  const seed = rerollSeed(template?.seed ?? (name.trim() || "bot"), attempt);
+  // scratch takes its face from its name, until the person draws one.
+  const seedBase = template?.seed ?? (name.trim() || "bot");
+  const seed = drawnSeed ?? seedBase;
+  const drawAnother = (): void => {
+    const next = attempt + 1;
+    setAttempt(next);
+    setDrawnSeed(rerollSeed(seedBase, next));
+  };
 
   const startFrom = (picked: BotTemplate | null): void => {
     setTemplate(picked);
+    setDrawnSeed(null);
+    setAttempt(0);
+    setScheduleOn(false);
     if (picked) {
       const words = dict.bots.templates[picked.id];
       setName(words.name);
@@ -86,7 +101,7 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
         soul: soul.trim(),
         mascotSeed: seed,
         agentId,
-        ...(template && words ? { templateId: template.id, schedules: [{ name: words.scheduleName, cron: template.cron, prompt: template.prompt, paused: true }] } : {}),
+        ...(template && words ? { templateId: template.id, schedules: [{ name: words.scheduleName, cron: template.cron, prompt: template.prompt, paused: !scheduleOn }] } : {}),
       });
       onCreated(bot);
     } catch (caught) {
@@ -167,7 +182,7 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
                 <div className="flex aspect-square w-full items-center justify-center border border-border bg-bg-chrome">
                   <Mascot seed={seed} size={96} title={name || undefined} />
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
+                <Button variant="outline" size="sm" onClick={drawAnother}>
                   <Dices />
                   {copy.reroll}
                 </Button>
@@ -185,21 +200,28 @@ export function NewBotView({ profile, onCreated, agents: givenAgents }: NewBotVi
                 {agents.length > 1 && (
                   <div className="flex flex-col gap-1.5">
                     <span className="font-mono text-[11px] text-text-faint">{copy.agent}</span>
-                    <Segmented id="new-bot-agent" kind="radio" label={copy.agent} value={agentId} onChange={setAgentId} options={agents.map((id) => ({ value: id, label: agentName(dict.chat.composer.agentNames, id) }))} />
+                    <Segmented id="new-bot-agent" kind="radio" label={copy.agent} value={agentId} onChange={setAgentId} options={agents.map((id) => ({ value: id, label: agentName(dict.chat.composer.agentNames, id), icon: <AgentLogo agentId={id} className="size-3.5 shrink-0" /> }))} />
                   </div>
                 )}
                 <div className="flex flex-col gap-1.5">
                   <span className="font-mono text-[11px] text-text-faint">{copy.startsWith}</span>
                   <div className="flex flex-col border border-border">
-                    <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                      <Lock className="size-3 shrink-0" />
-                      {copy.readOnly}
-                    </p>
+                    <div className="flex items-start gap-2.5 px-3 py-2.5">
+                      <Lock className="mt-0.5 size-3.5 shrink-0 text-text-faint" />
+                      <span className="flex flex-col gap-0.5">
+                        <span className="text-[13px] text-foreground">{copy.readOnly}</span>
+                        <span className="text-[11px] text-text-faint">{copy.readOnlyHint}</span>
+                      </span>
+                    </div>
                     {template && (
-                      <p className="flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                        <CalendarClock className="size-3 shrink-0" />
-                        {copy.schedulesOff}
-                      </p>
+                      <label className="flex cursor-pointer items-center gap-2.5 border-t border-border px-3 py-2.5">
+                        <CalendarClock className="size-3.5 shrink-0 text-text-faint" />
+                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className="text-[13px] text-foreground">{dict.bots.templates[template.id].scheduleName}</span>
+                          <span className="font-mono text-[11px] text-text-faint">{scheduleOn ? dict.bots.templates[template.id].when : copy.schedulesOff}</span>
+                        </span>
+                        <Switch checked={scheduleOn} onCheckedChange={setScheduleOn} aria-label={dict.bots.templates[template.id].scheduleName} />
+                      </label>
                     )}
                   </div>
                 </div>
