@@ -709,6 +709,7 @@ export class BotManager implements RoomBots {
         edits.set(id, before ? (schedule) => change(before(schedule)) : change);
       };
       const toFire: BotSchedule[] = [];
+      let owedWaiting = false;
       for (const raw of bot.schedules) {
         const schedule = this.armed(raw);
         if (schedule !== raw) edit(raw.id, (each) => this.armed(each));
@@ -731,8 +732,10 @@ export class BotManager implements RoomBots {
         // A paused bot, or the last run still going: nothing to do this time.
         const skip = due === "run" && (bot.paused || this.isRunning(bot, schedule.id));
         if (due === "run" && !skip && !this.options.hostConnected()) {
-          // Tried again shortly, while it is still within the grace.
+          // Tried again shortly, while it is still within the grace (an
+          // owed run keeps the limit standing until it gets to run).
           soonest = Math.min(soonest ?? Infinity, now + SCHEDULER_RETRY_MS);
+          if (owed) owedWaiting = true;
           continue;
         }
         if (due === "run" && !skip) toFire.push(schedule);
@@ -748,8 +751,8 @@ export class BotManager implements RoomBots {
       // A limit is over once its time passes (the runs it held fire below):
       // cleared, so the bot reads as itself again. One still standing wakes
       // the scheduler when it ends.
-      const limitOver = bot.limitedUntil !== undefined && bot.limitedUntil <= now;
-      if (bot.limitedUntil !== undefined && !limitOver) soonest = Math.min(soonest ?? Infinity, bot.limitedUntil);
+      const limitOver = bot.limitedUntil !== undefined && bot.limitedUntil <= now && !owedWaiting;
+      if (bot.limitedUntil !== undefined && bot.limitedUntil > now) soonest = Math.min(soonest ?? Infinity, bot.limitedUntil);
       if (edits.size > 0 || limitOver) {
         this.store.update(bot.id, (current) => {
           const { limitedUntil, ...rest } = current;

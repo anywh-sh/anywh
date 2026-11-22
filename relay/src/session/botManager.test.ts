@@ -14,7 +14,7 @@ type Settle = (outcome: { silenced: boolean; failed: boolean; limited?: boolean 
 function withBot(
   run: (ctx: { manager: BotManager; store: BotStore; settles: Settle[]; advance: (ms: number) => void; setBusy: (busy: boolean) => void; now: () => number; wake: () => void }) => void,
   firstRun = false,
-  extra: { schedulePaused?: boolean; usageResetAt?: (agentId: string) => number | undefined } = {},
+  extra: { schedulePaused?: boolean; usageResetAt?: (agentId: string) => number | undefined; hostConnected?: () => boolean } = {},
 ): void {
   const dir = mkdtempSync(join(tmpdir(), "anywh-botmanager-"));
   try {
@@ -43,7 +43,7 @@ function withBot(
       rooms: { agentState: () => undefined } as never,
       sessions: { getOrCreate: () => session, peek: () => session, renameTitle: () => true, deleteSession: () => true },
       runtimes: () => ["claude"],
-      hostConnected: () => true,
+      hostConnected: extra.hostConnected ?? (() => true),
       now: () => now,
       setTimer: (fn) => {
         timer = fn;
@@ -255,5 +255,30 @@ test("a scheduler pass writes each bot once, however many of its schedules it to
     },
     false,
     { schedulePaused: false },
+  );
+});
+
+test("a run the limit held still catches up when the agent host was away as the limit ended", () => {
+  const HOUR = 60 * 60 * 1000;
+  let connected = true;
+  withBot(
+    ({ manager, store, settles, advance, now, wake }) => {
+      manager.start();
+      store.update("b1", (bot) => ({ ...bot, limitedUntil: now() + 3 * HOUR }));
+      advance(3 * HOUR); // the limit is over; 11:00 is long past its grace
+      connected = false;
+      wake();
+      assert.equal(settles.length, 0, "no host: the run waits");
+      assert.notEqual(store.get("b1")!.limitedUntil, undefined, "and the limit stays until it runs");
+      advance(30_000);
+      connected = true;
+      wake();
+      assert.equal(settles.length, 1, "the held run fires once the host is back");
+      assert.equal(store.get("b1")!.limitedUntil, undefined);
+      assert.deepEqual(runs(store), []);
+      manager.stop();
+    },
+    false,
+    { schedulePaused: false, hostConnected: () => connected },
   );
 });
