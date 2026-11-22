@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
@@ -118,6 +118,21 @@ describe("bots in the sidebar", () => {
       watch.emitMessage({ type: "bots_state", bots: [] });
     });
     await waitFor(() => expect(screen.queryAllByRole("tab")).toHaveLength(0));
+  });
+
+  it("with no bot, the sidebar card opens the presentation, and Templates moves the open tab to the templates", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    const watch = await watchSocket();
+    act(() => {
+      watch.emitMessage({ type: "bots_state", bots: [] });
+    });
+    const card = await screen.findByTestId("bots-first-card");
+    await user.click(within(card).getByRole("button", { name: en.bots.firstBot.create }));
+    expect(await screen.findByTestId("new-bot-intro")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: en.bots.firstBot.templates }));
+    await waitFor(() => expect(screen.queryByTestId("new-bot-intro")).not.toBeInTheDocument());
+    expect(screen.getByText(en.bots.create.step1)).toBeInTheDocument();
   });
 
   it("the + of the Bots heading opens the new bot as a tab, and opening it again focuses the same tab", async () => {

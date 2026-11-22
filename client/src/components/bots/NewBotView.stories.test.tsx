@@ -46,7 +46,7 @@ describe("New bot tab stories", () => {
     await userEvent.click(await screen.findByRole("button", { name: copy.create.useTemplate }));
     expect(screen.getByDisplayValue(copy.templates["ci-check"].name)).toBeInTheDocument();
     expect(screen.getByText(copy.create.schedulesOff)).toBeInTheDocument();
-    expect(screen.getByText(copy.create.inSidebar)).toBeInTheDocument();
+    expect(screen.queryByTestId("new-bot-preview")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: copy.create.create.replace("{name}", copy.templates["ci-check"].name) })).toBeEnabled();
     await userEvent.click(screen.getByRole("button", { name: copy.create.templatesBack }));
     expect(screen.getByText(copy.create.step1)).toBeInTheDocument();

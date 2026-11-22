@@ -14,13 +14,23 @@ export function isNewBotTab(tabId: string): boolean {
   return tabId.startsWith(NEW_BOT_TAB_PREFIX);
 }
 
-// Where a new-bot tab about to open starts, when the caller asked: straight
-// at the templates ("See templates"), past the first-bot presentation. Read
-// once, by the tab as it mounts.
+// Where a new-bot tab starts, when the caller asked: straight at the
+// templates ("Templates"), past the first-bot presentation. Taken once: by
+// the tab as it mounts, or by the tab already open, which is told.
 const newBotStarts = new Map<string, "templates">();
+const newBotStartListeners = new Map<string, Set<() => void>>();
 
 export function setNewBotStart(profileId: string, start: "templates"): void {
   newBotStarts.set(profileId, start);
+  for (const listener of newBotStartListeners.get(profileId) ?? []) listener();
+}
+
+/** Tells an open new-bot tab of `profileId` that a start was asked for. */
+export function onNewBotStart(profileId: string, listener: () => void): () => void {
+  const listeners = newBotStartListeners.get(profileId) ?? new Set<() => void>();
+  listeners.add(listener);
+  newBotStartListeners.set(profileId, listeners);
+  return () => listeners.delete(listener);
 }
 
 export function takeNewBotStart(profileId: string): "templates" | undefined {

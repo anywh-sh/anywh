@@ -1986,8 +1986,6 @@ export interface Dictionary {
       stepOf: string;
       /** Back from step 2 to the templates. */
       templatesBack: string;
-      /** Heading of step 2's preview of the bot's sidebar row. */
-      inSidebar: string;
       title: string;
       step1: string;
       step1Body: string;

@@ -16,7 +16,7 @@ import { useDict } from "@/i18n";
 import { BotRequestError, createBot } from "@/lib/bots/botClient";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { getBots } from "@/lib/bots/botsStore";
-import { takeNewBotStart } from "@/lib/bots/botTabs";
+import { onNewBotStart, takeNewBotStart } from "@/lib/bots/botTabs";
 import { rerollSeed } from "@/lib/bots/mascot";
 import { BOT_TEMPLATES, type BotTemplate } from "@/lib/bots/templates";
 import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
@@ -29,6 +29,13 @@ const DOT_GRID_STYLE = {
   backgroundImage: "radial-gradient(circle, var(--canvas-grid) 1px, transparent 1.5px)",
   backgroundSize: "24px 24px",
   maskImage: "radial-gradient(ellipse at center, black 30%, transparent 85%)",
+} as const;
+
+/** The dots behind the mascot in step two, from the same grid token. */
+const MASCOT_FRAME_STYLE = {
+  backgroundImage: "radial-gradient(circle, var(--canvas-grid) 1px, transparent 1.5px)",
+  backgroundSize: "16px 16px",
+  backgroundPosition: "8px 8px",
 } as const;
 
 /** Agents a bot can run on: the ones a room can (the agent host runs them). */
@@ -46,8 +53,8 @@ interface NewBotViewProps {
 /**
  * Creating a bot, as a tab of its own: what it should do (the person's own
  * words, or a template), then who it is (name, mascot, soul, agent). The page
- * fills the tab, with a column on the right that previews the choice: the
- * template picked, then the bot as the sidebar will show it. A template's
+ * fills the tab; on the first step a column on the right previews the
+ * template picked. A template's
  * schedule is created off, and its soul starts with a "Never" section: a new
  * bot reads and reports until the person says otherwise.
  */
@@ -62,6 +69,14 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
   const [profileId, setProfileId] = useState(tabProfile.id);
   const profile = profiles.find((each) => each.id === profileId) ?? tabProfile;
   const purposeRef = useRef<HTMLInputElement>(null);
+  // Already open when "Templates" is asked for again: go there.
+  useEffect(
+    () =>
+      onNewBotStart(tabProfile.id, () => {
+        if (takeNewBotStart(tabProfile.id) === "templates") setStep((current) => (current === "intro" ? 1 : current));
+      }),
+    [tabProfile.id],
+  );
   const [purpose, setPurpose] = useState("");
   const [template, setTemplate] = useState<BotTemplate | null>(null);
   const [focusedTemplate, setFocusedTemplate] = useState<BotTemplate>(BOT_TEMPLATES[0]);
@@ -228,7 +243,7 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
             <div className="grid gap-6 md:grid-cols-[200px_1fr]">
               <div className="flex flex-col gap-2">
                 <span className="font-mono text-[11px] text-text-faint">{copy.mascot}</span>
-                <div className="flex aspect-square w-full items-center justify-center border border-border bg-bg-chrome">
+                <div className="flex aspect-square w-full items-center justify-center border border-border bg-bg-chrome" style={MASCOT_FRAME_STYLE}>
                   <Mascot seed={seed} size={96} title={name || undefined} />
                 </div>
                 <Button variant="outline" size="sm" onClick={drawAnother}>
@@ -299,11 +314,19 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
             </div>
           )}
 
+          {step === 2 && (
+            <div className="flex flex-col items-start gap-2">
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <Button loading={busy} disabled={name.trim() === "" || soul.trim() === ""} onClick={() => void create()} className={cn(busy && "pointer-events-none")}>
+                {busy ? copy.creating : copy.create.replace("{name}", name.trim() || "bot")}
+              </Button>
+            </div>
+          )}
         </div>
       </ScrollArea>
 
-      <aside className="flex shrink-0 flex-col border-t border-border lg:w-[340px] lg:border-t-0 lg:border-l" data-testid="new-bot-preview">
-        {step === 1 ? (
+      {step === 1 && (
+        <aside className="flex shrink-0 flex-col border-t border-border lg:w-[340px] lg:border-t-0 lg:border-l" data-testid="new-bot-preview">
           <div className="hidden min-h-0 flex-1 flex-col gap-4 overflow-auto p-8 lg:flex" data-testid="template-preview">
             <Mascot seed={focusedTemplate.seed} size={72} />
             <div className="flex flex-col gap-1.5">
@@ -329,44 +352,22 @@ export function NewBotView({ profile: tabProfile, onCreated, agents: givenAgents
               </div>
             </div>
           </div>
-        ) : (
-          <div className="hidden min-h-0 flex-1 flex-col gap-2 overflow-auto p-8 lg:flex">
-            <span className="font-mono text-[11px] text-text-faint">{copy.inSidebar}</span>
-            <div className="flex items-center gap-2.5 border border-border bg-bg-sidebar px-3 py-2.5">
-              <Mascot seed={seed} state="setup" size={24} />
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate text-[13px] text-foreground">{name.trim() || "bot"}</span>
-                <span className="truncate font-mono text-[11px] text-text-faint">{dict.bots.status.setup}</span>
-              </span>
-            </div>
+          <div className="flex shrink-0 flex-col gap-2 p-4 lg:border-t lg:border-border lg:p-6">
+            <p className="hidden items-center gap-2 font-mono text-[11px] text-text-faint lg:flex">
+              <Lock className="size-3 shrink-0" />
+              {copy.readOnly}
+            </p>
+            <p className="mb-2 hidden items-center gap-2 font-mono text-[11px] text-text-faint lg:flex">
+              <CalendarClock className="size-3 shrink-0" />
+              {copy.schedulesOff}
+            </p>
+            <Button onClick={() => startFrom(focusedTemplate)}>
+              {copy.useTemplate}
+              <ArrowRight />
+            </Button>
           </div>
-        )}
-        <div className="flex shrink-0 flex-col gap-2 p-4 lg:border-t lg:border-border lg:p-6">
-          {step === 1 ? (
-            <>
-              <p className="hidden items-center gap-2 font-mono text-[11px] text-text-faint lg:flex">
-                <Lock className="size-3 shrink-0" />
-                {copy.readOnly}
-              </p>
-              <p className="mb-2 hidden items-center gap-2 font-mono text-[11px] text-text-faint lg:flex">
-                <CalendarClock className="size-3 shrink-0" />
-                {copy.schedulesOff}
-              </p>
-              <Button onClick={() => startFrom(focusedTemplate)}>
-                {copy.useTemplate}
-                <ArrowRight />
-              </Button>
-            </>
-          ) : (
-            <>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button loading={busy} disabled={name.trim() === "" || soul.trim() === ""} onClick={() => void create()} className={cn(busy && "pointer-events-none")}>
-                {busy ? copy.creating : copy.create.replace("{name}", name.trim() || "bot")}
-              </Button>
-            </>
-          )}
-        </div>
-      </aside>
+        </aside>
+      )}
 
     </div>
   );

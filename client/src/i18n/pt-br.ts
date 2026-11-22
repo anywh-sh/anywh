@@ -1419,7 +1419,6 @@ export const ptBr: Dictionary = {
       },
       stepOf: "Novo bot · {step} de 2",
       templatesBack: "Modelos",
-      inSidebar: "Na sidebar",
       title: "Novo bot",
       step1: "O que ele deve fazer?",
       step1Body: "Um bot fica de olho em algo, faz o trabalho pesado com agentes e só te chama quando precisa de você.",
