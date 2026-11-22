@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BOT_CHARACTER_TONES, BOT_CLOSED_TASKS_KEPT, cleanBotName, defaultMascot, isBotRecord, pruneTasks, taskStatus, upgradeLegacyMascot, withRun, type BotRecord, type BotTask } from "./bot.js";
+import { BOT_CHARACTER_TONES, BOT_CLOSED_TASKS_KEPT, cleanBotName, defaultMascot, isBotRecord, pruneTasks, taskStatus, withRun, type BotRecord, type BotTask } from "./bot.js";
 
 const task = (over: Partial<BotTask> = {}): BotTask => ({ n: 1, title: "t", status: "planned", workerIds: [], notes: [], createdAt: 1, updatedAt: 1, ...over });
 
@@ -50,19 +50,4 @@ test("a mascot nobody picked comes from the name, in the character's own tone", 
   assert.deepEqual(defaultMascot("Vigia"), defaultMascot(" vigia "));
   const mascot = defaultMascot("Vigia");
   assert.equal(mascot.tone, BOT_CHARACTER_TONES[mascot.character]);
-});
-
-test("a record saved with a generated face's seed loads with a character instead", () => {
-  const legacy = { id: "b", name: "Vigia", mascot: { seed: "Vigia" }, roomId: "r", paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [], schedules: [] };
-  const upgraded = upgradeLegacyMascot(legacy);
-  assert.equal(isBotRecord(legacy), false);
-  assert.equal(isBotRecord(upgraded), true);
-  assert.deepEqual((upgraded as BotRecord).mascot, defaultMascot("Vigia"));
-  const current = { ...legacy, mascot: { character: "screen", tone: "stone" } };
-  assert.equal(upgradeLegacyMascot(current), current, "a picked mascot is left alone");
-});
-
-test("a record saved under the earlier Portuguese mascot ids loads with the English ones", () => {
-  const legacy = { id: "b", name: "Vigia", mascot: { character: "capacete", tone: "ardosia" }, roomId: "r", paused: false, firstRun: true, createdAt: 1, nextTaskN: 1, tasks: [], schedules: [] };
-  assert.deepEqual((upgradeLegacyMascot(legacy) as BotRecord).mascot, { character: "helmet", tone: "slate" });
 });

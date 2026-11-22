@@ -8,7 +8,6 @@ import { forgetRoomStatus, publishRoomStatus, roomStatusOf } from "@/lib/sala/ro
 import type { RoomAgentState } from "@/lib/relay/roomClient";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { BotView } from "@/lib/bots/botTypes";
-import { withPickedMascot } from "@/lib/bots/templates";
 
 /** The relay closes the channel of a room that does not exist with this code. */
 export const ROOM_GONE_CODE = 4404;
@@ -43,10 +42,10 @@ export function reduceRoomChannel(state: RoomChannelState, frame: unknown, now: 
     case "room_snapshot":
       agents = message.agents;
       summary = message.summary;
-      bot = message.bot && withPickedMascot(message.bot);
+      bot = message.bot;
       break;
     case "room_bot":
-      bot = withPickedMascot(message.bot);
+      bot = message.bot;
       break;
     case "room_agent_state": {
       const index = agents.findIndex((a) => a.agentId === message.agent.agentId);

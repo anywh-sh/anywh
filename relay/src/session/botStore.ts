@@ -5,7 +5,7 @@
 // overwritten, so a corrupt write cannot silently wipe every bot.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { isBotRecord, upgradeLegacyMascot, type BotRecord } from "./bot.js";
+import { isBotRecord, type BotRecord } from "./bot.js";
 
 export function botsPathFor(sessionsFile: string): string {
   return sessionsFile.endsWith(".json") ? `${sessionsFile.slice(0, -".json".length)}-bots.json` : `${sessionsFile}-bots.json`;
@@ -30,10 +30,11 @@ export class BotStore {
       return;
     }
     const raw = typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { bots?: unknown }).bots) ? (parsed as { bots: unknown[] }).bots : [];
-    const upgraded = raw.map(upgradeLegacyMascot);
-    this.bots = upgraded.filter(isBotRecord).map((bot) => structuredClone(bot));
-    if (this.bots.length !== raw.length) console.warn(`[relay] dropped ${raw.length - this.bots.length} bot record(s) that did not validate`);
-    if (this.bots.length !== raw.length || upgraded.some((bot, i) => bot !== raw[i])) this.persist();
+    this.bots = raw.filter(isBotRecord).map((bot) => structuredClone(bot));
+    if (this.bots.length !== raw.length) {
+      console.warn(`[relay] dropped ${raw.length - this.bots.length} bot record(s) that did not validate`);
+      this.persist();
+    }
   }
 
   list(): BotRecord[] {

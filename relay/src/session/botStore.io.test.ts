@@ -47,17 +47,3 @@ test("a file that does not parse is set aside, never overwritten", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
-
-test("a bot saved with a generated face's seed is kept, with a character written back", () => {
-  const dir = mkdtempSync(join(tmpdir(), "anywh-bots-"));
-  try {
-    const file = join(dir, "p-bots.json");
-    writeFileSync(file, JSON.stringify({ bots: [{ ...bot("a"), mascot: { seed: "a" } }] }));
-    const store = new BotStore(file);
-    assert.equal(store.list().length, 1);
-    const written = JSON.parse(readFileSync(file, "utf8")) as { bots: BotRecord[] };
-    assert.equal(typeof written.bots[0].mascot.character, "string");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});

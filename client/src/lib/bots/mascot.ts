@@ -215,34 +215,8 @@ export function defaultChoice(character: MascotCharacter): MascotChoice {
  * something else still draws a face. */
 export function mascotChoiceOf(mascot: unknown): MascotChoice {
   const value = (typeof mascot === "object" && mascot !== null ? mascot : {}) as { character?: unknown; tone?: unknown };
-  const rawCharacter = renamedId(value.character);
-  const rawTone = renamedId(value.tone);
-  const character = isMascotCharacter(rawCharacter) ? rawCharacter : "bip";
-  return { character, tone: isMascotTone(rawTone) ? rawTone : MASCOT_CHARACTERS[character].tone };
-}
-
-/** The first ids were Portuguese words (a relay still running that build
- * sends them): read as their English ids. */
-const LEGACY_IDS: Readonly<Record<string, string>> = {
-  fone: "headset",
-  topete: "quiff",
-  capacete: "helmet",
-  ciclope: "cyclops",
-  tela: "screen",
-  oculos: "specs",
-  helice: "propeller",
-  giz: "chalk",
-  areia: "sand",
-  salvia: "sage",
-  oliva: "olive",
-  rosa: "rose",
-  nuvem: "cloud",
-  ardosia: "slate",
-  pedra: "stone",
-};
-
-function renamedId(value: unknown): unknown {
-  return typeof value === "string" ? (LEGACY_IDS[value] ?? value) : value;
+  const character = isMascotCharacter(value.character) ? value.character : "bip";
+  return { character, tone: isMascotTone(value.tone) ? value.tone : MASCOT_CHARACTERS[character].tone };
 }
 
 const channels = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));

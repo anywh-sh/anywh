@@ -120,38 +120,6 @@ export function defaultMascot(name: string): BotMascot {
   return { character, tone: BOT_CHARACTER_TONES[character] };
 }
 
-/** Bots saved before mascots were picked carry a generated face's seed
- * instead: they get a character from it, so the record still loads. Ids
- * from before the English names are renamed. */
-export function upgradeLegacyMascot(value: unknown): unknown {
-  if (!isRecord(value) || !isRecord(value.mascot) || isBotMascot(value.mascot)) return value;
-  const { character, tone, seed } = value.mascot;
-  // The first ids were Portuguese words; the same picks under their English ids.
-  const renamed = { character: typeof character === "string" ? (LEGACY_MASCOT_IDS[character] ?? character) : character, tone: typeof tone === "string" ? (LEGACY_MASCOT_IDS[tone] ?? tone) : tone };
-  if (isBotMascot(renamed)) return { ...value, mascot: renamed };
-  if (typeof seed !== "string") return value;
-  return { ...value, mascot: defaultMascot(seed) };
-}
-
-/** Mascot ids as a relay of this branch first wrote them. */
-const LEGACY_MASCOT_IDS: Readonly<Record<string, string>> = {
-  fone: "headset",
-  topete: "quiff",
-  capacete: "helmet",
-  ciclope: "cyclops",
-  tela: "screen",
-  oculos: "specs",
-  helice: "propeller",
-  giz: "chalk",
-  areia: "sand",
-  salvia: "sage",
-  oliva: "olive",
-  rosa: "rose",
-  nuvem: "cloud",
-  ardosia: "slate",
-  pedra: "stone",
-};
-
 export interface BotRecord {
   id: string;
   name: string;
