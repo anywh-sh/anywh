@@ -21,4 +21,9 @@ describe("botStatusLine", () => {
     expect(botStatusLine(bot({ latestTask: { n: 12, title: "Fix CI", status: "working", updatedAt: 1 } }), en, time).text).toBe("#12 Fix CI");
     expect(botStatusLine(bot(), en, time).text).toBe("idle");
   });
+  it("a usage limit reads as one, in red, with when the bot is back, until that time passes", () => {
+    const now = 1_000_000;
+    expect(botStatusLine(bot({ limitedUntil: now + 60_000, lastRunFailed: true }), en, time, now)).toEqual({ text: "usage limit · back at 09:00", tone: "fail" });
+    expect(botStatusLine(bot({ limitedUntil: now - 1 }), en, time, now).text).toBe("idle");
+  });
 });

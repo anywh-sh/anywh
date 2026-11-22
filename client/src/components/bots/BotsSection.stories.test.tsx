@@ -20,6 +20,8 @@ describe("Bots sidebar section stories", () => {
     expect(screen.getByRole("button", { name: "Faxina" })).toHaveTextContent(en.bots.status.paused);
     expect(screen.getByRole("button", { name: "Docs" })).toHaveTextContent(en.bots.status.failed);
     expect(screen.getByRole("button", { name: "Triagem" })).toHaveTextContent(en.bots.status.setup);
+    expect(screen.getByRole("button", { name: "Chip" })).toHaveTextContent(en.bots.status.limited.split(" · ")[0]);
+    expect(screen.getByRole("button", { name: "Chip" }).querySelector("[data-mascot-badge]")?.getAttribute("data-mascot-badge")).toBe("limit");
   });
 
   it("Empty is a card with one line and the two ways in", async () => {

@@ -29,6 +29,9 @@ export const storyBots: BotSummary[] = [
   { ...base, id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { character: "capacete", tone: "pedra" }, paused: true },
   { ...base, id: "docs", roomId: "room-docs", name: "Docs", mascot: { character: "tela", tone: "ardosia" }, lastRunFailed: true },
   { ...base, id: "triagem", roomId: "room-triagem", name: "Triagem", mascot: { character: "visor", tone: "rosa" }, firstRun: true },
+  // Waiting out its agent's usage limit (relative to the real clock, so the
+  // story keeps showing it).
+  { ...base, id: "chip", roomId: "room-chip", name: "Chip", mascot: { character: "chip", tone: "salvia" }, limitedUntil: Date.now() + 58 * 60_000 },
 ];
 
 export const storyBotView: BotView = {

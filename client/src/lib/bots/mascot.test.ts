@@ -61,6 +61,8 @@ describe("mascot", () => {
     expect(mascotStateOf({ ...base, busy: true })).toBe("working");
     expect(mascotStateOf({ ...base, firstRun: true })).toBe("setup");
     expect(mascotStateOf({ ...base, lastRunFailed: true })).toBe("failed");
+    expect(mascotStateOf({ ...base, lastRunFailed: true, limitedUntil: 2000 }, 1000)).toBe("limit");
+    expect(mascotStateOf({ ...base, limitedUntil: 500 }, 1000)).toBe("idle");
     expect(mascotStateOf(base)).toBe("idle");
   });
 });

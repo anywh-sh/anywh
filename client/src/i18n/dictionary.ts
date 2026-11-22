@@ -1900,6 +1900,8 @@ export interface Dictionary {
       paused: string;
       setup: string;
       failed: string;
+      /** Its agent hit a usage limit; `{time}`: when it is back. */
+      limited: string;
       /** `{name}`, `{time}`. */
       next: string;
       idle: string;
@@ -1927,7 +1929,7 @@ export interface Dictionary {
       running: string;
       /** `{time}`. */
       nextRun: string;
-      lastRun: { replied: string; silent: string; failed: string; missed: string };
+      lastRun: { replied: string; silent: string; failed: string; missed: string; limited: string };
       conversationNeedsYou: string;
       actionFailed: string;
     };

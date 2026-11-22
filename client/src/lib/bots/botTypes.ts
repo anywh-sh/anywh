@@ -34,7 +34,7 @@ export interface BotTask {
   updatedAt: number;
 }
 
-export type BotRunOutcome = "replied" | "silent" | "failed" | "missed";
+export type BotRunOutcome = "replied" | "silent" | "failed" | "missed" | "limited";
 
 export interface BotSchedule {
   id: string;
@@ -62,6 +62,8 @@ export interface BotSummary {
   latestTask?: { n: number; title: string; status: BotTaskStatus; updatedAt: number };
   nextRun?: { name: string; at: number };
   lastRunFailed: boolean;
+  /** Its agent hit a usage limit: no schedule fires before this. */
+  limitedUntil?: number;
   createdAt: number;
 }
 

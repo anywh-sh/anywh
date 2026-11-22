@@ -414,12 +414,18 @@ export function mascotPixels(choice: MascotChoice, state: MascotState = "idle"):
   return { pixels: cells.join(""), palette: colors };
 }
 
+/** Whether a bot is waiting out its agent's usage limit at `now`. */
+export function isLimited(bot: { limitedUntil?: number }, now: number = Date.now()): boolean {
+  return bot.limitedUntil !== undefined && bot.limitedUntil > now;
+}
+
 /** What a bot's summary says its face should be. */
-export function mascotStateOf(bot: { paused: boolean; firstRun: boolean; needsYou: number; working: number; busy: boolean; lastRunFailed: boolean }): MascotState {
+export function mascotStateOf(bot: { paused: boolean; firstRun: boolean; needsYou: number; working: number; busy: boolean; lastRunFailed: boolean; limitedUntil?: number }, now: number = Date.now()): MascotState {
   if (bot.paused) return "paused";
   if (bot.needsYou > 0) return "needsYou";
   if (bot.firstRun) return "setup";
   if (bot.working > 0 || bot.busy) return "working";
+  if (isLimited(bot, now)) return "limit";
   if (bot.lastRunFailed) return "failed";
   return "idle";
 }

@@ -77,9 +77,9 @@ export function buildDrawerBots(input: { bots: readonly BotSummary[]; section: "
     emptyBody: dict.bots.emptyBody,
     waitingLabel: waiting > 0 ? dict.bots.collapsedNeedsYou.replace("{count}", String(waiting)) : "",
     items: input.bots.map((bot) => {
-      const state = mascotStateOf(bot);
+      const state = mascotStateOf(bot, input.now);
       const face = mascotPixels(bot.mascot, state);
-      const line = botStatusLine(bot, dict, (at) => shortWhen(at, input.locale, input.now));
+      const line = botStatusLine(bot, dict, (at) => shortWhen(at, input.locale, input.now), input.now);
       return {
         id: bot.id,
         roomId: bot.roomId,
