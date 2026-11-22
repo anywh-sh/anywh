@@ -50,6 +50,7 @@ import { NewBotDialog } from "@/components/bots/NewBotDialog";
 import { useBots } from "@/lib/bots/botsStore";
 import { loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
+import { useRelayAutoUpdate } from "@/hooks/relay/useRelayAutoUpdate";
 import { useResizableSidebar } from "@/hooks/tabs/useResizableSidebar";
 import { useIsCompactViewport } from "@/hooks/platform/useIsCompactViewport";
 import { useTabs, type Tab } from "@/hooks/tabs/useTabs";
@@ -177,6 +178,7 @@ function AppShell() {
   const { supported: profilesSupported } = useProfileSync(activeProfile);
   // Inert unless a build installs a push address provider (docs/push.md).
   usePushRegistration(profiles);
+  useRelayAutoUpdate(profiles);
   // Holds the active profile's tailnet-sidecar reference for as long as it's
   // selected — the sidebar/sync hooks above run against it before any chat
   // tab (the only other thing that used to acquire one) ever mounts for it.
