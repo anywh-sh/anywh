@@ -564,7 +564,13 @@ export class BotManager implements RoomBots {
     const parsed = parseTaskUpdateArgs(args);
     if (!parsed.ok) return fail(parsed.error);
     const { task: n, status, title, note } = parsed.value;
-    if (!bot.tasks.some((task) => task.n === n)) return fail(`There is no task #${n}.`);
+    const target = bot.tasks.find((task) => task.n === n);
+    if (!target) return fail(`There is no task #${n}.`);
+    // Reopening counts against the same limit as creating.
+    if (status !== undefined && !isClosed(status) && isClosed(target.status)) {
+      const open = bot.tasks.filter((task) => !isClosed(task.status)).length;
+      if (open >= BOT_OPEN_TASKS_MAX) return fail(`You already have ${open} open tasks (the limit); close some before reopening #${n}.`);
+    }
     const at = this.now();
     this.store.update(bot.id, (current) => ({
       ...current,

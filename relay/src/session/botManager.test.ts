@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BotRecord } from "./bot.js";
+import { BOT_OPEN_TASKS_MAX, type BotRecord } from "./bot.js";
 import { BotManager, type BotSession } from "./botManager.js";
 import { BotStore } from "./botStore.js";
 
@@ -183,4 +183,23 @@ test("reading a bot's view never records anything, even with a stale run", () =>
     assert.equal(view?.schedules[0].running, false, "a stale run is not shown as running");
     assert.deepEqual(runs(store), [], "and the view recorded nothing");
   });
+});
+
+test("reopening a closed task is refused at the open-task limit, as creating one is", async () => {
+  let check: Promise<void> = Promise.resolve();
+  withBot(({ manager, store }) => {
+    store.update("b1", (bot) => ({
+      ...bot,
+      nextTaskN: BOT_OPEN_TASKS_MAX + 2,
+      tasks: [
+        ...Array.from({ length: BOT_OPEN_TASKS_MAX }, (_, i) => ({ n: i + 1, title: `t${String(i + 1)}`, status: "planned" as const, workerIds: [], notes: [], createdAt: 1, updatedAt: 1 })),
+        { n: BOT_OPEN_TASKS_MAX + 1, title: "old", status: "done" as const, workerIds: [], notes: [], createdAt: 1, updatedAt: 1 },
+      ],
+    }));
+    check = manager.callTool("room-b1", "task_update", { task: BOT_OPEN_TASKS_MAX + 1, status: "working" })!.then((result) => {
+      assert.equal(result.isError, true);
+      assert.equal(store.get("b1")!.tasks.find((task) => task.n === BOT_OPEN_TASKS_MAX + 1)!.status, "done");
+    });
+  });
+  await check;
 });
