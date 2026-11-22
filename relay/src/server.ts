@@ -306,14 +306,20 @@ sessionStore.onRoomChange((_sessionId, roomId) => {
 // The bots, as the sidebar lists them, go to every `/sessions/watch` socket
 // whenever one changes (coalesced: a bot's turn touches it many times).
 let botsTimer: NodeJS.Timeout | undefined;
+function botsFrame(): string {
+  return JSON.stringify({ type: "bots_state", bots: botManager.summaries() });
+}
 function sendBots(socket: WebSocket): void {
-  socket.send(JSON.stringify({ type: "bots_state", bots: botManager.summaries() }));
+  socket.send(botsFrame());
 }
 function botsChanged(): void {
   if (botsTimer) return;
   botsTimer = setTimeout(() => {
     botsTimer = undefined;
-    for (const watcher of sessionListWatchers) if (watcher.readyState === watcher.OPEN) sendBots(watcher);
+    // Built once for every watcher: the summaries walk each bot's tasks and
+    // workers, and a bot's turn changes them many times.
+    let frame: string | undefined;
+    for (const watcher of sessionListWatchers) if (watcher.readyState === watcher.OPEN) watcher.send((frame ??= botsFrame()));
   }, 300);
   botsTimer.unref();
 }
