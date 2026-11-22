@@ -29,6 +29,13 @@ const emit = (event: Partial<InstallDoneEvent>): void => {
   for (const listener of [...install.listeners]) listener({ runId: "r1", ok: true, ...event } as InstallDoneEvent);
 };
 
+/** Starts an update without waiting for it to end (it ends when the test
+ * emits the installer's done event), once the installer is listened to. */
+async function startRun(run: () => Promise<void>): Promise<void> {
+  act(() => void run());
+  await waitFor(() => expect(install.listeners.size).toBe(1));
+}
+
 describe("useRelayUpdate", () => {
   afterEach(() => {
     install.listeners.clear();
@@ -49,7 +56,7 @@ describe("useRelayUpdate", () => {
   it("a successful install restarts the profile's relay, so the new release is what runs", async () => {
     install.start = () => Promise.resolve({ runId: "r1" });
     const { result } = renderHook(() => useRelayUpdate(profile));
-    await act(() => result.current.run());
+    await startRun(() => result.current.run());
     expect(install.restarted).toEqual([]);
     act(() => emit({ ok: true }));
     await waitFor(() => expect(result.current.status).toBe("done"));
@@ -59,14 +66,14 @@ describe("useRelayUpdate", () => {
   it("a failed install never restarts the relay, and a failed restart is reported", async () => {
     install.start = () => Promise.resolve({ runId: "r1" });
     const { result } = renderHook(() => useRelayUpdate(profile));
-    await act(() => result.current.run());
+    await startRun(() => result.current.run());
     act(() => emit({ ok: false, failure: { message: "no network" } } as Partial<InstallDoneEvent>));
     await waitFor(() => expect(result.current.status).toBe("failed"));
     expect(install.restarted).toEqual([]);
     expect(result.current.error).toBe("no network");
 
     install.restart = () => Promise.reject(new Error("systemctl said no"));
-    await act(() => result.current.run());
+    await startRun(() => result.current.run());
     act(() => emit({ ok: true }));
     await waitFor(() => expect(result.current.error).toBe("systemctl said no"));
     expect(result.current.status).toBe("failed");
@@ -75,7 +82,7 @@ describe("useRelayUpdate", () => {
   it("only its own run's end counts, and the listener goes when the hook unmounts", async () => {
     install.start = () => Promise.resolve({ runId: "r1" });
     const { result, unmount } = renderHook(() => useRelayUpdate(profile));
-    await act(() => result.current.run());
+    await startRun(() => result.current.run());
     act(() => emit({ runId: "other", ok: true }));
     expect(result.current.status).toBe("running");
     unmount();
