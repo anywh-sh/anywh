@@ -5,6 +5,7 @@ import { Mascot } from "@/components/bots/Mascot";
 import { useDict } from "@/i18n";
 import { useBots } from "@/lib/bots/botsStore";
 import { mascotStateOf } from "@/lib/bots/mascot";
+import type { BotSummary } from "@/lib/bots/botTypes";
 import { cn } from "@/lib/utils";
 
 /** The iOS drawer's two sections, which take turns (the desktop sidebar
@@ -48,16 +49,21 @@ export function saveBotsOpen(open: boolean): void {
   }
 }
 
+/** How many faces a folded Bots heading shows; the rest wait for it to open. */
+const FOLDED_FACES = 6;
+
 /**
  * The heading of the desktop sidebar's Bots group, above the conversation
  * groups (needs you, running, recent) and folding on its own like them.
- * Folded, it still shows the faces of the bots that need the person, so
- * nothing waiting goes unseen.
+ * Folded, it shows every bot's face at 16 px (a click opens that bot) and
+ * an orange dot while one of them waits for the person, so nothing waiting
+ * goes unseen.
  */
-export function BotsHeading({ open, profileId, onToggle, onAdd }: { open: boolean; profileId: string; onToggle: () => void; onAdd: () => void }) {
+export function BotsHeading({ open, profileId, onToggle, onAdd, onSelectBot }: { open: boolean; profileId: string; onToggle: () => void; onAdd: () => void; onSelectBot: (bot: BotSummary) => void }) {
   const dict = useDict();
   const bots = useBots(profileId);
-  const waiting = open ? [] : bots.filter((bot) => bot.needsYou > 0);
+  const faces = open ? [] : bots.slice(0, FOLDED_FACES);
+  const waiting = open ? 0 : bots.filter((bot) => bot.needsYou > 0).length;
   return (
     <div className="relative shrink-0 px-2 pt-2">
       <RowButton
@@ -69,16 +75,20 @@ export function BotsHeading({ open, profileId, onToggle, onAdd }: { open: boolea
         <ChevronDown className={cn("-mr-1 size-2.5 shrink-0", !open && "-rotate-90")} aria-hidden />
         <span className="dark:opacity-80">{dict.bots.section}</span>
         <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
-        {waiting.length > 0 && (
-          <span className="flex items-center gap-1" title={dict.bots.collapsedNeedsYou.replace("{count}", String(waiting.length))}>
-            {waiting.slice(0, 4).map((bot) => (
-              <Mascot key={bot.id} mascot={bot.mascot} state={mascotStateOf(bot)} size={16} />
-            ))}
-            <span className="size-1.5 rounded-full bg-primary" aria-hidden />
-          </span>
-        )}
+        {/* Room for the faces drawn over the row (buttons can't nest). */}
+        {faces.length > 0 && <span aria-hidden style={{ width: faces.length * 20 + (waiting > 0 ? 10 : 0) }} className="shrink-0" />}
         <span className="w-5 shrink-0" aria-hidden />
       </RowButton>
+      {faces.length > 0 && (
+        <span className="absolute top-2 right-8 flex h-[24px] items-center gap-1" data-testid="bots-folded-faces">
+          {faces.map((bot) => (
+            <Button key={bot.id} variant="quiet" size="inline" aria-label={bot.name} title={bot.name} onClick={() => onSelectBot(bot)} className="p-0">
+              <Mascot mascot={bot.mascot} state={mascotStateOf(bot)} size={16} />
+            </Button>
+          ))}
+          {waiting > 0 && <span className="ml-0.5 size-1.5 rounded-full bg-primary" role="img" aria-label={dict.bots.collapsedNeedsYou.replace("{count}", String(waiting))} title={dict.bots.collapsedNeedsYou.replace("{count}", String(waiting))} />}
+        </span>
+      )}
       <Button
         variant="chrome"
         size="inline"

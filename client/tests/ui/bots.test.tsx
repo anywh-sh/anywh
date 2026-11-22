@@ -72,7 +72,9 @@ describe("bots in the sidebar", () => {
     expect(botsHeading).toHaveAttribute("aria-expanded", "true");
     await user.click(botsHeading);
     expect(botsHeading).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("button", { name: "Vigia" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-bots")).not.toBeInTheDocument();
+    // Folded, each bot's face stays on the heading, with the waiting dot.
+    expect(within(screen.getByTestId("bots-folded-faces")).getByRole("button", { name: "Vigia" })).toBeInTheDocument();
     expect(screen.getByTitle(en.bots.collapsedNeedsYou.replace("{count}", "1"))).toBeInTheDocument();
     expect(screen.getByText("A conversation")).toBeInTheDocument();
     expect(localStorage.getItem("anywh:sidebar-bots-open")).toBe("false");

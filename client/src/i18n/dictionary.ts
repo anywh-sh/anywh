@@ -1882,8 +1882,12 @@ export interface Dictionary {
     /** The sidebar's card while the profile has no bot: one line, two ways in. */
     firstBot: {
       title: string;
+      /** Under the title, in mono: what bots watch. */
+      subtitle: string;
       create: string;
       templates: string;
+      /** The card's ×: it stays hidden, the heading's "+" still creates. */
+      hide: string;
     };
     /** Shown beside a folded Bots section: `{count}` bots need the person. */
     collapsedNeedsYou: string;
