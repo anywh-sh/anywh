@@ -83,9 +83,12 @@ function updaterFor(relayDir: string, running: string, baseUrl: string, installe
   });
 }
 
-test("a newer release is downloaded, verified and swapped in over the running tree", async () => {
+test("a newer release is downloaded, verified and swapped in over the running tree, keeping the relay's own files", async () => {
   const { dir, installDir, relayDir } = setup("0.2.40");
   const release = await serveRelease(dir, "0.2.41");
+  // What the release does not ship and a relay keeps beside its code.
+  writeFileSync(join(relayDir, ".env"), "AGENT_BIN=/opt/claude\n");
+  writeFileSync(join(relayDir, "push-devices.local.json"), "{}");
   try {
     const installed: string[] = [];
     const updater = updaterFor(relayDir, "0.2.40", release.baseUrl, installed);
@@ -101,6 +104,9 @@ test("a newer release is downloaded, verified and swapped in over the running tr
     assert.match(readFileSync(join(relayDir, "dist", "server.js"), "utf8"), /relay 0\.2\.41/);
     // The new tree carries the installer for the update after this one.
     readFileSync(join(installDir, "infra", "install-relay.sh"));
+    // The relay's own files came along; the release's files are the new ones.
+    assert.equal(readFileSync(join(relayDir, ".env"), "utf8"), "AGENT_BIN=/opt/claude\n");
+    assert.equal(readFileSync(join(relayDir, "push-devices.local.json"), "utf8"), "{}");
   } finally {
     release.server.close();
     rmSync(dir, { recursive: true, force: true });

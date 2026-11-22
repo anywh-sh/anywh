@@ -419,6 +419,18 @@ old_suffix="$$"
 [ -e "$INSTALL_DIR/infra" ] && mv "$INSTALL_DIR/infra" "$INSTALL_DIR/infra.old.$old_suffix"
 mv "$staging/relay" "$INSTALL_DIR/relay"
 mv "$staging/infra" "$INSTALL_DIR/infra"
+# What lived in the old relay/ and the release does not ship stays: the
+# shared relay/.env both units load first, and any *.local.json a relay
+# started without RELAY_*_FILE keeps beside its code. Only names the new
+# tree does not have are carried over, so nothing from the release is
+# overwritten by the previous one.
+if [ -d "$INSTALL_DIR/relay.old.$old_suffix" ]; then
+  for kept in "$INSTALL_DIR/relay.old.$old_suffix"/* "$INSTALL_DIR/relay.old.$old_suffix"/.[!.]*; do
+    [ -e "$kept" ] || continue
+    name="$(basename "$kept")"
+    [ -e "$INSTALL_DIR/relay/$name" ] || mv "$kept" "$INSTALL_DIR/relay/$name"
+  done
+fi
 rm -rf "$staging"
 staging=""
 rm -rf "$INSTALL_DIR/relay.old.$old_suffix" "$INSTALL_DIR/infra.old.$old_suffix"
