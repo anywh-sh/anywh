@@ -25,6 +25,16 @@ describe("MascotPicker stories", () => {
     expect(current()).toBe("helice:giz");
   });
 
+  it("the faded faces at the sides pick their character too, and the face slides in from that side", async () => {
+    const { container } = render(<Panel />);
+    await userEvent.click(screen.getByRole("button", { name: copy.characters.visor }));
+    expect(current()).toBe("visor:giz");
+    expect(container.querySelector("[data-carousel-dir]")?.getAttribute("data-carousel-dir")).toBe("next");
+    await userEvent.click(screen.getByRole("button", { name: copy.characters.bip }));
+    expect(current()).toBe("bip:areia");
+    expect(container.querySelector("[data-carousel-dir]")?.getAttribute("data-carousel-dir")).toBe("prev");
+  });
+
   it("the arrow keys walk the characters too", () => {
     render(<OtherTone />);
     const panel = screen.getByRole("radiogroup").parentElement!;

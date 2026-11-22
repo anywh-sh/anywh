@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -45,7 +45,13 @@ export function MascotPickerPanel({ value, onChange }: { value: MascotChoice; on
   const copy = dict.bots.mascot;
   const index = MASCOT_ORDER.indexOf(value.character);
   const at = (offset: number) => MASCOT_ORDER[(index + offset + MASCOT_ORDER.length) % MASCOT_ORDER.length];
-  const step = (offset: number): void => onChange(defaultChoice(at(offset)));
+  // Which way the last move went: the face picked slides in from that side.
+  // Nothing on first draw, nor when only the tone changes.
+  const [direction, setDirection] = useState<"next" | "prev" | null>(null);
+  const step = (offset: number): void => {
+    setDirection(offset > 0 ? "next" : "prev");
+    onChange(defaultChoice(at(offset)));
+  };
   return (
     <div
       className="flex flex-col items-center gap-3 px-4 pt-4 pb-4"
@@ -60,14 +66,19 @@ export function MascotPickerPanel({ value, onChange }: { value: MascotChoice; on
         <Button variant="quiet" size="icon-sm" aria-label={copy.previous} onClick={() => step(-1)}>
           <ChevronLeft />
         </Button>
-        <span className="opacity-40" aria-hidden>
-          <Mascot mascot={defaultChoice(at(-1))} size={48} />
-        </span>
-        <span className="flex size-32 items-center justify-center border border-muted-foreground bg-bg-chrome" style={MASCOT_FRAME_STYLE}>
-          <Mascot mascot={value} size={96} title={copy.characters[value.character]} />
-        </span>
-        <span className="opacity-40" aria-hidden>
-          <Mascot mascot={defaultChoice(at(1))} size={48} />
+        {/* Keyed by the character, so each move replays the slide. */}
+        <span key={value.character} className="flex items-center gap-2" data-carousel-dir={direction ?? undefined}>
+          <Button variant="quiet" size="inline" aria-label={copy.characters[at(-1)]} title={copy.characters[at(-1)]} onClick={() => step(-1)} className="p-0 opacity-40 hover:opacity-70" data-carousel-slot="side">
+            <Mascot mascot={defaultChoice(at(-1))} size={48} />
+          </Button>
+          <span className="flex size-32 items-center justify-center overflow-hidden border border-muted-foreground bg-bg-chrome" style={MASCOT_FRAME_STYLE}>
+            <span className="flex" data-carousel-slot="current">
+              <Mascot mascot={value} size={96} title={copy.characters[value.character]} />
+            </span>
+          </span>
+          <Button variant="quiet" size="inline" aria-label={copy.characters[at(1)]} title={copy.characters[at(1)]} onClick={() => step(1)} className="p-0 opacity-40 hover:opacity-70" data-carousel-slot="side">
+            <Mascot mascot={defaultChoice(at(1))} size={48} />
+          </Button>
         </span>
         <Button variant="quiet" size="icon-sm" aria-label={copy.next} onClick={() => step(1)}>
           <ChevronRight />
