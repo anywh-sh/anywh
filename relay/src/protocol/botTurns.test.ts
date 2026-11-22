@@ -8,3 +8,7 @@ test("a bot's relay turns are told apart from what the person typed, with their 
   assert.deepEqual(botTurnKind("[anywh-bot] You were just created. Start your first conversation."), { kind: "bot_note", label: "created" });
   assert.equal(botTurnKind("please [anywh-bot] check"), undefined);
 });
+
+test("a message that only starts like the relay's is the person's own", () => {
+  assert.equal(botTurnKind("[anywh-bot] hello from me"), undefined);
+});

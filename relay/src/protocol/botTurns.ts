@@ -7,7 +7,7 @@
 export const BOT_TURN_PREFIX = "[anywh-bot]";
 
 /** What kind of relay turn a bot prompt is, or `undefined` for anything
- * else. `label` is the schedule's name, `answer:<n>`, `cancel:<n>` or `created`. */
+ * else (a message the person typed, even one starting with the prefix). `label` is the schedule's name, `answer:<n>`, `cancel:<n>` or `created`. */
 export function botTurnKind(text: string): { kind: "bot_schedule" | "bot_note"; label: string } | undefined {
   if (!text.startsWith(BOT_TURN_PREFIX)) return undefined;
   const schedule = /^\[anywh-bot\] Schedule "([^\n]*)" fired\./.exec(text);
@@ -16,5 +16,7 @@ export function botTurnKind(text: string): { kind: "bot_schedule" | "bot_note"; 
   if (answer) return { kind: "bot_note", label: `answer:${answer[1]}` };
   const cancel = /^\[anywh-bot\] The person canceled task #(\d+)\./.exec(text);
   if (cancel) return { kind: "bot_note", label: `cancel:${cancel[1]}` };
-  return { kind: "bot_note", label: "created" };
+  if (/^\[anywh-bot\] You were just created\./.test(text)) return { kind: "bot_note", label: "created" };
+  // The prefix alone is not the relay's: a person may type it.
+  return undefined;
 }

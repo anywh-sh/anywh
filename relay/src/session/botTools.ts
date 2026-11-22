@@ -343,7 +343,8 @@ export function parseScheduleCreateArgs(raw: unknown): Parsed<{ name: string; cr
   if (!cron.ok) return cron;
   const prompt = text(args, "prompt", BOT_SCHEDULE_PROMPT_MAX, true);
   if (!prompt.ok) return prompt;
-  return { ok: true, value: { name: name.value!, cron: cron.value!.replace(/\s+/g, " "), prompt: prompt.value! } };
+  // A name is one line: it is shown in a row, and a run's header carries it.
+  return { ok: true, value: { name: name.value!.replace(/\s+/g, " "), cron: cron.value!.replace(/\s+/g, " "), prompt: prompt.value! } };
 }
 
 export function parseScheduleUpdateArgs(raw: unknown): Parsed<{ id: string; paused?: boolean; name?: string; cron?: string; prompt?: string }> {
@@ -362,7 +363,7 @@ export function parseScheduleUpdateArgs(raw: unknown): Parsed<{ id: string; paus
     value: {
       id: id.value!,
       ...(typeof args.paused === "boolean" ? { paused: args.paused } : {}),
-      ...(name.value ? { name: name.value } : {}),
+      ...(name.value ? { name: name.value.replace(/\s+/g, " ") } : {}),
       ...(cron.value ? { cron: cron.value.replace(/\s+/g, " ") } : {}),
       ...(prompt.value ? { prompt: prompt.value } : {}),
     },

@@ -50,3 +50,9 @@ test("a schedule firing carries its prompt as written, and its header still mark
   assert.doesNotMatch(text, /NO_REPLY/, "staying silent is a standing rule, not part of each run");
   assert.deepEqual(botTurnKind(text), { kind: "bot_schedule", label: "Triage" });
 });
+
+test("a schedule's name is one line, so its runs are still told apart", () => {
+  const created = parseScheduleCreateArgs({ name: "Daily\nsummary", cron: "0 9 * * *", prompt: "Summarize." });
+  assert.ok(created.ok && created.value.name === "Daily summary");
+  assert.deepEqual(botTurnKind(botScheduleText(created.ok ? created.value.name : "", "Summarize.")), { kind: "bot_schedule", label: "Daily summary" });
+});
