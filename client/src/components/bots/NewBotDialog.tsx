@@ -43,25 +43,30 @@ interface NewBotDialogProps {
  */
 export function NewBotDialog({ onCreated, onTemplates }: NewBotDialogProps) {
   const request = useNewBotRequest();
+  // The last request stays drawn while the dialog closes, so its closing
+  // animation has the form to fade out instead of an empty box.
+  const [shown, setShown] = useState<NewBotRequest | null>(request);
+  if (request !== null && request !== shown) setShown(request);
   return (
     <Dialog open={request !== null} onOpenChange={(open) => !open && closeNewBot()}>
-      {request && (
+      {shown && (
         <DialogContent
           className="top-[92px] bottom-auto w-[600px] bg-bg-sidebar sm:max-w-[600px]"
           aria-describedby={undefined}
+          data-slot="new-bot-dialog"
           data-testid="new-bot-dialog"
         >
           <NewBotForm
             // A new request starts from a clean form.
-            key={`${request.profileId}:${request.templateId ?? ""}:${request.fromTabId ?? ""}`}
-            request={request}
+            key={`${shown.profileId}:${shown.templateId ?? ""}:${shown.fromTabId ?? ""}`}
+            request={shown}
             onCreated={(bot, profile) => {
               closeNewBot();
-              onCreated(bot, profile, request);
+              onCreated(bot, profile, shown);
             }}
             onTemplates={() => {
               closeNewBot();
-              onTemplates(request.profileId);
+              onTemplates(shown.profileId);
             }}
           />
         </DialogContent>
