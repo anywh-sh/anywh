@@ -1332,11 +1332,9 @@ export const ptBr: Dictionary = {
     emptyBody: "Um bot tem nome, função e memória. Você pede na conversa dele; ele passa o trabalho para agentes e só te chama quando precisa de você.",
     emptyCta: "Criar seu primeiro bot",
     firstBot: {
-      title: "Um colega de IA que fica de olho por você",
-      subtitle: "CI, PRs, issues, resumo do dia",
-      create: "Criar um bot",
-      templates: "Ver modelos",
-      hide: "Esconder",
+      title: "Colegas de IA de olho por você",
+      create: "Novo bot",
+      templates: "Modelos",
     },
     collapsedNeedsYou: "{count} precisam de você",
     status: {

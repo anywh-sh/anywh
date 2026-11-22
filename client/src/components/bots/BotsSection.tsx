@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
-import { MessageSquare, Pause, Play, Plus, Settings, Trash2, X } from "lucide-react";
+import { MessageSquare, Pause, Play, Plus, Settings, Trash2 } from "lucide-react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { RowButton } from "@/components/ui/row-button";
 import { Button } from "@/components/ui/button";
@@ -19,26 +19,6 @@ import { BOT_TEMPLATES } from "@/lib/bots/templates";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import type { Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
-
-const FIRST_CARD_HIDDEN_KEY = "anywh:bots-first-card-hidden";
-
-/** The profiles whose first-bot card the person hid (its ×). */
-function loadFirstCardHidden(): string[] {
-  try {
-    const stored = JSON.parse(localStorage.getItem(FIRST_CARD_HIDDEN_KEY) ?? "[]") as unknown;
-    return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveFirstCardHidden(profileIds: string[]): void {
-  try {
-    localStorage.setItem(FIRST_CARD_HIDDEN_KEY, JSON.stringify(profileIds));
-  } catch {
-    // Not remembering it is no reason to fail the click.
-  }
-}
 
 export interface BotsSectionActions {
   onSelectBot: (bot: BotSummary) => void;
@@ -72,13 +52,6 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
   const selectedBot = bots.find((bot) => bot.roomId === selectedSession);
   const expanded = selectedBot?.id ?? expandedId;
   const relay = useRelayFeatures(profile, "bots");
-  const [hiddenCards, setHiddenCards] = useState(loadFirstCardHidden);
-  const firstCardHidden = hiddenCards.includes(profile.id);
-  const hideFirstCard = (): void => {
-    const next = [...hiddenCards, profile.id];
-    setHiddenCards(next);
-    saveFirstCardHidden(next);
-  };
 
   // A relay older than bots: say what it takes to have them, not "no bots".
   if (bots.length === 0 && lacksFeature(relay, "bots")) {
@@ -90,28 +63,23 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
   }
 
   if (bots.length === 0) {
-    if (firstCardHidden) return null;
-    // A card with three template faces standing on its top edge (the middle
-    // one at work): what a bot is, in one line, and the two ways in.
+    // A card with a few template faces sitting on it: what a bot is, in one
+    // line, and the two ways in.
     return (
-      <div className="px-2 pb-2" data-testid="bots-first-card">
-        <div className="relative mt-[38px] flex flex-col gap-1 border border-border bg-bg-elevated px-3 pt-[13px] pb-3">
-          <div className="absolute -top-[33px] left-3 flex items-end gap-1" aria-hidden>
-            {BOT_TEMPLATES.slice(0, 3).map((each, index) => (
-              <Mascot key={each.id} mascot={each.mascot} state={index === 1 ? "working" : "idle"} size={32} />
-            ))}
-          </div>
-          <Button variant="quiet" size="icon-xs" aria-label={dict.bots.firstBot.hide} title={dict.bots.firstBot.hide} onClick={hideFirstCard} className="absolute top-1 right-1">
-            <X />
-          </Button>
-          <span className="pr-5 text-[length:calc(13.5px*var(--chrome-scale))] leading-snug font-medium text-foreground">{dict.bots.firstBot.title}</span>
-          <span className="font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint">{dict.bots.firstBot.subtitle}</span>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => actions.onNewBot()} className="px-2.5 font-sans text-[12.5px]">
+      <div className="flex flex-col px-3 pt-2 pb-3" data-testid="bots-first-card">
+        <div className="flex items-end gap-2 pl-3" aria-hidden>
+          {BOT_TEMPLATES.slice(0, 3).map((each) => (
+            <Mascot key={each.id} mascot={each.mascot} size={32} />
+          ))}
+        </div>
+        <div className="flex flex-col gap-3 border border-border bg-background p-3">
+          <span className="text-[length:calc(12.5px*var(--chrome-scale))] font-medium text-foreground">{dict.bots.firstBot.title}</span>
+          <div className="flex gap-2">
+            <Button size="xs" onClick={() => actions.onNewBot()}>
               <Plus className="size-3" />
               {dict.bots.firstBot.create}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => actions.onNewBot("templates")} className="px-2.5 font-sans text-[12.5px]">
+            <Button variant="outline" size="xs" onClick={() => actions.onNewBot("templates")}>
               {dict.bots.firstBot.templates}
             </Button>
           </div>

@@ -35,16 +35,4 @@ describe("Bots sidebar section stories", () => {
     expect(onNewBot).toHaveBeenLastCalledWith("templates");
   });
 
-  it("Empty's × hides the card for the profile, and it stays hidden", async () => {
-    localStorage.removeItem("anywh:bots-first-card-hidden");
-    render(<Empty />);
-    expect(within(screen.getByTestId("bots-first-card")).getByText(en.bots.firstBot.subtitle)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: en.bots.firstBot.hide }));
-    expect(screen.queryByTestId("bots-first-card")).not.toBeInTheDocument();
-    cleanup();
-    render(<Empty />);
-    expect(screen.queryByTestId("bots-first-card")).not.toBeInTheDocument();
-    localStorage.removeItem("anywh:bots-first-card-hidden");
-  });
-
 });

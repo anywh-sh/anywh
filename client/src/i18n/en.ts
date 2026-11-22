@@ -1332,11 +1332,9 @@ export const en: Dictionary = {
     emptyBody: "A bot has a name, a job and a memory. You ask in its conversation; it hands the work to agents and only calls you when it needs you.",
     emptyCta: "Create your first bot",
     firstBot: {
-      title: "An AI teammate that keeps an eye out for you",
-      subtitle: "CI, PRs, issues, a daily summary",
-      create: "Create a bot",
-      templates: "See templates",
-      hide: "Hide",
+      title: "AI teammates that watch for you",
+      create: "New bot",
+      templates: "Templates",
     },
     collapsedNeedsYou: "{count} need you",
     status: {
