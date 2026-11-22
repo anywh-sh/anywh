@@ -1333,8 +1333,8 @@ export const ptBr: Dictionary = {
     emptyCta: "Criar seu primeiro bot",
     firstBot: {
       title: "Colegas de IA de olho por você",
-      create: "Criar um bot",
-      templates: "Ver modelos",
+      create: "Novo bot",
+      templates: "Modelos",
     },
     collapsedNeedsYou: "{count} precisam de você",
     status: {

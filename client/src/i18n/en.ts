@@ -1333,8 +1333,8 @@ export const en: Dictionary = {
     emptyCta: "Create your first bot",
     firstBot: {
       title: "AI teammates that watch for you",
-      create: "Create a bot",
-      templates: "See templates",
+      create: "New bot",
+      templates: "Templates",
     },
     collapsedNeedsYou: "{count} need you",
     status: {
