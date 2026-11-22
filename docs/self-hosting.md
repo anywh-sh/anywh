@@ -112,10 +112,16 @@ reconnect. It never downgrades: a relay ahead of the app is left alone. Only
 a systemd-managed relay restarts itself. A relay started by hand (`npm
 start`, `--mode dev`) or run from a source checkout is never touched.
 
-A relay from before this existed needs one last update by hand: the button
-in the profile's settings for a relay on this machine (Linux), or the install
-command above on the relay's machine, followed by
-`systemctl --user restart anywh-relay@<profile>`.
+A relay from before this existed cannot be asked to update itself, so the
+app shows a notice for it with an **Update** button. Pressing it checks that
+no conversation on that relay has a reply running, waits while one does, then
+runs the installer and the restart on the relay's machine, through the
+relay's own terminal (the in-app installer for a relay on this Linux machine).
+The relay comes back on the app's version and updates itself from then on.
+The app only runs this for a service that runs from a tree the installer laid
+out, never over a source checkout. If it cannot run the update from there (no
+tmux on that machine, say), the notice shows the one command to paste on the
+relay's machine instead.
 
 On macOS the script installs the tree and stops there: it has no launchd
 unit to offer, so the service comes from the Homebrew formula instead
