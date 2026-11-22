@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ChevronDown, Plus } from "lucide-react";
 import { RowButton } from "@/components/ui/row-button";
 import { Button } from "@/components/ui/button";
@@ -28,9 +29,33 @@ export function saveSidebarSection(section: SidebarSection): void {
 }
 
 /**
+ * The list under one of the sidebar's two section headings. Both stay
+ * mounted, Bots above Conversations: opening one grows its panel from
+ * nothing to the whole column while the other shrinks to nothing in step,
+ * so the Conversations heading slides down to the bottom (Bots open) or up
+ * under the Bots heading (Conversations open). A folded panel is inert:
+ * out of the tab order and of the accessibility tree.
+ */
+export function SidebarSectionPanel({ section, open, children }: { section: SidebarSection; open: boolean; children: ReactNode }) {
+  return (
+    <div
+      data-testid={`sidebar-panel-${section}`}
+      data-open={open}
+      aria-hidden={!open}
+      inert={!open}
+      className={cn(
+        "flex min-h-0 basis-0 flex-col overflow-hidden transition-[flex-grow] duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
+        open ? "grow" : "grow-0",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
  * The heading of one of the sidebar's two sections. Only one is open at a
- * time: the open one sits at the top with its list, the folded one drops to
- * the bottom as this heading alone. Folded, the Bots heading still shows the
+ * time (see `SidebarSectionPanel`). Folded, the Bots heading still shows the
  * faces of the bots that need the person, so nothing waiting goes unseen.
  */
 export function SidebarSectionHeading({

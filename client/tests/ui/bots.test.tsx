@@ -50,7 +50,7 @@ async function watchSocket() {
 }
 
 describe("bots in the sidebar", () => {
-  it("bots and conversations take turns: opening one folds the other to the bottom, and the choice is kept", async () => {
+  it("bots and conversations take turns, Bots above: opening one folds the other, and the choice is kept", async () => {
     const user = userEvent.setup();
     renderApp();
     const watch = await watchSocket();
@@ -71,7 +71,10 @@ describe("bots in the sidebar", () => {
     await user.click(botsHeading);
     const row = await screen.findByRole("button", { name: "Vigia" });
     expect(row).toHaveTextContent("1 needs you");
-    expect(screen.queryByText("A conversation")).not.toBeInTheDocument();
+    // Both lists stay mounted (the fold is animated); the folded one is inert.
+    expect(screen.getByTestId("sidebar-panel-conversations")).toHaveAttribute("data-open", "false");
+    expect(screen.getByTestId("sidebar-panel-conversations")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByRole("button", { name: /A conversation/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: new RegExp(en.bots.conversations) })).toHaveAttribute("aria-expanded", "false");
     expect(localStorage.getItem("anywh:sidebar-section")).toBe("bots");
 

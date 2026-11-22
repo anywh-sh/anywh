@@ -4,7 +4,7 @@ import { Plus, Search } from "lucide-react";
 import { KbdShortcut } from "@/components/ui/kbd";
 import { SessionList } from "@/components/shell/SessionList";
 import { BotsSection, type BotsSectionActions } from "@/components/bots/BotsSection";
-import { SidebarSectionHeading, loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
+import { SidebarSectionHeading, SidebarSectionPanel, loadSidebarSection, saveSidebarSection, type SidebarSection } from "@/components/shell/SidebarSections";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { ProfileSwitcher } from "@/components/shell/ProfileSwitcher";
 import { useDict } from "@/i18n";
@@ -84,7 +84,7 @@ export const Sidebar = memo(function Sidebar({
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ session: MergedSession; title: string } | null>(null);
   // Bots and conversations take turns: the open section fills the column,
-  // the other folds to its heading at the bottom.
+  // the other folds to its heading (see `SidebarSectionPanel`).
   const [section, setSection] = useState<SidebarSection>(loadSidebarSection);
   const toggle = (): void => {
     const next = section === "bots" ? "conversations" : "bots";
@@ -118,35 +118,29 @@ export const Sidebar = memo(function Sidebar({
         </RowButton>
       </div>
 
-      {section === "bots" ? (
-        <>
-          <SidebarSectionHeading section="bots" open profileId={activeProfile.id} onToggle={toggle} onAdd={botActions.onNewBot} />
-          <BotsSection profile={activeProfile} selectedSession={selectedSession} {...botActions} />
-          <SidebarSectionHeading section="conversations" open={false} profileId={activeProfile.id} onToggle={toggle} />
-        </>
-      ) : (
-        <>
-          <SidebarSectionHeading section="conversations" open profileId={activeProfile.id} onToggle={toggle} />
-          <SessionList
-            sessions={sessions}
-            profiles={profiles}
-            selectedProfileCount={selectedProfileIds.size}
-            loading={sessionsLoading}
-            error={sessionsError}
-            onRetry={onRetrySessions}
-            selected={selectedSession}
-            running={runningSessions}
-            backgroundJobSessions={backgroundJobSessions}
-            onSelect={onSelectSession}
-            onRename={(session) => setRenaming({ session, title: session.title })}
-            onDelete={onDeleteSession}
-            onClearFilter={onClearProfileFilter}
-            onOpenSearch={onOpenSearch}
-          />
-
-          <SidebarSectionHeading section="bots" open={false} profileId={activeProfile.id} onToggle={toggle} onAdd={botActions.onNewBot} />
-        </>
-      )}
+      <SidebarSectionHeading section="bots" open={section === "bots"} profileId={activeProfile.id} onToggle={toggle} onAdd={botActions.onNewBot} />
+      <SidebarSectionPanel section="bots" open={section === "bots"}>
+        <BotsSection profile={activeProfile} selectedSession={selectedSession} {...botActions} />
+      </SidebarSectionPanel>
+      <SidebarSectionHeading section="conversations" open={section === "conversations"} profileId={activeProfile.id} onToggle={toggle} />
+      <SidebarSectionPanel section="conversations" open={section === "conversations"}>
+        <SessionList
+          sessions={sessions}
+          profiles={profiles}
+          selectedProfileCount={selectedProfileIds.size}
+          loading={sessionsLoading}
+          error={sessionsError}
+          onRetry={onRetrySessions}
+          selected={selectedSession}
+          running={runningSessions}
+          backgroundJobSessions={backgroundJobSessions}
+          onSelect={onSelectSession}
+          onRename={(session) => setRenaming({ session, title: session.title })}
+          onDelete={onDeleteSession}
+          onClearFilter={onClearProfileFilter}
+          onOpenSearch={onOpenSearch}
+        />
+      </SidebarSectionPanel>
 
       <RenameSessionDialog
         open={renaming !== null}
