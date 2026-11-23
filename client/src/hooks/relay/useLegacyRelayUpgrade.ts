@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { APP_VERSION } from "@/lib/install/appVersion";
-import { localInstallPossible, upgradeBrewRelay } from "@/lib/install/localRelay";
+import { BrewUpgradeError, localInstallPossible, upgradeBrewRelay } from "@/lib/install/localRelay";
 import { currentPlatform } from "@/lib/platform/platform";
 import { isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
@@ -26,7 +26,12 @@ export type LegacyUpgradeFailure =
   /** Conversations kept running past the wait. */
   | "still_busy"
   /** A platform the app has no command for. */
-  | "unsupported";
+  | "unsupported"
+  /** The app ran Homebrew on this Mac, and it failed or couldn't start
+   * (`detail` is Homebrew's own words). */
+  | "homebrew"
+  /** The app ran Homebrew on this Mac, and stopped it at its limit. */
+  | "timed_out";
 
 export type LegacyUpgradeState =
   | { phase: "hidden" }
@@ -108,6 +113,20 @@ export function runsHomebrewRelayHere(profile: Pick<Profile, "host">, relayPlatf
   return relayPlatform === "darwin" && LOOPBACK_HOSTS.has(profile.host) && currentPlatform() === "macos" && localInstallPossible();
 }
 
+/** The failure the app's own Homebrew run ended in. */
+function brewFailure(error: unknown): Failed {
+  if (!(error instanceof BrewUpgradeError)) return new Failed("homebrew", error instanceof Error ? error.message : String(error));
+  switch (error.code) {
+    case "unsupported_platform":
+      return new Failed("unsupported");
+    case "timeout":
+      return new Failed("timed_out");
+    case "spawn_failed":
+    case "failed":
+      return new Failed("homebrew", error.detail);
+  }
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const running = (state: LegacyUpgradeState): boolean => ["checking", "waiting", "updating", "restarting"].includes(state.phase);
 
@@ -139,7 +158,7 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
       // The relay is on this Mac, where its own terminal cannot run anything
       // (it needs tmux; a stock Mac has none) — and the app is already here.
       await upgradeBrewRelay().catch((error: unknown) => {
-        throw new Failed("installer", error instanceof Error ? error.message : String(error));
+        throw brewFailure(error);
       });
     } else {
       const command = upgradeCommand({ platform: entry.platform ?? "", port: profile.relayPort, version: appVersion });

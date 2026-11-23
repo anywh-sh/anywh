@@ -638,6 +638,8 @@ export const en: Dictionary = {
         not_back: "The relay didn't come back on the new version.",
         still_busy: "Conversations kept running, so the relay was left as it was.",
         unsupported: "The app can't update a relay on that system.",
+        homebrew: "Homebrew stopped before finishing.",
+        timed_out: "Homebrew didn't finish within 10 minutes, so the app stopped it.",
       },
       runThere: "On the relay's machine, run:",
       dismiss: "Dismiss notice",

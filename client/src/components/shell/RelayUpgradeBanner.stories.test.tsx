@@ -2,10 +2,11 @@ import { composeStories } from "@storybook/react-vite";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as stories from "./RelayUpgradeBanner.stories";
-import { MANUAL_UPGRADE_COMMAND } from "@/hooks/relay/useLegacyRelayUpgrade";
+import { MANUAL_BREW_COMMAND, MANUAL_UPGRADE_COMMAND } from "@/hooks/relay/useLegacyRelayUpgrade";
 import { en } from "@/i18n/en";
 
-const { Available, AvailableEachTime, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, InstallerFailed, Simulated } = composeStories(stories);
+const { Available, AvailableEachTime, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, InstallerFailed, HomebrewFailed, HomebrewTimedOut, Simulated } =
+  composeStories(stories);
 const copy = en.shell.relayUpgrade;
 
 describe("Relay update notice stories", () => {
@@ -60,6 +61,17 @@ describe("Relay update notice stories", () => {
     render(<InstallerFailed />);
     expect(screen.getByText(copy.failedReasons.installer)).toBeInTheDocument();
     expect(screen.getByText("checksum mismatch for anywh-relay-0.2.50-linux-x64.tar.gz")).toBeInTheDocument();
+  });
+
+  it("a Homebrew run the app made on this Mac says how it ended, with the brew command to run by hand", () => {
+    render(<HomebrewFailed />);
+    expect(screen.getByText(copy.failedReasons.homebrew)).toBeInTheDocument();
+    expect(screen.getByText("Error: anywh-relay: SHA256 mismatch")).toBeInTheDocument();
+    expect(screen.getByText(MANUAL_BREW_COMMAND)).toBeInTheDocument();
+    act(() => cleanup());
+    render(<HomebrewTimedOut />);
+    expect(screen.getByText(copy.failedReasons.timed_out)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.update })).toBeInTheDocument();
   });
 
   it("checking and waiting can be called off; an update already running cannot", () => {

@@ -638,6 +638,8 @@ export const ptBr: Dictionary = {
         not_back: "O relay não voltou na versão nova.",
         still_busy: "Havia conversas rodando o tempo todo, então o relay ficou como estava.",
         unsupported: "O app não sabe atualizar um relay nesse sistema.",
+        homebrew: "O Homebrew parou antes de terminar.",
+        timed_out: "O Homebrew não terminou em 10 minutos, então o app o interrompeu.",
       },
       runThere: "Na máquina do relay, rode:",
       dismiss: "Dispensar aviso",

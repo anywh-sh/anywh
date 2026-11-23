@@ -424,10 +424,14 @@ pub fn failure_tail(stdout: &str, stderr: &str) -> String {
 /// (it needs tmux, which a stock Mac does not have), and the app is already
 /// on that machine. The caller checks that no conversation has a turn in
 /// flight first; `brew services restart` is the relay's graceful shutdown.
+///
+/// Fails with a `BrewUpgradeError`, whose `code` the app turns into the
+/// person's own language; only `detail` (Homebrew's or the OS's own words)
+/// is shown as it is.
 #[tauri::command]
-pub async fn relay_brew_upgrade() -> Result<(), String> {
+pub async fn relay_brew_upgrade() -> Result<(), BrewUpgradeError> {
     if !cfg!(target_os = "macos") {
-        return Err("updating a Homebrew relay from the app is only supported on macOS".into());
+        return Err(BrewUpgradeError::new("unsupported_platform"));
     }
     let output = tokio::time::timeout(
         Duration::from_secs(600),
@@ -437,12 +441,36 @@ pub async fn relay_brew_upgrade() -> Result<(), String> {
             .output(),
     )
     .await
-    .map_err(|_| "Homebrew did not finish within 10 minutes".to_string())?
-    .map_err(|error| format!("couldn't run Homebrew: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(failure_tail(&String::from_utf8_lossy(&output.stdout), &String::from_utf8_lossy(&output.stderr)))
+    .map_err(|_| BrewUpgradeError::new("timeout"))?
+    .map_err(|error| BrewUpgradeError::with_detail("spawn_failed", error.to_string()))?;
+    brew_outcome(output.status.code(), &String::from_utf8_lossy(&output.stdout), &String::from_utf8_lossy(&output.stderr))
+}
+
+/// Why `relay_brew_upgrade` did not upgrade the relay. `code` is one of a
+/// closed set the app maps to its dictionary: `unsupported_platform`,
+/// `timeout`, `spawn_failed`, `failed`.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct BrewUpgradeError {
+    pub code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+impl BrewUpgradeError {
+    fn new(code: &'static str) -> Self {
+        BrewUpgradeError { code, detail: None }
+    }
+
+    fn with_detail(code: &'static str, detail: String) -> Self {
+        BrewUpgradeError { code, detail: (!detail.is_empty()).then_some(detail) }
+    }
+}
+
+/// What a finished Homebrew run means, from its exit status and output.
+fn brew_outcome(status: Option<i32>, stdout: &str, stderr: &str) -> Result<(), BrewUpgradeError> {
+    match status {
+        Some(0) => Ok(()),
+        _ => Err(BrewUpgradeError::with_detail("failed", failure_tail(stdout, stderr))),
     }
 }
 
@@ -1147,6 +1175,20 @@ mod tests {
         // Nothing on stderr at all: the end of stdout.
         assert_eq!(failure_tail("one\ntwo\n\nthree\nfour\n", ""), "two three four");
         assert_eq!(failure_tail("", ""), "");
+    }
+
+    #[test]
+    fn a_brew_run_ends_in_a_code_for_the_app_never_an_english_sentence() {
+        assert_eq!(brew_outcome(Some(0), "anything", "Warning: x"), Ok(()));
+        assert_eq!(
+            brew_outcome(Some(1), "", "Error: anywh-relay: SHA256 mismatch\n"),
+            Err(BrewUpgradeError { code: "failed", detail: Some("Error: anywh-relay: SHA256 mismatch".into()) })
+        );
+        // Killed by a signal, and said nothing: no empty detail to show.
+        assert_eq!(brew_outcome(None, "", ""), Err(BrewUpgradeError { code: "failed", detail: None }));
+        // The shape the app reads.
+        let json = serde_json::to_value(BrewUpgradeError::new("timeout")).unwrap();
+        assert_eq!(json, serde_json::json!({ "code": "timeout" }));
     }
 
     #[test]

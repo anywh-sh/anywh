@@ -6,20 +6,25 @@ const native = vi.hoisted(() => ({
   platform: "linux",
   tauri: false,
   brewRuns: 0,
-  brewError: null as string | null,
+  /** What the native command rejects with, as `relay_brew_upgrade` does. */
+  brewError: null as { code: string; detail?: string } | null,
   onBrew: (): void => undefined,
 }));
 vi.mock("@/lib/platform/platform", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/platform/platform")>()), currentPlatform: () => native.platform }));
-vi.mock("@/lib/install/localRelay", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/install/localRelay")>()),
-  localInstallPossible: () => native.tauri,
-  upgradeBrewRelay: () => {
-    native.brewRuns++;
-    if (native.brewError) return Promise.reject(new Error(native.brewError));
-    native.onBrew();
-    return Promise.resolve();
-  },
-}));
+vi.mock("@/lib/install/localRelay", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/install/localRelay")>();
+  return {
+    ...original,
+    localInstallPossible: () => native.tauri,
+    upgradeBrewRelay: () => {
+      native.brewRuns++;
+      const error = native.brewError;
+      if (error) return Promise.reject(new original.BrewUpgradeError(error.code as never, error.detail));
+      native.onBrew();
+      return Promise.resolve();
+    },
+  };
+});
 
 import { MANUAL_BREW_COMMAND, MANUAL_UPGRADE_COMMAND, resetLegacyRelayUpgrades, runsHomebrewRelayHere, useLegacyRelayUpgrade } from "@/hooks/relay/useLegacyRelayUpgrade";
 import { UPGRADE_EXIT_MARKER } from "@/lib/relay/legacyRelayUpgrade";
@@ -238,13 +243,31 @@ describe("a Homebrew relay on this Mac", () => {
   });
 
   it("a failed Homebrew run says what Homebrew said, with the command to run by hand", async () => {
-    native.brewError = "Error: anywh-relay: SHA256 mismatch";
+    native.brewError = { code: "failed", detail: "Error: anywh-relay: SHA256 mismatch" };
     const { result } = mountLocal();
     await waitFor(() => expect(result.current.state.phase).toBe("available"));
     act(() => result.current.start());
     await waitFor(() =>
-      expect(result.current.state).toMatchObject({ phase: "failed", reason: "installer", detail: "Error: anywh-relay: SHA256 mismatch", command: MANUAL_BREW_COMMAND }),
+      expect(result.current.state).toMatchObject({ phase: "failed", reason: "homebrew", detail: "Error: anywh-relay: SHA256 mismatch", command: MANUAL_BREW_COMMAND }),
     );
+  });
+
+  it("each way the native command fails has its own sentence, never its English", async () => {
+    const cases: [{ code: string; detail?: string }, { reason: string; detail?: string }][] = [
+      [{ code: "timeout" }, { reason: "timed_out" }],
+      [{ code: "spawn_failed", detail: "No such file or directory (os error 2)" }, { reason: "homebrew", detail: "No such file or directory (os error 2)" }],
+      [{ code: "unsupported_platform" }, { reason: "unsupported" }],
+    ];
+    for (const [error, expected] of cases) {
+      resetLegacyRelayUpgrades();
+      native.brewError = error;
+      const { result, unmount } = mountLocal();
+      await waitFor(() => expect(result.current.state.phase).toBe("available"));
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.state).toMatchObject({ phase: "failed", ...expected }));
+      if (!expected.detail) expect(result.current.state).not.toHaveProperty("detail");
+      unmount();
+    }
   });
 
   it("a Mac relay reached over the network still goes through its own terminal", () => {

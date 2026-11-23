@@ -162,12 +162,44 @@ export function startLocalInstall(params: InstallStartParams): Promise<InstallRu
   return invoke<InstallRunInfo>("relay_setup_start", { params });
 }
 
+/** Why the app's own Homebrew update of the relay did not happen
+ * (`relay_brew_upgrade`): a code to pick the person's sentence by, and
+ * Homebrew's own words when it ran and failed. */
+export type BrewUpgradeErrorCode =
+  /** Not the macOS desktop app. */
+  | "unsupported_platform"
+  /** Homebrew ran for too long, and was stopped. */
+  | "timeout"
+  /** Homebrew could not be started at all. */
+  | "spawn_failed"
+  /** Homebrew ran and failed (`detail` is its own words). */
+  | "failed";
+
+export class BrewUpgradeError extends Error {
+  constructor(
+    readonly code: BrewUpgradeErrorCode,
+    readonly detail?: string,
+  ) {
+    super(detail ? `${code}: ${detail}` : code);
+  }
+}
+
+function toBrewUpgradeError(raw: unknown): BrewUpgradeError {
+  if (typeof raw === "object" && raw !== null && typeof (raw as { code?: unknown }).code === "string") {
+    const { code, detail } = raw as { code: BrewUpgradeErrorCode; detail?: unknown };
+    return new BrewUpgradeError(code, typeof detail === "string" && detail !== "" ? detail : undefined);
+  }
+  return new BrewUpgradeError("failed", raw instanceof Error ? raw.message : String(raw));
+}
+
 /** Upgrades the Homebrew relay on this Mac and restarts its service
- * (`brew upgrade anywh-relay` + `brew services restart`). Rejects with the
- * end of Homebrew's output when it fails. */
+ * (`brew upgrade anywh-relay` + `brew services restart`). Rejects with a
+ * `BrewUpgradeError`. */
 export function upgradeBrewRelay(): Promise<void> {
-  if (!inTauri()) return Promise.reject(new Error(NOT_IN_TAURI));
-  return invoke<void>("relay_brew_upgrade");
+  if (!inTauri()) return Promise.reject(new BrewUpgradeError("unsupported_platform"));
+  return invoke<void>("relay_brew_upgrade").catch((raw: unknown) => {
+    throw toBrewUpgradeError(raw);
+  });
 }
 
 export function cancelLocalInstall(): Promise<void> {

@@ -1399,6 +1399,10 @@ export interface Dictionary {
         not_back: string;
         still_busy: string;
         unsupported: string;
+        /** The app ran Homebrew on this Mac, and it failed or couldn't start. */
+        homebrew: string;
+        /** The app ran Homebrew on this Mac, and it ran past its limit. */
+        timed_out: string;
       };
       /** Shown above the command to run on the relay's machine. */
       runThere: string;
