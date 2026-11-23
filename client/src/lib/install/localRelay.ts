@@ -162,6 +162,56 @@ export function startLocalInstall(params: InstallStartParams): Promise<InstallRu
   return invoke<InstallRunInfo>("relay_setup_start", { params });
 }
 
+/** Why the app's own Homebrew update of the relay did not happen
+ * (`relay_brew_upgrade`): a code to pick the person's sentence by, and
+ * Homebrew's own words when it ran and failed. */
+export type BrewUpgradeErrorCode =
+  /** Not the macOS desktop app. */
+  | "unsupported_platform"
+  /** The relay names another machine than this one (a loopback address
+   * that is an SSH tunnel to another Mac): nothing was touched here. */
+  | "other_machine"
+  /** The app is already upgrading the relay, or installing one. */
+  | "busy"
+  /** The Homebrew tap has no newer relay than the one installed yet;
+   * nothing was upgraded or restarted. */
+  | "nothing_newer"
+  /** Homebrew ran for too long, and was stopped. */
+  | "timeout"
+  /** Homebrew could not be started at all. */
+  | "spawn_failed"
+  /** Homebrew ran and failed (`detail` is its own words). */
+  | "failed";
+
+export class BrewUpgradeError extends Error {
+  constructor(
+    readonly code: BrewUpgradeErrorCode,
+    readonly detail?: string,
+  ) {
+    super(detail ? `${code}: ${detail}` : code);
+  }
+}
+
+function toBrewUpgradeError(raw: unknown): BrewUpgradeError {
+  if (typeof raw === "object" && raw !== null && typeof (raw as { code?: unknown }).code === "string") {
+    const { code, detail } = raw as { code: BrewUpgradeErrorCode; detail?: unknown };
+    return new BrewUpgradeError(code, typeof detail === "string" && detail !== "" ? detail : undefined);
+  }
+  return new BrewUpgradeError("failed", raw instanceof Error ? raw.message : String(raw));
+}
+
+/** Upgrades the Homebrew relay on this Mac and restarts its service
+ * (`brew upgrade anywh-relay` + `brew services restart`). Rejects with a
+ * `BrewUpgradeError`. `relayHostname` is the host name the relay gave
+ * (`/host-info`): the native side refuses (`other_machine`) when it is not
+ * this machine's. */
+export function upgradeBrewRelay(relayHostname?: string): Promise<void> {
+  if (!inTauri()) return Promise.reject(new BrewUpgradeError("unsupported_platform"));
+  return invoke<void>("relay_brew_upgrade", { relayHostname: relayHostname ?? null }).catch((raw: unknown) => {
+    throw toBrewUpgradeError(raw);
+  });
+}
+
 export function cancelLocalInstall(): Promise<void> {
   if (!inTauri()) return Promise.reject(new Error(NOT_IN_TAURI));
   return invoke<void>("relay_setup_cancel");

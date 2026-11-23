@@ -203,6 +203,11 @@ export interface HostInfo {
   /** Features this relay has that an older one lacks, by name (`bots`);
    * absent from a relay older than the list, which has none of them. */
   features?: string[];
+  /** Whether the relay can install a release over itself (`supported`)
+   * and, when not, why: `managed_elsewhere` (the Homebrew build),
+   * `source_checkout`, `not_installer_layout`. Absent from a relay older
+   * than the field. */
+  updateSupport?: string;
 }
 
 /** Whether/how the client can open a file panel path in a local editor —

@@ -7,6 +7,7 @@ import { readGitStatus } from "../host/gitStatus.js";
 import { resolveShipped } from "../host/paths.js";
 import { killTerminal } from "../host/terminalSession.js";
 import type { Capabilities } from "../runtimes/types.js";
+import type { RelayUpdateStatus, UpdateUnsupportedReason } from "../update/relayUpdater.js";
 import type { RouteHandler } from "./context.js";
 
 export interface SelectableAgentInfo {
@@ -45,6 +46,23 @@ const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { 
  * them". */
 export const RELAY_FEATURES: readonly string[] = ["bots", "self_update"];
 
+/** The features this relay has right now. `self_update` only when it can
+ * actually install a release over itself: a Homebrew build, a source
+ * checkout or a tree the installer did not lay out has the code but not the
+ * ability, and saying otherwise would make the app ask it (and be refused)
+ * instead of offering the update that works there. */
+export function relayFeatures(canUpdateItself: boolean): readonly string[] {
+  return canUpdateItself ? RELAY_FEATURES : RELAY_FEATURES.filter((feature) => feature !== "self_update");
+}
+
+/** Whether this relay can install a release over itself and, when it
+ * cannot, why. The app picks the way to update it from this: Homebrew for
+ * `managed_elsewhere`, and nothing at all for a source checkout or a tree
+ * the installer did not lay out (no update it could offer would work). */
+export function updateSupportOf(status: RelayUpdateStatus): "supported" | UpdateUnsupportedReason {
+  return status.state === "unsupported" ? status.reason : "supported";
+}
+
 export const handleHostRoutes: RouteHandler = async (req, res, ctx) => {
   // Tells the client whether/how it can open a file-panel path in a local
   // editor — see editorHostInfo.ts for why locality is declared via env
@@ -59,7 +77,20 @@ export const handleHostRoutes: RouteHandler = async (req, res, ctx) => {
     // it now, ahead of any UI reading it, is what lets that UI eventually
     // warn about drift: every relay already in the field today has none,
     // and it takes an actual round of upgrades before this is useful at all.
-    res.end(JSON.stringify({ hostname: hostname(), platform: process.platform, editor, version: RELAY_VERSION, features: RELAY_FEATURES, agents: selectableAgents }));
+    // `updateSupport` is new as well: an older relay omits it, and the
+    // client then goes by its platform alone.
+    const updateSupport = updateSupportOf(ctx.relayUpdater.status());
+    res.end(
+      JSON.stringify({
+        hostname: hostname(),
+        platform: process.platform,
+        editor,
+        version: RELAY_VERSION,
+        features: relayFeatures(updateSupport === "supported"),
+        updateSupport,
+        agents: selectableAgents,
+      }),
+    );
     return true;
   }
 

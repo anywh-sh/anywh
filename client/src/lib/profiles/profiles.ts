@@ -1,6 +1,7 @@
 import { trackProfileAdded } from "@/lib/telemetry/instrument";
 import type { AgentPreference, RemoteProfile } from "@/lib/relay/relay-types";
 import { getCachedSessions } from "@/lib/format/sessionListCache";
+import { LOOPBACK_HOSTS } from "@/lib/profiles/loopback";
 
 export interface Profile {
   /** Immutable slug — the key of every per-profile storage (tabs, recent
@@ -165,8 +166,8 @@ function readStoredProfiles(): Profile[] {
 // sidecar's real local address by `useRelayClient` before anything is
 // dialed, so it looks identical to a ghost while actually being a live
 // profile whose auth key/broker config exists nowhere else (no host's
-// `/control/profiles` can hand it back).
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+// `/control/profiles` can hand it back). The hosts are `LOOPBACK_HOSTS`
+// (loopback.ts).
 
 const GHOST_MIGRATION_KEY = "anywh:migrations:drop-loopback-default";
 

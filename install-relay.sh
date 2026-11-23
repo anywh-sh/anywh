@@ -40,6 +40,14 @@ INSTALL_DIR="${ANYWH_INSTALL_DIR:-$HOME/.local/share/anywh}"
 # from the checkout, served locally) and by a mirror — the default is
 # GitHub's own release download URLs, chosen below once the version is known.
 RELEASE_BASE_URL="${ANYWH_RELEASE_BASE_URL:-}"
+# How long the new release gets to come up before it is refused, and how
+# long each of its processes gets to exit on SIGTERM before SIGKILL, in
+# whole seconds. Only lowered by tests, which would otherwise wait out the
+# real budgets for a release that never answers.
+PREFLIGHT_TIMEOUT="${ANYWH_PREFLIGHT_TIMEOUT:-30}"
+PREFLIGHT_STOP_GRACE="${ANYWH_PREFLIGHT_STOP_GRACE:-5}"
+case "$PREFLIGHT_TIMEOUT" in '' | *[!0-9]*) PREFLIGHT_TIMEOUT=30 ;; esac
+case "$PREFLIGHT_STOP_GRACE" in '' | *[!0-9]*) PREFLIGHT_STOP_GRACE=5 ;; esac
 
 # --- porcelain -----------------------------------------------------------
 # Machine-readable progress for whatever drives this script as a program
@@ -88,10 +96,16 @@ tmp=""
 staging=""
 old_suffix=""
 lock_held=0
+preflight=""
+preflight_pids=""
 
 cleanup() {
   status=$?
   [ -n "$tmp" ] && rm -rf "$tmp"
+  # A death during the preflight leaves the release it booted running, and
+  # its throwaway state behind: neither may outlive this script.
+  for pid in $preflight_pids; do kill -KILL "$(preflight_target "$pid")" 2>/dev/null || true; done
+  [ -n "$preflight" ] && rm -rf "$preflight"
   # A death between extracting and swapping leaves the staging tree; one
   # between the two mv's leaves the previous tree under `.old.` — sweep both
   # so a retry starts clean. The live tree is never touched here.
@@ -245,7 +259,13 @@ end_step "target os=$os arch=$arch target=$target service=$service"
 begin_step prereqs
 command -v node >/dev/null 2>&1 || err node_missing "Node.js >=20.12 is required — install it first (https://nodejs.org), then re-run this script"
 
-node_version="$(node -p 'process.versions.node')"
+# The binary the service will run, resolved once: infra/systemd/install.sh
+# renders the units' {{NODE_BIN}} from `command -v node` on this same PATH
+# (the service step below), and a self-update runs this script with the
+# running relay's own node first on PATH. The preflight boots the release
+# with exactly this path, so "it started here" means "it starts there".
+node_bin="$(command -v node)"
+node_version="$("$node_bin" -p 'process.versions.node')"
 node_major="${node_version%%.*}"
 node_minor="$(echo "$node_version" | cut -d. -f2)"
 if [ "$node_major" -lt 20 ] || { [ "$node_major" -eq 20 ] && [ "$node_minor" -lt 12 ]; }; then
@@ -402,6 +422,76 @@ end_step "download asset=$asset"
 # under Restart=always that woke up inside it crash-looped on a missing
 # dist/server.js. Staging lives *inside* INSTALL_DIR on purpose — a rename
 # across filesystems degrades to a copy, and the window would be back.
+
+# The preflight's pieces (used below, before the swap).
+#
+# Each process the preflight boots leads a process group of its own where
+# setsid exists (Linux), so stopping it stops what it spawned too: the relay
+# probes the agent CLIs at boot, and a probe that outlived it would keep
+# writing into the throwaway HOME while it is being removed. Without setsid
+# (macOS) only the process itself is signalled.
+preflight_setsid=""
+if command -v setsid >/dev/null 2>&1; then preflight_setsid=setsid; fi
+
+# preflight_target <pid>: what to signal — `-<pid>` (its group) only when the
+# process is seen leading a group of its own, so a signal can never reach
+# this script's group or its caller's; else the process alone.
+preflight_target() {
+  if [ -n "$preflight_setsid" ] && [ "$(ps -o pgid= -p "$1" 2>/dev/null | tr -d ' ')" = "$1" ]; then
+    echo "-$1"
+  else
+    echo "$1"
+  fi
+}
+#
+# preflight_start_relay: the staged relay, on a free loopback port and with
+# every file it would write pointed into the throwaway $preflight.
+preflight_start_relay() {
+  preflight_port="$("$node_bin" -e 'const s = require("net").createServer().listen(0, "127.0.0.1", () => { console.log(s.address().port); s.close(); })')"
+  (
+    cd "$staging/relay" &&
+      exec $preflight_setsid env -i PATH="$PATH" HOME="$preflight/home" ANYWH_ENV_DIR="$preflight/env" \
+        RELAY_HOST=127.0.0.1 RELAY_PORT="$preflight_port" RELAY_PUSH_DISABLED=1 \
+        RELAY_SESSIONS_FILE="$preflight/work/sessions.json" RELAY_BACKGROUND_JOBS_FILE="$preflight/work/bg.json" \
+        RELAY_WAKEUPS_FILE="$preflight/work/wakeups.json" RELAY_PUSH_DEVICES_FILE="$preflight/work/push.json" \
+        RELAY_UPLOAD_DIR="$preflight/work/uploads" ANYWH_AGENT_HOST_SOCKET="$preflight/sock/host.sock" \
+        ANYWH_SESSIONS_ROOT="$preflight/work/sessions" \
+        "$node_bin" dist/server.js
+  ) > "$preflight/relay.log" 2>&1 &
+  preflight_relay_pid=$!
+  preflight_pids="$preflight_pids $preflight_relay_pid"
+}
+
+# preflight_stop <pid>: SIGTERM, then SIGKILL once PREFLIGHT_STOP_GRACE
+# seconds pass. Never an unbounded wait: a release that hangs on SIGTERM
+# would otherwise hold the install lock forever.
+preflight_stop() {
+  target="$(preflight_target "$1")"
+  kill -TERM "$target" 2>/dev/null || return 0
+  ticks=0
+  while kill -0 "$target" 2>/dev/null && [ "$ticks" -lt $((PREFLIGHT_STOP_GRACE * 10)) ]; do
+    sleep 0.1
+    ticks=$((ticks + 1))
+  done
+  kill -KILL "$target" 2>/dev/null || true
+  wait "$1" 2>/dev/null || true
+}
+
+# preflight_error_line <log>: the first line of an uncaught error, which
+# says why (the stack under it does not). Node writes both `Error: ...` and
+# `Error [ERR_MODULE_NOT_FOUND]: ...`.
+preflight_error_line() {
+  grep -m 1 -E '^[[:alnum:]_]*Error( \[[[:alnum:]_]+\])?: ' "$1" 2>/dev/null | cut -c1-300 || true
+}
+
+# preflight_reason <log>: why a process exited — its error line, or else its
+# last line of output that is not Node's own `Node.js vX` trailer.
+preflight_reason() {
+  why="$(preflight_error_line "$1")"
+  [ -n "$why" ] || why="$(grep -v -e '^Node\.js v' -e '^[[:space:]]*$' "$1" 2>/dev/null | tail -n 1 | cut -c1-300)"
+  printf '%s' "${why:-no output}"
+}
+
 begin_step install
 mkdir -p "$INSTALL_DIR"
 # One install at a time per directory: every profile on a machine shares
@@ -442,6 +532,111 @@ else
   # is refused before it can replace a working install.
   [ -f "$staging/relay/dist/server.js" ] && [ -f "$staging/infra/systemd/add-profile.sh" ] ||
     err tarball_incomplete "$asset doesn't contain a complete relay (relay/dist/server.js and infra/systemd/add-profile.sh) — the previous install, if any, was left untouched"
+
+  # Boot the release before it replaces anything: a release that cannot
+  # start on this machine (a native module built for a newer libc, a Node
+  # too old for it) must never take the place of one that works — the relay
+  # updates itself unattended, and nobody would be there to notice it down.
+  # Both services the tree runs are booted from staging, on the node the
+  # units run, with throwaway HOME/env/state: the relay on a free loopback
+  # port has to answer /host-info with its own version, and the agent host
+  # (when the release ships one) has to listen on its socket. The host gets
+  # a host id of its own and an empty registry, so it starts no agent and
+  # sweeps no process of the real hosts on this machine.
+  begin_step preflight
+  expected_version="$("$node_bin" -p 'require(process.argv[1]).version' "$staging/relay/package.json" 2>/dev/null || true)"
+  preflight="$(mktemp -d)"
+  mkdir -p "$preflight/home" "$preflight/env" "$preflight/work"
+  # The agent host refuses a socket directory other users can open.
+  mkdir -m 700 "$preflight/sock"
+  preflight_host_up=1
+  if [ -f "$staging/relay/dist/agentHost/main.js" ]; then
+    preflight_host_up=0
+    (
+      cd "$staging/relay" &&
+        exec $preflight_setsid env -i PATH="$PATH" HOME="$preflight/home" \
+          "$node_bin" dist/agentHost/main.js --profile preflight --host-id "preflight-$$" \
+          --socket "$preflight/sock/host.sock" --data-dir "$preflight/work/agent-host"
+    ) > "$preflight/agent-host.log" 2>&1 &
+    preflight_host_pid=$!
+    preflight_pids="$preflight_pids $preflight_host_pid"
+  fi
+  preflight_start_relay
+  preflight_port_retried=0
+  booted=""
+  outcome=""
+  deadline=$(($(date +%s) + PREFLIGHT_TIMEOUT))
+  while :; do
+    if [ "$preflight_host_up" -eq 0 ]; then
+      if [ -S "$preflight/sock/host.sock" ]; then
+        preflight_host_up=1
+      elif ! kill -0 "$preflight_host_pid" 2>/dev/null; then
+        outcome=host_exited
+        break
+      fi
+    fi
+    if [ -z "$booted" ]; then
+      # Parsed only once something answered: no node cold start per poll.
+      body="$(curl -fsS --max-time 1 "http://127.0.0.1:$preflight_port/host-info" 2>/dev/null || true)"
+      if [ -n "$body" ]; then
+        booted="$(printf '%s' "$body" | "$node_bin" -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version' 2>/dev/null || true)"
+        if [ "$booted" != "$expected_version" ]; then
+          outcome=wrong_version
+          break
+        fi
+      elif ! kill -0 "$preflight_relay_pid" 2>/dev/null; then
+        # The free port was picked, closed and handed over: something else
+        # can take it in between. Once is a race; twice is not.
+        if [ "$preflight_port_retried" -eq 0 ] && grep -q EADDRINUSE "$preflight/relay.log" 2>/dev/null; then
+          preflight_port_retried=1
+          preflight_start_relay
+          continue
+        fi
+        outcome=relay_exited
+        break
+      fi
+    fi
+    if [ -n "$booted" ] && [ "$preflight_host_up" -eq 1 ]; then
+      outcome=ok
+      break
+    fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      outcome=timeout
+      break
+    fi
+    sleep 0.2
+  done
+  for pid in $preflight_pids; do preflight_stop "$pid"; done
+  preflight_pids=""
+  left="so the installed one was left as it is"
+  case "$outcome" in
+    relay_exited)
+      err preflight_failed "the new relay ${expected_version:-?} exited on this machine before it answered, $left: $(preflight_reason "$preflight/relay.log")"
+      ;;
+    host_exited)
+      err preflight_failed "the new agent host ${expected_version:-?} exited on this machine before it listened, $left: $(preflight_reason "$preflight/agent-host.log")"
+      ;;
+    wrong_version)
+      err preflight_failed "the new relay answered as version ${booted:-unknown} instead of ${expected_version:-?}, $left"
+      ;;
+    timeout)
+      if [ -z "$booted" ]; then
+        what="the new relay ${expected_version:-?} didn't answer"
+        log="$preflight/relay.log"
+      else
+        what="the new agent host ${expected_version:-?} didn't listen"
+        log="$preflight/agent-host.log"
+      fi
+      last_error="$(preflight_error_line "$log")"
+      err preflight_failed "$what within ${PREFLIGHT_TIMEOUT}s on this machine, $left${last_error:+ (last error: $last_error)}"
+      ;;
+  esac
+  rm -rf "$preflight"
+  preflight=""
+  end_step "preflight version=$booted"
+  # The preflight is a step inside the install, which is not over yet: a
+  # failure in the swap below is the install's, not "setup".
+  step=install
 
   old_suffix="$$"
   [ -e "$INSTALL_DIR/relay" ] && mv "$INSTALL_DIR/relay" "$INSTALL_DIR/relay.old.$old_suffix"

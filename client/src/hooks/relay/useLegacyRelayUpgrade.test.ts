@@ -1,6 +1,43 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MANUAL_UPGRADE_COMMAND, resetLegacyRelayUpgrades, useLegacyRelayUpgrade } from "@/hooks/relay/useLegacyRelayUpgrade";
+// The desktop app's native side is an edge too: whether this is the macOS
+// app, and the Homebrew command it runs.
+const native = vi.hoisted(() => ({
+  platform: "linux",
+  tauri: false,
+  brewRuns: 0,
+  /** The relay host name each run was given, to check against this machine. */
+  brewHosts: [] as (string | undefined)[],
+  /** What the native command rejects with, as `relay_brew_upgrade` does. */
+  brewError: null as { code: string; detail?: string } | null,
+  onBrew: (): void => undefined,
+}));
+vi.mock("@/lib/platform/platform", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/platform/platform")>()), currentPlatform: () => native.platform }));
+vi.mock("@/lib/install/localRelay", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/install/localRelay")>();
+  return {
+    ...original,
+    localInstallPossible: () => native.tauri,
+    upgradeBrewRelay: (relayHostname?: string) => {
+      native.brewHosts.push(relayHostname);
+      native.brewRuns++;
+      const error = native.brewError;
+      if (error) return Promise.reject(new original.BrewUpgradeError(error.code as never, error.detail));
+      native.onBrew();
+      return Promise.resolve();
+    },
+  };
+});
+
+import {
+  MANUAL_BREW_COMMAND,
+  MANUAL_UPGRADE_COMMAND,
+  NOT_PUBLISHED_QUIET_MS,
+  recentlyNotPublished,
+  resetLegacyRelayUpgrades,
+  runsHomebrewRelayHere,
+  useLegacyRelayUpgrade,
+} from "@/hooks/relay/useLegacyRelayUpgrade";
 import { UPGRADE_EXIT_MARKER } from "@/lib/relay/legacyRelayUpgrade";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -9,6 +46,9 @@ import type { Profile } from "@/lib/profiles/profiles";
 // terminal (what the update command prints).
 interface FakeRelay {
   version: string;
+  platform?: string;
+  /** What `/host-info` says about updating itself; absent from an older relay. */
+  updateSupport?: string;
   /** Conversation ids with a turn in flight. */
   busy: Set<string>;
   /** What the terminal prints once the command is typed. */
@@ -55,13 +95,15 @@ const fast = { busyPollMs: 5, busyTimeoutMs: 2000, versionPollMs: 5, restartTime
 
 beforeEach(() => {
   resetLegacyRelayUpgrades();
+  localStorage.clear();
+  Object.assign(native, { platform: "linux", tauri: false, brewRuns: 0, brewHosts: [], brewError: null, onBrew: () => undefined });
   relay = { version: "0.2.40", busy: new Set(), terminalOutput: `ANYWH done ok\r\n${UPGRADE_EXIT_MARKER}=0\r\n`, versionAfter: "0.2.50", commands: [] };
   vi.stubGlobal("WebSocket", FakeSocket);
   vi.stubGlobal(
     "fetch",
     vi.fn((input: string) => {
       const path = new URL(input).pathname;
-      if (path === "/host-info") return Promise.resolve(new Response(JSON.stringify({ hostname: "h", platform: "linux", editor: null, version: relay.version, features: ["bots"] })));
+      if (path === "/host-info") return Promise.resolve(new Response(JSON.stringify({ hostname: "h", platform: relay.platform ?? "linux", editor: null, version: relay.version, features: ["bots"], updateSupport: relay.updateSupport })));
       if (path === "/sessions") return Promise.resolve(new Response(JSON.stringify({ sessions: [{ id: "s1", title: "a", lastActiveAt: Date.now() }] })));
       return Promise.resolve(new Response("{}"));
     }),
@@ -175,6 +217,30 @@ describe("useLegacyRelayUpgrade", () => {
     await waitFor(() => expect(result.current.state).toMatchObject({ phase: "failed", reason: "not_back" }));
   });
 
+  it("is not offered at all where the installer would refuse the relay (a tree it did not lay out)", async () => {
+    relay.updateSupport = "not_installer_layout";
+    const { result } = mount();
+    // Give the check time to land; it must stay hidden.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(result.current.state.phase).toBe("hidden");
+  });
+
+  it("an installer relay is promised it keeps itself up to date afterwards", async () => {
+    const { result } = mount();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    expect(result.current.eachTime).toBe(false);
+  });
+
+  it("a Homebrew relay on another Mac is not promised that, and goes through its terminal", async () => {
+    Object.assign(relay, { platform: "darwin", updateSupport: "managed_elsewhere" });
+    const { result } = mount();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    expect(result.current.eachTime).toBe(true);
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    expect(relay.commands[0]).toContain("brew upgrade anywh-relay");
+  });
+
   it("every place showing it shares one run: a second start does nothing while it runs", async () => {
     relay.busy.add("s1");
     const first = mount();
@@ -186,5 +252,137 @@ describe("useLegacyRelayUpgrade", () => {
     relay.busy.clear();
     await waitFor(() => expect(second.result.current.state.phase).toBe("done"));
     expect(relay.commands).toHaveLength(1);
+  });
+});
+
+describe("a Homebrew relay on this Mac", () => {
+  const local: Profile = { id: "mac", label: "Mac", host: "127.0.0.1", relayPort: 8765 };
+  const mountLocal = () => renderHook(() => useLegacyRelayUpgrade(local, { appVersion: "0.2.50", timing: fast }));
+
+  beforeEach(() => {
+    Object.assign(native, { platform: "macos", tauri: true });
+    relay.platform = "darwin";
+    native.onBrew = () => {
+      relay.version = "0.2.50";
+    };
+  });
+
+  it("Homebrew having nothing newer ends the run without a restart wait, and keeps the notice closed for a while", async () => {
+    native.brewError = { code: "nothing_newer" };
+    const { result, unmount } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    // Straight there: no "restarting" while the app waits for a version
+    // that is not coming.
+    await waitFor(() => expect(result.current.state).toEqual({ phase: "not_published" }));
+    expect(native.brewRuns).toBe(1);
+    unmount();
+
+    // The next launch: still offered, but not as the notice.
+    resetLegacyRelayUpgrades();
+    const again = mountLocal();
+    await waitFor(() => expect(again.result.current.state.phase).toBe("available"));
+    expect(again.result.current.noticeDismissed).toBe(true);
+    again.unmount();
+
+    // A new app version is a new chance for the tap to have caught up.
+    resetLegacyRelayUpgrades();
+    const newer = renderHook(() => useLegacyRelayUpgrade(local, { appVersion: "0.2.51", timing: fast }));
+    await waitFor(() => expect(newer.result.current.state.phase).toBe("available"));
+    expect(newer.result.current.noticeDismissed).toBe(false);
+  });
+
+  it("the quiet spell ends", () => {
+    localStorage.setItem("anywh:relay-upgrade-not-published", JSON.stringify({ mac: { relay: "0.2.40", app: "0.2.50", at: 1000 } }));
+    expect(recentlyNotPublished("mac", "0.2.40", "0.2.50", 1000 + NOT_PUBLISHED_QUIET_MS - 1)).toBe(true);
+    expect(recentlyNotPublished("mac", "0.2.40", "0.2.50", 1000 + NOT_PUBLISHED_QUIET_MS)).toBe(false);
+    expect(recentlyNotPublished("mac", "0.2.41", "0.2.50", 1001)).toBe(false);
+    expect(recentlyNotPublished("other", "0.2.40", "0.2.50", 1001)).toBe(false);
+  });
+
+  it("a Mac reached through its terminal says the same when Homebrew has nothing newer", async () => {
+    Object.assign(native, { platform: "linux", tauri: false });
+    relay.terminalOutput = `${UPGRADE_EXIT_MARKER}=4\r\n`;
+    relay.versionAfter = "0.2.40";
+    const { result } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state).toEqual({ phase: "not_published" }));
+    expect(relay.commands[0]).toContain("brew outdated --quiet anywh-relay");
+  });
+
+  it("is upgraded by the app itself after the busy check, with no terminal and no paste", async () => {
+    relay.busy.add("s1");
+    const { result } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("waiting"));
+    expect(native.brewRuns).toBe(0);
+    relay.busy.clear();
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    expect(native.brewRuns).toBe(1);
+    expect(relay.commands).toEqual([]);
+  });
+
+  it("a failed Homebrew run says what Homebrew said, with the command to run by hand", async () => {
+    native.brewError = { code: "failed", detail: "Error: anywh-relay: SHA256 mismatch" };
+    const { result } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() =>
+      expect(result.current.state).toMatchObject({ phase: "failed", reason: "homebrew", detail: "Error: anywh-relay: SHA256 mismatch", command: MANUAL_BREW_COMMAND }),
+    );
+  });
+
+  it("each way the native command fails has its own sentence, never its English", async () => {
+    const cases: [{ code: string; detail?: string }, { reason: string; detail?: string }][] = [
+      [{ code: "timeout" }, { reason: "timed_out" }],
+      [{ code: "busy" }, { reason: "already_running" }],
+      [{ code: "spawn_failed", detail: "No such file or directory (os error 2)" }, { reason: "homebrew", detail: "No such file or directory (os error 2)" }],
+      [{ code: "unsupported_platform" }, { reason: "unsupported" }],
+    ];
+    for (const [error, expected] of cases) {
+      resetLegacyRelayUpgrades();
+      native.brewError = error;
+      const { result, unmount } = mountLocal();
+      await waitFor(() => expect(result.current.state.phase).toBe("available"));
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.state).toMatchObject({ phase: "failed", ...expected }));
+      if (!expected.detail) expect(result.current.state).not.toHaveProperty("detail");
+      unmount();
+    }
+  });
+
+  it("a Mac relay reached over the network still goes through its own terminal", () => {
+    const remote: Profile = { ...local, host: "100.64.0.7" };
+    expect(runsHomebrewRelayHere(remote, "homebrew")).toBe(false);
+    expect(runsHomebrewRelayHere(local, "homebrew")).toBe(true);
+    expect(runsHomebrewRelayHere(local, "installer")).toBe(false);
+    expect(runsHomebrewRelayHere({ ...local, host: "::1" }, "homebrew")).toBe(true);
+  });
+
+  it("the relay the app installed here counts as here even on a LAN address", () => {
+    const installedHere: Profile = { ...local, host: "192.168.0.48", localRelay: true };
+    expect(runsHomebrewRelayHere(installedHere, "homebrew")).toBe(true);
+  });
+
+  it("hands the native side the relay's host name, and falls back to the terminal when it is another machine", async () => {
+    native.brewError = { code: "other_machine" };
+    relay.terminalOutput = `${UPGRADE_EXIT_MARKER}=0\r\n`;
+    const { result } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    // "h" is what the fake relay's /host-info names.
+    expect(native.brewHosts).toEqual(["h"]);
+    expect(relay.commands).toHaveLength(1);
+    expect(relay.commands[0]).toContain("brew upgrade anywh-relay");
+  });
+
+  it("never outside the desktop app on macOS", () => {
+    native.tauri = false;
+    expect(runsHomebrewRelayHere(local, "homebrew")).toBe(false);
+    Object.assign(native, { tauri: true, platform: "linux" });
+    expect(runsHomebrewRelayHere(local, "homebrew")).toBe(false);
   });
 });

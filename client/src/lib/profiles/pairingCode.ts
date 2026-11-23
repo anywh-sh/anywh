@@ -15,6 +15,7 @@
  * The host stays visible in plaintext on purpose: whoever types the code
  * can see which machine is about to receive their device's public key.
  */
+import { isLoopbackHost } from "@/lib/profiles/loopback";
 
 /**
  * Where a host publishes its pairing endpoints. This path is part of *this
@@ -51,9 +52,7 @@ export interface PairingEndpoints {
  * the claim endpoint, and downgrading that on a typo is not a trade this
  * should silently make.
  */
-function isLoopback(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
-}
+const isLoopback = isLoopbackHost;
 
 /**
  * Parses `<join-code>@<host>` into its two halves, or returns `null` if it

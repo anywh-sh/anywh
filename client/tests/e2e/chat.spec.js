@@ -11,14 +11,28 @@ describe("anywh conversation tabs", () => {
   let baseline = 0;
 
   it("opens a conversation and names its tab from the dictionary", async () => {
-    baseline = (await $$('[role="tab"][data-tab-id]')).length;
+    const tabIds = () =>
+      browser.execute(() =>
+        Array.from(document.querySelectorAll('[role="tab"][data-tab-id]'), (tab) => tab.getAttribute("data-tab-id")),
+      );
+    const before = await tabIds();
+    baseline = before.length;
 
     const newConversation = await $('[aria-label="New session"]');
     await newConversation.waitForExist({ timeout: 15000 });
     await newConversation.click();
 
-    const tab = await $('[role="tab"][data-tab-id]');
-    await tab.waitForExist({ timeout: 5000 });
+    // The tab this opened, not the first one: an earlier spec can leave a
+    // tab of its own open (they share the app's data dir).
+    let opened;
+    await browser.waitUntil(
+      async () => {
+        opened = (await tabIds()).find((id) => !before.includes(id));
+        return opened !== undefined;
+      },
+      { timeout: 5000, timeoutMsg: "New session opened no tab" },
+    );
+    const tab = await $(`[role="tab"][data-tab-id="${opened}"]`);
     // The relay is what titles a session, and there is none here — so this
     // is the untitled fallback, which is the one string every surface that
     // names a session shares.
