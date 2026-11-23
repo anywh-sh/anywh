@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { APP_VERSION } from "@/lib/install/appVersion";
+import { localInstallPossible, upgradeBrewRelay } from "@/lib/install/localRelay";
+import { currentPlatform } from "@/lib/platform/platform";
 import { isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { getHostInfo } from "@/lib/relay/filesClient";
@@ -97,6 +99,15 @@ export function resetLegacyRelayUpgrades(): void {
   entries.clear();
 }
 
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+
+/** Whether the relay is a Homebrew one on this very Mac, so the app itself
+ * can upgrade it: the relay says it runs on macOS, the profile reaches it on
+ * loopback, and this is the desktop app on macOS (a browser has no shell). */
+export function runsHomebrewRelayHere(profile: Pick<Profile, "host">, relayPlatform: string | undefined): boolean {
+  return relayPlatform === "darwin" && LOOPBACK_HOSTS.has(profile.host) && currentPlatform() === "macos" && localInstallPossible();
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const running = (state: LegacyUpgradeState): boolean => ["checking", "waiting", "updating", "restarting"].includes(state.phase);
 
@@ -107,7 +118,9 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
   entry.run = run;
   entry.noticeDismissed = false;
   const cancelled = (): boolean => entry.run !== run;
-  let terminalSession: string;
+  // The terminal the update ran in, to close once it is over (none when the
+  // app ran Homebrew itself).
+  let terminalSession: string | undefined;
   try {
     setState(profile.id, { phase: "checking" });
     const waitUntil = Date.now() + timing.busyTimeoutMs;
@@ -122,15 +135,23 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
     }
 
     setState(profile.id, { phase: "updating" });
-    const command = upgradeCommand({ platform: entry.platform ?? "", port: profile.relayPort, version: appVersion });
-    if (!command) throw new Failed("unsupported");
-    const { host, port, token } = await resolveConnection(profile);
-    terminalSession = (await fetchSessions(host, port, token))[0]?.id ?? "default";
-    const outcome = await runInRelayTerminal(profile, terminalSession, command).catch(() => {
-      throw new Failed("terminal");
-    });
-    if (outcome.exitCode === 3) throw new Failed("not_installed");
-    if (outcome.exitCode !== 0) throw new Failed("installer", outcome.failure);
+    if (runsHomebrewRelayHere(profile, entry.platform)) {
+      // The relay is on this Mac, where its own terminal cannot run anything
+      // (it needs tmux; a stock Mac has none) — and the app is already here.
+      await upgradeBrewRelay().catch((error: unknown) => {
+        throw new Failed("installer", error instanceof Error ? error.message : String(error));
+      });
+    } else {
+      const command = upgradeCommand({ platform: entry.platform ?? "", port: profile.relayPort, version: appVersion });
+      if (!command) throw new Failed("unsupported");
+      const { host, port, token } = await resolveConnection(profile);
+      terminalSession = (await fetchSessions(host, port, token))[0]?.id ?? "default";
+      const outcome = await runInRelayTerminal(profile, terminalSession, command).catch(() => {
+        throw new Failed("terminal");
+      });
+      if (outcome.exitCode === 3) throw new Failed("not_installed");
+      if (outcome.exitCode !== 0) throw new Failed("installer", outcome.failure);
+    }
 
     setState(profile.id, { phase: "restarting" });
     const deadline = Date.now() + timing.restartTimeoutMs;
@@ -145,7 +166,7 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
       if (Date.now() > deadline) throw new Failed("not_back");
       await sleep(timing.versionPollMs);
     }
-    await closeUpgradeTerminal(profile, terminalSession);
+    if (terminalSession !== undefined) await closeUpgradeTerminal(profile, terminalSession);
     if (cancelled()) return;
     entry.run = undefined;
     setState(profile.id, { phase: "done" });

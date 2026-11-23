@@ -162,6 +162,14 @@ export function startLocalInstall(params: InstallStartParams): Promise<InstallRu
   return invoke<InstallRunInfo>("relay_setup_start", { params });
 }
 
+/** Upgrades the Homebrew relay on this Mac and restarts its service
+ * (`brew upgrade anywh-relay` + `brew services restart`). Rejects with the
+ * end of Homebrew's output when it fails. */
+export function upgradeBrewRelay(): Promise<void> {
+  if (!inTauri()) return Promise.reject(new Error(NOT_IN_TAURI));
+  return invoke<void>("relay_brew_upgrade");
+}
+
 export function cancelLocalInstall(): Promise<void> {
   if (!inTauri()) return Promise.reject(new Error(NOT_IN_TAURI));
   return invoke<void>("relay_setup_cancel");

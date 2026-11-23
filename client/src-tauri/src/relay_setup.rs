@@ -396,6 +396,48 @@ async fn active_relay_units() -> Vec<String> {
         .collect()
 }
 
+/// The Homebrew relay's update and restart, as one shell line. Homebrew's
+/// own bin directories go first on PATH: a login bash does not read the zsh
+/// profile where most Macs set Homebrew up, and the app's own PATH has none.
+const BREW_UPGRADE_COMMAND: &str =
+    "PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; brew update >/dev/null && brew upgrade anywh-relay && brew services restart anywh-relay";
+
+/// The last few non-empty lines of a command's output: why it failed, short
+/// enough to show.
+pub fn failure_tail(stdout: &str, stderr: &str) -> String {
+    let lines: Vec<&str> = stderr.lines().chain(stdout.lines()).map(str::trim).filter(|l| !l.is_empty()).collect();
+    let start = lines.len().saturating_sub(3);
+    lines[start..].join(" ")
+}
+
+/// Upgrades the Homebrew relay on this Mac and restarts its service — the
+/// one-button update for a relay from before self-update when it runs on
+/// the same machine as the app. The relay's own terminal cannot do it here
+/// (it needs tmux, which a stock Mac does not have), and the app is already
+/// on that machine. The caller checks that no conversation has a turn in
+/// flight first; `brew services restart` is the relay's graceful shutdown.
+#[tauri::command]
+pub async fn relay_brew_upgrade() -> Result<(), String> {
+    if !cfg!(target_os = "macos") {
+        return Err("updating a Homebrew relay from the app is only supported on macOS".into());
+    }
+    let output = tokio::time::timeout(
+        Duration::from_secs(600),
+        tokio::process::Command::new("bash")
+            .args(["-lc", BREW_UPGRADE_COMMAND])
+            .stdin(std::process::Stdio::null())
+            .output(),
+    )
+    .await
+    .map_err(|_| "Homebrew did not finish within 10 minutes".to_string())?
+    .map_err(|error| format!("couldn't run Homebrew: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(failure_tail(&String::from_utf8_lossy(&output.stdout), &String::from_utf8_lossy(&output.stderr)))
+    }
+}
+
 #[tauri::command]
 pub async fn relay_setup_prerequisites() -> Prerequisites {
     let short = Duration::from_secs(10);
@@ -1083,6 +1125,20 @@ mod tests {
     fn pins_the_relay_to_this_release_but_not_to_an_unstamped_build() {
         assert_eq!(relay_release_tag("0.2.0").as_deref(), Some("v0.2.0"));
         assert_eq!(relay_release_tag("0.0.0"), None);
+    }
+
+    #[test]
+    fn a_failed_brew_run_is_told_by_its_last_lines() {
+        let stderr = "==> Fetching anywh-relay\n\nError: anywh-relay: SHA256 mismatch\n";
+        let stdout = "Updated 1 tap\n";
+        assert_eq!(failure_tail(stdout, stderr), "==> Fetching anywh-relay Error: anywh-relay: SHA256 mismatch Updated 1 tap");
+        assert_eq!(failure_tail("", ""), "");
+    }
+
+    #[test]
+    fn the_brew_update_finds_homebrew_without_the_zsh_profile() {
+        assert!(BREW_UPGRADE_COMMAND.starts_with("PATH=/opt/homebrew/bin:/usr/local/bin:$PATH;"));
+        assert!(BREW_UPGRADE_COMMAND.ends_with("brew upgrade anywh-relay && brew services restart anywh-relay"));
     }
 
     #[test]
