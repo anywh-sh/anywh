@@ -1050,6 +1050,8 @@ export const ptBr: Dictionary = {
           checksum_missing: { body: "A versão ainda não terminou de ser publicada. Tente de novo em instantes." },
           checksum_mismatch: { body: "O download não bateu com o checksum da versão, e repetir não muda isso. A instalação anterior, se havia, ficou intacta." },
           tarball_incomplete: { body: "O download não é um anywh completo. A instalação anterior, se havia, ficou intacta." },
+          preflight_failed: { body: "Esta versão não iniciou nesta máquina, então não foi instalada. A instalação anterior, se havia, continua funcionando." },
+          install_locked: { body: "Outra instalação na mesma pasta ainda estava rodando. Tente de novo quando ela terminar." },
           extract_failed: { body: "Não foi possível descompactar o anywh — o disco pode estar cheio. A instalação anterior, se havia, ficou intacta." },
           service_failed: { body: "O anywh está instalado, mas não pôde ser configurado para iniciar sozinho." },
           profile_failed: { body: "O anywh está instalado, mas o perfil não pôde ser criado." },

@@ -60,7 +60,7 @@ describe("evaluatePrerequisites", () => {
 describe("failureActions", () => {
   const ALL: PreparingFailureCode[] = [
     "node_missing", "node_old", "no_user_systemd", "containerized", "relay_running", "relay_host_undetectable",
-    "download_failed", "checksum_missing", "checksum_mismatch", "extract_failed", "tarball_incomplete",
+    "download_failed", "checksum_missing", "checksum_mismatch", "extract_failed", "tarball_incomplete", "preflight_failed", "install_locked",
     "service_failed", "profile_failed", "cancelled", "interrupted", "start_failed", "unexpected",
     "brew_missing", "brew_install_failed", "unsupported_arch", "unresponsive",
   ];
@@ -155,6 +155,14 @@ describe("preparingSteps", () => {
     });
     expect(statuses(failed)).toEqual(["done", "failed", "pending"]);
     expect(preparingFailure(failed)?.code).toBe("checksum_mismatch");
+  });
+
+  it("a release that failed to boot before the swap is an install failure, with nothing to retry", () => {
+    const failed = stateWith({
+      install: { status: "failed", lines: lines("ANYWH done prereqs", "ANYWH done download", "ANYWH step preflight", "ANYWH fail preflight"), failedStep: "preflight", failure: { code: "preflight_failed", detail: "" } },
+    });
+    expect(statuses(failed)).toEqual(["done", "failed", "pending"]);
+    expect(failureActions("preflight_failed")).toEqual(["terminal", "back"]);
   });
 
   it("a run that died with no step to blame marks the furthest step it reached", () => {

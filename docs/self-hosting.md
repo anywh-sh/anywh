@@ -68,7 +68,11 @@ curl -fsSL https://anywh.sh/install | sh -s -- --relay-only
 
 It downloads the release tarball for your platform, verifies it against the
 release's `SHA256SUMS`, unpacks it to `~/.local/share/anywh`, and renders a
-systemd user unit so the relay survives reboots. Re-running it upgrades in
+systemd user unit so the relay survives reboots. Before the new tree replaces the
+old one, it boots the new relay once on a free loopback port and waits for it
+to answer with its version, and boots the new agent host once on a throwaway
+socket: a release that cannot start on this machine is refused, and the relay
+already installed keeps running. Re-running it upgrades in
 place and never touches profile state.
 
 Override the destination with `ANYWH_INSTALL_DIR` if `~/.local/share/anywh`

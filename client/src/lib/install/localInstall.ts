@@ -71,6 +71,8 @@ export type LocalFailureCode =
   | "checksum_mismatch"
   | "extract_failed"
   | "tarball_incomplete"
+  | "preflight_failed"
+  | "install_locked"
   | "service_failed"
   | "profile_failed"
   | "cancelled"
@@ -148,6 +150,8 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<LocalFailureCode>([
   "checksum_mismatch",
   "extract_failed",
   "tarball_incomplete",
+  "preflight_failed",
+  "install_locked",
   "service_failed",
   "profile_failed",
   "cancelled",
@@ -187,9 +191,16 @@ export function failureActions(code: PreparingFailureCode): LocalFailureAction[]
     case "unexpected":
     case "unresponsive":
       return ["retry", "terminal"];
+    // The same bytes, or the same release on this machine, fail the same
+    // way again: nothing to retry.
     case "checksum_mismatch":
     case "tarball_incomplete":
+    case "preflight_failed":
       return ["terminal", "back"];
+    // Another install into the same directory held it too long: worth
+    // trying again once it is over.
+    case "install_locked":
+      return ["retry", "terminal"];
     case "no_user_systemd":
     case "containerized":
       return ["terminal"];
@@ -223,6 +234,7 @@ const STEP_OF_PORCELAIN: Readonly<Record<string, LocalStep>> = {
   relay_host: "install",
   download: "install",
   install: "install",
+  preflight: "install",
   service: "start",
   profile: "start",
 };
