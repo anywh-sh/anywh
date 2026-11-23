@@ -594,14 +594,16 @@ export class SessionManager {
       },
       // A worker's turns end all the time while the room works; the person
       // hears from the room, not from each of its workers.
-      onNotifiable: (draft, watched) => {
+      onNotifiable: (draft, watched, turn) => {
         if (this.sessionStore.getRoom(id)?.role === "worker") {
           if (draft.kind === "approval_required" || draft.kind === "choice_required") this.rooms.onWorkerPrompted?.(id, watched);
           return;
         }
-        // A bot works on its own all day: a reply or a schedule's run is not
-        // news worth a notification, a question or a failure is.
-        if (this.rooms.isBot?.(id) && (draft.kind === "turn_completed" || draft.kind === "turn_stopped")) return;
+        // A bot works on its own all day: its replies are not news worth a
+        // notification. A scheduled run's result is (one with nothing to say
+        // ends in NO_REPLY and never gets here), and so are a question and a
+        // failure.
+        if (this.rooms.isBot?.(id) && (draft.kind === "turn_stopped" || (draft.kind === "turn_completed" && turn !== "bot_schedule"))) return;
         this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched });
       },
       onEvent: (event) => {

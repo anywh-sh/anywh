@@ -6,6 +6,8 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import type WebSocket from "ws";
 import { hostEnvDir, startHostProcess, type HostProcess } from "./helpers/agentHostProcess.js";
@@ -262,6 +264,55 @@ test("memory, soul and schedules through the bot's tools; a scheduled run with n
     assert.equal((await getBot(id)).bot.schedules[0].nextRunAt, undefined, "a paused schedule is not armed");
   } finally {
     socket.close();
+  }
+});
+
+test("a scheduled run's result reaches the phone, titled with its schedule; the bot's replies and a run with nothing to say do not", async () => {
+  // A local HTTP server plays the push gateway, as in push.test.ts.
+  const pushed: { kind: string; title: string | null; preview: string | null }[] = [];
+  const gateway = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk: Buffer) => (raw += chunk.toString()));
+    req.on("end", () => {
+      pushed.push((JSON.parse(raw) as { event: { kind: string; title: string | null; preview: string | null } }).event);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ rejected: [], failed: [] }));
+    });
+  });
+  await new Promise<void>((resolve) => gateway.listen(0, "127.0.0.1", resolve));
+  const device = "7c1e2f3a-4b5c-4d6e-8f9a-0b1c2d3e4f5a";
+  const registered = await fetch(`${base}/push/devices/${device}`, {
+    method: "PUT",
+    body: JSON.stringify({ gatewayUrl: `http://127.0.0.1:${(gateway.address() as AddressInfo).port}/push/v1/notify`, pushKey: "bot-key" }),
+  });
+  let socket: WebSocket | undefined;
+  try {
+    assert.equal(registered.status, 204);
+    const { id, roomId } = await createBot({ name: "Bob" });
+    socket = await connectSession(relay.port, roomId);
+    await waitFor(async () => !((await (await fetch(`${base}/bots`)).json()) as { bots: { id: string; busy: boolean }[] }).bots.find((each) => each.id === id)?.busy, 20_000, "the kickoff to end");
+    await botTurn(socket, `plan ${marker("schedule_create", { name: "Morning", cron: "0 9 * * *", prompt: "Say good morning." })} ${marker("schedule_create", { name: "Quiet", cron: "0 * * * *", prompt: "[[look-then-silent]]" })}`);
+    const [morning, quiet] = (await getBot(id)).bot.schedules;
+
+    const silent = await fetch(`${base}/bots/${id}/schedules/${quiet.id}/run`, { method: "POST" });
+    assert.equal(silent.status, 200, await silent.text());
+    await waitFor(async () => (await getBot(id)).bot.schedules[1].runs.length === 1, 20_000, "the quiet run to be recorded");
+
+    const ran = await fetch(`${base}/bots/${id}/schedules/${morning.id}/run`, { method: "POST" });
+    assert.equal(ran.status, 200, await ran.text());
+    await waitFor(() => pushed.some((event) => event.title === "Bob · Morning"), 20_000, "the run's push");
+    // Late pushes of the turns above would show up by now too.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(
+      pushed.map((event) => ({ kind: event.kind, title: event.title })),
+      [{ kind: "turn_completed", title: "Bob · Morning" }],
+      "only the scheduled run that said something: not the kickoff, the reply, or the quiet run",
+    );
+    assert.match(pushed[0].preview ?? "", /Say good morning\./);
+  } finally {
+    socket?.close();
+    await fetch(`${base}/push/devices/${device}`, { method: "DELETE" });
+    await new Promise<void>((resolve) => gateway.close(() => resolve()));
   }
 });
 
