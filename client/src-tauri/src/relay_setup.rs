@@ -36,6 +36,7 @@ use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -394,6 +395,183 @@ async fn active_relay_units() -> Vec<String> {
         .filter(|unit| unit.starts_with("anywh-relay@"))
         .map(str::to_string)
         .collect()
+}
+
+/// The Homebrew relay's update and restart, as one shell line. Homebrew's
+/// own bin directories go first on PATH: a login bash does not read the zsh
+/// profile where most Macs set Homebrew up, and the app's own PATH has none.
+///
+/// It upgrades and restarts only when the tap's formula has a newer relay
+/// than the one installed, and exits `BREW_NOTHING_NEWER` otherwise: the
+/// tap follows stable releases only, and is bumped after one is published,
+/// so an app can be ahead of it. Restarting a relay that `brew upgrade` left
+/// as it was would only make the app wait for a version that never comes.
+/// (The same steps, for a Mac the app reaches through the relay's terminal:
+/// `upgradeCommand` in client/src/lib/relay/legacyRelayUpgrade.ts.)
+const BREW_UPGRADE_COMMAND: &str = concat!(
+    "PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; ",
+    "brew update >/dev/null && brew list --versions anywh-relay >/dev/null && ",
+    "if brew outdated --quiet anywh-relay | grep -q anywh-relay; ",
+    "then brew upgrade anywh-relay && brew services restart anywh-relay; ",
+    "else exit 4; fi",
+);
+
+/// `BREW_UPGRADE_COMMAND`'s exit status when the formula has nothing newer.
+const BREW_NOTHING_NEWER: i32 = 4;
+
+/// Why a Homebrew run failed, short enough to show: its last `Error:` line
+/// (Homebrew's own words for it, on stderr), else the last few lines of
+/// stderr, else of stdout. Never stdout after stderr: Homebrew's progress
+/// lines go to stdout and would push the reason out of the tail.
+pub fn failure_tail(stdout: &str, stderr: &str) -> String {
+    let lines = |text: &str| text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect::<Vec<_>>();
+    let (err, out) = (lines(stderr), lines(stdout));
+    let last_error = |lines: &[String]| lines.iter().rev().find(|line| line.starts_with("Error:")).cloned();
+    if let Some(error) = last_error(&err).or_else(|| last_error(&out)) {
+        return error;
+    }
+    let source = if err.is_empty() { out } else { err };
+    let start = source.len().saturating_sub(3);
+    source[start..].join(" ")
+}
+
+/// Upgrades the Homebrew relay on this Mac and restarts its service — the
+/// one-button update for a relay from before self-update when it runs on
+/// the same machine as the app. The relay's own terminal cannot do it here
+/// (it needs tmux, which a stock Mac does not have), and the app is already
+/// on that machine. The caller checks that no conversation has a turn in
+/// flight first; `brew services restart` is the relay's graceful shutdown.
+///
+/// Fails with a `BrewUpgradeError`, whose `code` the app turns into the
+/// person's own language; only `detail` (Homebrew's or the OS's own words)
+/// is shown as it is.
+#[tauri::command]
+pub async fn relay_brew_upgrade(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, RelaySetup>,
+    relay_hostname: Option<String>,
+) -> Result<(), BrewUpgradeError> {
+    if !cfg!(target_os = "macos") {
+        return Err(BrewUpgradeError::new("unsupported_platform"));
+    }
+    // A loopback address is no proof the relay runs here: an SSH tunnel to
+    // another Mac looks the same. The relay names its machine in
+    // `/host-info` (Node's `os.hostname()`, gethostname(3)), and so does
+    // this side, the same way; when they differ, this Mac's Homebrew is the
+    // wrong one to touch, and the app goes through the relay's terminal.
+    if let Some(name) = relay_hostname.as_deref() {
+        if !same_machine(name, &tauri_plugin_os::hostname()) {
+            return Err(BrewUpgradeError::new("other_machine"));
+        }
+    }
+    // One Homebrew run at a time: two upgrades, or an upgrade next to the
+    // in-app install's `brew install`, would fight over Homebrew's locks and
+    // the relay's service. Decided under the install's own lock, which
+    // `relay_setup_start` checks the flag under too.
+    let _running = {
+        let _inner = state.0.lock().await;
+        let installing = setup_dir(&app)
+            .ok()
+            .and_then(|dir| read_state(&dir))
+            .is_some_and(|run| run.exit_code.is_none() && pid_is_installer(run.pid, &run.script_path));
+        if installing {
+            return Err(BrewUpgradeError::new("busy"));
+        }
+        BrewUpgradeRunning::claim().ok_or_else(|| BrewUpgradeError::new("busy"))?
+    };
+    let output = run_in_own_group(&["-lc", BREW_UPGRADE_COMMAND], Duration::from_secs(600)).await?;
+    brew_outcome(output.status.code(), &String::from_utf8_lossy(&output.stdout), &String::from_utf8_lossy(&output.stderr))
+}
+
+/// Whether the relay's host name is this machine's. Case aside, the names
+/// come from the same call on the same machine; an empty one (a relay that
+/// sent none) proves nothing either way, and is taken as this machine.
+fn same_machine(relay: &str, this: &str) -> bool {
+    relay.is_empty() || relay.eq_ignore_ascii_case(this)
+}
+
+/// Set while the app runs a Homebrew upgrade of the relay.
+static BREW_UPGRADE_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// Holds `BREW_UPGRADE_RUNNING` for one run, and lets it go however the run
+/// ends.
+struct BrewUpgradeRunning;
+
+impl BrewUpgradeRunning {
+    fn claim() -> Option<Self> {
+        BREW_UPGRADE_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).ok().map(|_| BrewUpgradeRunning)
+    }
+}
+
+impl Drop for BrewUpgradeRunning {
+    fn drop(&mut self) {
+        BREW_UPGRADE_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
+/// Runs `bash` with `bash_args` (`-lc <line>`) in a process group of its own, and
+/// Runs `script` through `bash -lc` in a process group of its own, and
+/// stops the whole group if it runs past `limit`. Homebrew is a grandchild
+/// of that shell (and forks more of its own): dropping the wait would leave
+/// all of it running, and killing only the shell would orphan the rest.
+async fn run_in_own_group(bash_args: &[&str], limit: Duration) -> Result<std::process::Output, BrewUpgradeError> {
+    let mut command = tokio::process::Command::new("bash");
+    command
+        .args(bash_args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+    let child = command.spawn().map_err(|error| BrewUpgradeError::with_detail("spawn_failed", error.to_string()))?;
+    let group = child.id();
+    match tokio::time::timeout(limit, child.wait_with_output()).await {
+        Ok(output) => output.map_err(|error| BrewUpgradeError::with_detail("spawn_failed", error.to_string())),
+        Err(_) => {
+            // The shell itself went with the dropped wait (`kill_on_drop`);
+            // this reaches everything it started. `--` as in
+            // `relay_setup_cancel`.
+            #[cfg(unix)]
+            if let Some(pid) = group {
+                let _ = std::process::Command::new("kill").args(["-TERM", "--", &format!("-{pid}")]).status();
+            }
+            #[cfg(not(unix))]
+            let _ = group;
+            Err(BrewUpgradeError::new("timeout"))
+        }
+    }
+}
+
+/// Why `relay_brew_upgrade` did not upgrade the relay. `code` is one of a
+/// closed set the app maps to its dictionary: `unsupported_platform`,
+/// `other_machine` (the relay names another machine than this one),
+/// `busy` (Homebrew is already updating or installing the relay),
+/// `nothing_newer` (the tap has no newer relay yet; nothing was restarted),
+/// `timeout`, `spawn_failed`, `failed`.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct BrewUpgradeError {
+    pub code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+impl BrewUpgradeError {
+    fn new(code: &'static str) -> Self {
+        BrewUpgradeError { code, detail: None }
+    }
+
+    fn with_detail(code: &'static str, detail: String) -> Self {
+        BrewUpgradeError { code, detail: (!detail.is_empty()).then_some(detail) }
+    }
+}
+
+/// What a finished Homebrew run means, from its exit status and output.
+fn brew_outcome(status: Option<i32>, stdout: &str, stderr: &str) -> Result<(), BrewUpgradeError> {
+    match status {
+        Some(0) => Ok(()),
+        Some(BREW_NOTHING_NEWER) => Err(BrewUpgradeError::new("nothing_newer")),
+        _ => Err(BrewUpgradeError::with_detail("failed", failure_tail(stdout, stderr))),
+    }
 }
 
 #[tauri::command]
@@ -952,6 +1130,9 @@ pub async fn relay_setup_start(
     }
     let mut inner = state.0.lock().await;
     let dir = setup_dir(&app)?;
+    if BREW_UPGRADE_RUNNING.load(Ordering::SeqCst) {
+        return Err("Homebrew is updating the relay right now; try again once it is done".to_string());
+    }
 
     if let Some(existing) = read_state(&dir) {
         if existing.exit_code.is_none() && pid_is_installer(existing.pid, &existing.script_path) {
@@ -1083,6 +1264,133 @@ mod tests {
     fn pins_the_relay_to_this_release_but_not_to_an_unstamped_build() {
         assert_eq!(relay_release_tag("0.2.0").as_deref(), Some("v0.2.0"));
         assert_eq!(relay_release_tag("0.0.0"), None);
+    }
+
+    #[test]
+    fn a_failed_brew_run_is_told_by_its_error_line_not_its_progress() {
+        // Homebrew's progress goes to stdout, several lines of it after the
+        // failure; its reason goes to stderr.
+        let stderr = "Warning: something unrelated\nError: anywh-relay: SHA256 mismatch\nExpected: abc\n";
+        let stdout = "==> Fetching anywh-relay\n==> Downloading https://example/a.tar.gz\n######## 100.0%\n==> Cleaning up\n";
+        assert_eq!(failure_tail(stdout, stderr), "Error: anywh-relay: SHA256 mismatch");
+        // No Error: line: the end of stderr, still never stdout's progress.
+        assert_eq!(failure_tail(stdout, "a\nb\nc\nd\n"), "b c d");
+        // Nothing on stderr at all: the end of stdout.
+        assert_eq!(failure_tail("one\ntwo\n\nthree\nfour\n", ""), "two three four");
+        assert_eq!(failure_tail("", ""), "");
+    }
+
+    #[test]
+    fn a_brew_run_ends_in_a_code_for_the_app_never_an_english_sentence() {
+        assert_eq!(brew_outcome(Some(0), "anything", "Warning: x"), Ok(()));
+        assert_eq!(
+            brew_outcome(Some(1), "", "Error: anywh-relay: SHA256 mismatch\n"),
+            Err(BrewUpgradeError { code: "failed", detail: Some("Error: anywh-relay: SHA256 mismatch".into()) })
+        );
+        // Killed by a signal, and said nothing: no empty detail to show.
+        assert_eq!(brew_outcome(None, "", ""), Err(BrewUpgradeError { code: "failed", detail: None }));
+        // The shape the app reads.
+        let json = serde_json::to_value(BrewUpgradeError::new("timeout")).unwrap();
+        assert_eq!(json, serde_json::json!({ "code": "timeout" }));
+    }
+
+    /// What a timed-out Homebrew run leaves behind: nothing. The script
+    /// stands in for `bash -lc` starting `brew`, which forks more of its own.
+    #[test]
+    #[cfg(unix)]
+    fn a_brew_run_past_its_limit_is_stopped_with_everything_it_started() {
+        let dir = std::env::temp_dir().join(format!("anywh-brew-timeout-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pid_file = dir.join("grandchild.pid");
+        let script = format!("sleep 30 & echo $! > '{}'; wait", pid_file.display());
+        let outcome = tauri::async_runtime::block_on(run_in_own_group(&["-c", &script], Duration::from_millis(500)));
+        assert_eq!(outcome.err(), Some(BrewUpgradeError::new("timeout")));
+
+        let grandchild = std::fs::read_to_string(&pid_file).unwrap().trim().to_string();
+        // Polled: the signal lands at once, the exit takes a moment, and a
+        // zombie still answers `kill -0` until it is reaped.
+        let gone = (0..50).any(|_| {
+            let alive = std::process::Command::new("kill")
+                .args(["-0", &grandchild])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            let zombie = std::fs::read_to_string(format!("/proc/{grandchild}/stat")).is_ok_and(|stat| stat.contains(") Z "));
+            if alive && !zombie {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            !alive || zombie
+        });
+        assert!(gone, "the grandchild outlived the timeout");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_relay_naming_another_machine_is_not_this_one() {
+        assert!(same_machine("Mac-mini.local", "Mac-mini.local"));
+        assert!(same_machine("mac-mini.local", "Mac-mini.local"));
+        assert!(!same_machine("studio.local", "Mac-mini.local"));
+        assert!(same_machine("", "Mac-mini.local"));
+    }
+
+    #[test]
+    fn one_brew_upgrade_at_a_time() {
+        let first = BrewUpgradeRunning::claim().expect("nothing else is running");
+        assert!(BrewUpgradeRunning::claim().is_none(), "a second run started next to the first");
+        drop(first);
+        assert!(BrewUpgradeRunning::claim().is_some(), "the flag outlived its run");
+    }
+
+    #[test]
+    fn the_brew_update_finds_homebrew_without_the_zsh_profile() {
+        assert!(BREW_UPGRADE_COMMAND.starts_with("PATH=/opt/homebrew/bin:/usr/local/bin:$PATH;"));
+    }
+
+    /// The command line itself, run by a real shell against a stand-in
+    /// `brew` that records what it was asked and says whether the formula
+    /// is outdated.
+    #[test]
+    #[cfg(unix)]
+    fn the_brew_update_restarts_the_relay_only_when_the_tap_has_a_newer_one() {
+        use std::os::unix::fs::PermissionsExt;
+        if std::path::Path::new("/opt/homebrew/bin/brew").exists() || std::path::Path::new("/usr/local/bin/brew").exists() {
+            // A real Homebrew would come first on PATH; never run it here.
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("anywh-fake-brew-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("calls");
+        let brew = dir.join("brew");
+        std::fs::write(
+            &brew,
+            format!(
+                "#!/bin/sh\necho \"$*\" >> '{}'\nif [ \"$1\" = outdated ] && [ -n \"$FAKE_OUTDATED\" ]; then echo anywh-relay; fi\nexit 0\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&brew, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let run = |outdated: bool| {
+            std::fs::remove_file(&log).ok();
+            let mut command = std::process::Command::new("bash");
+            command.args(["-c", BREW_UPGRADE_COMMAND]).env("PATH", format!("{}:/usr/bin:/bin", dir.display()));
+            if outdated {
+                command.env("FAKE_OUTDATED", "1");
+            }
+            let status = command.status().unwrap().code();
+            (status, std::fs::read_to_string(&log).unwrap_or_default())
+        };
+
+        let (status, calls) = run(true);
+        assert_eq!(status, Some(0));
+        assert_eq!(calls, "update\nlist --versions anywh-relay\noutdated --quiet anywh-relay\nupgrade anywh-relay\nservices restart anywh-relay\n");
+
+        let (status, calls) = run(false);
+        assert_eq!(status, Some(BREW_NOTHING_NEWER));
+        assert!(!calls.contains("upgrade anywh-relay\n") && !calls.contains("services"), "restarted with nothing newer: {calls}");
+        assert_eq!(brew_outcome(status, "", ""), Err(BrewUpgradeError::new("nothing_newer")));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

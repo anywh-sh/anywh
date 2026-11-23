@@ -1378,8 +1378,11 @@ export interface Dictionary {
      * to come back. */
     relayUpgrade: {
       eyebrow: string;
-      /** `{profile}` — the profile's label, rendered as its own element. */
+      /** `{profile}` — the profile's label, rendered as its own element. For
+       * a relay that updates itself from then on. */
       body: string;
+      /** Same, for a relay that needs this with every release (Homebrew). */
+      bodyEachTime: string;
       update: string;
       checking: string;
       waitingOne: string;
@@ -1396,7 +1399,16 @@ export interface Dictionary {
         not_back: string;
         still_busy: string;
         unsupported: string;
+        /** The app ran Homebrew on this Mac, and it failed or couldn't start. */
+        homebrew: string;
+        /** The app ran Homebrew on this Mac, and it ran past its limit. */
+        timed_out: string;
+        /** Homebrew on this Mac was already updating or installing the relay. */
+        already_running: string;
       };
+      /** Homebrew had no newer relay yet: the relay was left running as it
+       * was, and the update can be tried again later. */
+      notPublished: string;
       /** Shown above the command to run on the relay's machine. */
       runThere: string;
       dismiss: string;

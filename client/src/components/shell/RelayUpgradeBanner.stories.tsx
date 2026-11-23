@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
 import { RelayUpgradeNotice } from "@/components/shell/RelayUpgradeBanner";
 import type { LegacyUpgradeState } from "@/hooks/relay/useLegacyRelayUpgrade";
-import { MANUAL_UPGRADE_COMMAND } from "@/hooks/relay/useLegacyRelayUpgrade";
+import { MANUAL_BREW_COMMAND, MANUAL_UPGRADE_COMMAND } from "@/hooks/relay/useLegacyRelayUpgrade";
 
 const noop = (): void => undefined;
 
@@ -24,6 +24,10 @@ type Story = StoryObj<typeof meta>;
 /** An older relay that cannot update itself: one button. */
 export const Available: Story = {};
 
+/** A Homebrew relay (on this Mac or another): offered with every release, so no promise
+ * that it keeps itself up to date. */
+export const AvailableEachTime: Story = { args: { eachTime: true } };
+
 export const Checking: Story = { args: { state: { phase: "checking" } } };
 
 /** A reply is still running: the update waits for it on its own. */
@@ -44,6 +48,23 @@ export const Failed: Story = { args: { state: { phase: "failed", reason: "termin
 export const InstallerFailed: Story = {
   args: { state: { phase: "failed", reason: "installer", detail: "checksum mismatch for anywh-relay-0.2.50-linux-x64.tar.gz", command: MANUAL_UPGRADE_COMMAND } },
 };
+
+/** The app ran Homebrew on this Mac and it failed: Homebrew's own words. */
+export const HomebrewFailed: Story = {
+  args: { eachTime: true, state: { phase: "failed", reason: "homebrew", detail: "Error: anywh-relay: SHA256 mismatch", command: MANUAL_BREW_COMMAND } },
+};
+
+/** Homebrew ran past the app's limit and was stopped. */
+export const HomebrewTimedOut: Story = { args: { eachTime: true, state: { phase: "failed", reason: "timed_out", command: MANUAL_BREW_COMMAND } } };
+
+/** The app was already running Homebrew for the relay (another update, or
+ * the in-app install). */
+export const HomebrewAlreadyRunning: Story = {
+  args: { eachTime: true, state: { phase: "failed", reason: "already_running", command: MANUAL_BREW_COMMAND } },
+};
+
+/** Homebrew had no newer relay yet: nothing was restarted, try again later. */
+export const NotPublished: Story = { args: { eachTime: true, state: { phase: "not_published" } } };
 
 const SIMULATED: readonly LegacyUpgradeState[] = [
   { phase: "checking" },

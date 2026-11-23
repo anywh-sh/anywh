@@ -21,6 +21,7 @@ import {
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { getInstallOrigin, resolveUpdateMode } from "@/lib/install/updateMode";
 import type { Profile } from "@/lib/profiles/profiles";
+import { LOOPBACK_HOSTS } from "@/lib/profiles/loopback";
 
 /**
  * The call sites' vocabulary. Each function takes what the app already has
@@ -28,8 +29,6 @@ import type { Profile } from "@/lib/profiles/profiles";
  * values, so no call site builds a payload by hand and none can pass free
  * text. Anything that does not fit a closed list becomes `other`.
  */
-
-const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 
 export function trackFeature(feature: Feature): void {
   telemetry.trackDaily(`feature:${feature}`, "feature_used", { feature });
@@ -64,7 +63,7 @@ export function trackPromptSent(agentId: string | null | undefined): void {
 }
 
 export function trackProfileAdded(profile: Pick<Profile, "host" | "localRelay" | "brokerNodeId">): void {
-  const local = profile.localRelay === true || (!profile.brokerNodeId && LOOPBACK.has(profile.host));
+  const local = profile.localRelay === true || (!profile.brokerNodeId && LOOPBACK_HOSTS.has(profile.host));
   telemetry.track("profile_added", local ? { kind: "local" } : { kind: "remote", pairing_method: profile.brokerNodeId ? "code" : "address" });
 }
 
@@ -91,7 +90,7 @@ export function markFirstRunStarted(): void {
 export function trackFirstRunCompleted(profile: Pick<Profile, "host" | "localRelay" | "brokerNodeId"> | undefined, agentIds: readonly string[]): void {
   const started = firstRunStartedAt ?? Date.now();
   firstRunStartedAt = null;
-  const local = profile?.localRelay === true || (profile !== undefined && !profile.brokerNodeId && LOOPBACK.has(profile.host));
+  const local = profile?.localRelay === true || (profile !== undefined && !profile.brokerNodeId && LOOPBACK_HOSTS.has(profile.host));
   const flow = firstRunFlow;
   firstRunFlow = null;
   const agents = [...new Set(agentIds.map(agentIdOf).filter((id): id is NonNullable<typeof id> => id !== null))];
