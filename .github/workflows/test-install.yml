@@ -26,6 +26,11 @@ on:
       - infra/**
       - .github/workflows/test-install.yml
       - scripts/check-glibc-floor.sh
+      # A dependency bump rebuilds node-pty, and the release build's own
+      # toolchain lives in release.yml: either can move the glibc floor.
+      - relay/package.json
+      - relay/package-lock.json
+      - .github/workflows/release.yml
   workflow_dispatch:
 
 jobs:
