@@ -1,5 +1,5 @@
 import { RelayUpgradeAction } from "@/components/shell/RelayUpgradeBanner";
-import { useLegacyRelayUpgrade } from "@/hooks/relay/useLegacyRelayUpgrade";
+import { useLegacyRelayUpgrade, type LegacyUpgradeState } from "@/hooks/relay/useLegacyRelayUpgrade";
 import { useDict } from "@/i18n";
 import { isUnreleasedVersion } from "@/lib/install/appVersion";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -16,8 +16,13 @@ export const RELAY_UPDATE_COMMAND = "curl -fsSL https://anywh.sh/install | sh -s
  * the machine that can.
  */
 export function BotsRelayGate({ profile, relayVersion }: { profile: Profile; relayVersion?: string }) {
-  const dict = useDict().bots.relayGate;
   const { state, start } = useLegacyRelayUpgrade(profile);
+  return <BotsRelayGateView relayVersion={relayVersion} state={state} onUpdate={start} />;
+}
+
+/** What the gate shows for a given update state — no fetching (stories). */
+export function BotsRelayGateView({ relayVersion, state, onUpdate }: { relayVersion?: string; state: LegacyUpgradeState; onUpdate: () => void }) {
+  const dict = useDict().bots.relayGate;
   // Only the relay's own version is named: this app's version is not the
   // first that brings bots, only one that has them. A build from source has
   // no release number to name.
@@ -29,7 +34,7 @@ export function BotsRelayGate({ profile, relayVersion }: { profile: Profile; rel
         {known ? dict.body.replace("{current}", `v${relayVersion}`) : dict.bodyUnknown}
       </p>
       {state.phase !== "hidden" ? (
-        <RelayUpgradeAction state={state} onUpdate={start} align="start" />
+        <RelayUpgradeAction state={state} onUpdate={onUpdate} align="start" />
       ) : (
         <div className="flex flex-col gap-1">
           <span className="text-xs text-text-faint">{dict.manualHint}</span>

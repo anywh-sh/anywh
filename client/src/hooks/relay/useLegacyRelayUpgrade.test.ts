@@ -107,7 +107,7 @@ describe("useLegacyRelayUpgrade", () => {
     expect(relay.commands).toEqual([]);
   });
 
-  it("dismissing while it waits calls it off for good", async () => {
+  it("closing the notice while it waits calls the run off, and keeps the update offered elsewhere", async () => {
     relay.busy.add("s1");
     const { result } = mount();
     await waitFor(() => expect(result.current.state.phase).toBe("available"));
@@ -116,8 +116,37 @@ describe("useLegacyRelayUpgrade", () => {
     act(() => result.current.dismiss());
     relay.busy.clear();
     await new Promise((r) => setTimeout(r, 50));
-    expect(result.current.state.phase).toBe("hidden");
+    expect(result.current.noticeDismissed).toBe(true);
+    // Settings and the bots section still show the button.
+    expect(result.current.state.phase).toBe("available");
     expect(relay.commands).toEqual([]);
+  });
+
+  it("starting again after calling it off runs once: the called-off run never wakes up to type too", async () => {
+    relay.busy.add("s1");
+    const { result } = mount({ busyPollMs: 40 });
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("waiting"));
+    act(() => result.current.dismiss());
+    relay.busy.clear();
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(relay.commands).toHaveLength(1);
+    expect(result.current.noticeDismissed).toBe(false);
+  });
+
+  it("a profile edited to point at a relay that needs nothing drops the offer instead of running it there", async () => {
+    let target: Profile = profile;
+    const { result, rerender } = renderHook(() => useLegacyRelayUpgrade(target, { appVersion: "0.2.50", timing: fast }));
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    // Same profile, now another machine whose relay is ahead of the app.
+    relay.version = "0.2.60";
+    target = { ...profile, host: "100.64.0.9" };
+    rerender();
+    await waitFor(() => expect(result.current.state.phase).toBe("hidden"));
+    expect(result.current.relayVersion).toBeUndefined();
   });
 
   it("a machine with no relay installed from a release says so", async () => {

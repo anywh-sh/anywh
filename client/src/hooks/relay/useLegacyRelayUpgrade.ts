@@ -68,14 +68,19 @@ interface Entry {
   checked?: string;
   platform?: string;
   version?: string;
-  cancelled?: boolean;
+  /** The run in progress, if any: a run that is no longer this one (called
+   * off, or replaced) stops at its next step. */
+  run?: symbol;
+  /** The notice above the conversation was closed; the other places that
+   * offer the update still do. */
+  noticeDismissed: boolean;
 }
 const entries = new Map<string, Entry>();
 
 function entryFor(profileId: string): Entry {
   let entry = entries.get(profileId);
   if (!entry) {
-    entry = { state: { phase: "hidden" }, listeners: new Set() };
+    entry = { state: { phase: "hidden" }, listeners: new Set(), noticeDismissed: false };
     entries.set(profileId, entry);
   }
   return entry;
@@ -98,19 +103,22 @@ const running = (state: LegacyUpgradeState): boolean => ["checking", "waiting", 
 async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUpgradeTiming): Promise<void> {
   const entry = entryFor(profile.id);
   const manual = entry.platform === "darwin" ? MANUAL_BREW_COMMAND : MANUAL_UPGRADE_COMMAND;
-  entry.cancelled = false;
+  const run = Symbol("legacy-relay-upgrade");
+  entry.run = run;
+  entry.noticeDismissed = false;
+  const cancelled = (): boolean => entry.run !== run;
   let terminalSession: string;
   try {
     setState(profile.id, { phase: "checking" });
     const waitUntil = Date.now() + timing.busyTimeoutMs;
     for (;;) {
       const busy = await findBusySessions(profile);
-      if (entry.cancelled) return;
+      if (cancelled()) return;
       if (busy.length === 0) break;
       if (Date.now() > waitUntil) throw new Failed("still_busy");
       setState(profile.id, { phase: "waiting", busy: busy.length });
       await sleep(timing.busyPollMs);
-      if (entry.cancelled) return;
+      if (cancelled()) return;
     }
 
     setState(profile.id, { phase: "updating" });
@@ -138,9 +146,12 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
       await sleep(timing.versionPollMs);
     }
     await closeUpgradeTerminal(profile, terminalSession);
+    if (cancelled()) return;
+    entry.run = undefined;
     setState(profile.id, { phase: "done" });
   } catch (error) {
-    if (entry.cancelled) return;
+    if (cancelled()) return;
+    entry.run = undefined;
     const failure = error instanceof Failed ? error : new Failed("terminal");
     setState(profile.id, { phase: "failed", reason: failure.reason, ...(failure.detail ? { detail: failure.detail } : {}), command: manual });
   }
@@ -152,13 +163,14 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
  * running (and waits while one does, up to a limit), runs the installer and
  * the restart on the relay's machine through the relay's own terminal, and
  * waits for it to come back on the new release. From then on it updates
- * itself (useRelayAutoUpdate). `dismiss` hides the notice, and cancels a
- * run that is still checking or waiting (never one already updating).
+ * itself (useRelayAutoUpdate). `dismiss` closes the notice (and calls off a
+ * run that is still checking or waiting, never one already updating); the
+ * update stays offered in the profile's settings and the bots section.
  */
 export function useLegacyRelayUpgrade(
   profile: Profile,
   options: { appVersion?: string; timing?: Partial<LegacyUpgradeTiming> } = {},
-): { state: LegacyUpgradeState; relayVersion?: string; start: () => void; dismiss: () => void } {
+): { state: LegacyUpgradeState; noticeDismissed: boolean; relayVersion?: string; start: () => void; dismiss: () => void } {
   const appVersion = options.appVersion ?? APP_VERSION;
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -180,10 +192,19 @@ export function useLegacyRelayUpgrade(
     entry.checked = where;
     getHostInfo(profile).then(
       (info) => {
-        if (!needsLegacyUpgrade(info, appVersion)) return;
+        if (entry.checked !== where || running(entry.state)) return;
+        if (!needsLegacyUpgrade(info, appVersion)) {
+          // The profile now points at a relay that needs nothing (edited to
+          // another host, or updated by hand): whatever was offered for the
+          // old one must not be run against it — it could be a downgrade.
+          entry.platform = undefined;
+          entry.version = undefined;
+          if (entry.state.phase !== "hidden") setState(profile.id, { phase: "hidden" });
+          return;
+        }
         entry.platform = info.platform;
         entry.version = info.version;
-        if (entry.state.phase === "hidden") setState(profile.id, { phase: "available" });
+        if (entry.state.phase === "hidden" || entry.state.phase === "done" || entry.state.phase === "failed") setState(profile.id, { phase: "available" });
       },
       // Unreachable now: asked again the next time this mounts.
       () => (entry.checked = undefined),
@@ -201,9 +222,19 @@ export function useLegacyRelayUpgrade(
   const dismiss = useCallback(() => {
     const entry = entryFor(profile.id);
     if (entry.state.phase === "updating" || entry.state.phase === "restarting") return;
-    entry.cancelled = true;
-    setState(profile.id, { phase: "hidden" });
+    // Closing the notice calls off a run that is only checking or waiting,
+    // and hides the notice alone: settings and the bots section still offer
+    // the update.
+    entry.noticeDismissed = true;
+    if (entry.state.phase === "checking" || entry.state.phase === "waiting") {
+      entry.run = undefined;
+      setState(profile.id, { phase: "available" });
+    } else {
+      // A new object even when the phase stays: what renders is the store's
+      // snapshot, and an unchanged one would leave the notice on screen.
+      setState(profile.id, entry.state.phase === "done" ? { phase: "hidden" } : { ...entry.state });
+    }
   }, [profile.id]);
 
-  return { state, relayVersion: entryFor(profile.id).version, start, dismiss };
+  return { state, noticeDismissed: entryFor(profile.id).noticeDismissed, relayVersion: entryFor(profile.id).version, start, dismiss };
 }

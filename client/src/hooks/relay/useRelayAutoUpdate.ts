@@ -21,7 +21,7 @@ export function resetRelayAutoUpdate(): void {
  * version. The relay downloads it, verifies it and restarts onto it once no
  * turn is in flight, so a conversation never notices more than a reconnect.
  * Relays too old to update themselves are left to the per-profile
- * affordance (useRelayUpdate) — the last update they need by hand.
+ * one-button update (useLegacyRelayUpgrade) — the last one they need.
  */
 export function useRelayAutoUpdate(profiles: readonly Profile[], appVersion: string = APP_VERSION): void {
   const profilesRef = useRef(profiles);

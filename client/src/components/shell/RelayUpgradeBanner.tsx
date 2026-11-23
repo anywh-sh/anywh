@@ -127,6 +127,7 @@ export function RelayUpgradeAction({ state, onUpdate, align = "end" }: { state: 
       {state.phase === "failed" && (
         <>
           <span className="text-xs text-destructive">{dict.failedReasons[state.reason]}</span>
+          {state.detail && <span className="font-mono text-[11px] text-muted-foreground">{state.detail}</span>}
           <span className="text-xs text-muted-foreground">{dict.runThere}</span>
           <code className="border border-border bg-bg-chrome px-2 py-1 text-left font-mono text-[11px] break-all text-foreground select-all">{state.command}</code>
         </>
@@ -137,12 +138,13 @@ export function RelayUpgradeAction({ state, onUpdate, align = "end" }: { state: 
 
 /** The notice for one profile, driven by its relay. */
 export function RelayUpgradeBanner({ profile }: { profile: Profile }) {
-  const { state, start, dismiss } = useLegacyRelayUpgrade(profile);
+  const { state, noticeDismissed, start, dismiss } = useLegacyRelayUpgrade(profile);
   useEffect(() => {
     if (state.phase !== "done") return;
     const timer = setTimeout(dismiss, DONE_NOTICE_MS);
     return () => clearTimeout(timer);
   }, [state.phase, dismiss]);
+  if (noticeDismissed) return null;
   return <RelayUpgradeNotice profileLabel={profile.label} state={state} onUpdate={start} onDismiss={dismiss} />;
 }
 
