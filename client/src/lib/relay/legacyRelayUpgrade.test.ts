@@ -1,10 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { BREW_UPGRADE_STEPS, installerSucceeded, needsLegacyUpgrade, NOTHING_NEWER_EXIT, parseUpgradeOutput, upgradeCommand, UPGRADE_EXIT_MARKER } from "@/lib/relay/legacyRelayUpgrade";
+import { BREW_UPGRADE_STEPS, installerSucceeded, legacyUpgradeKind, needsLegacyUpgrade, NOTHING_NEWER_EXIT, parseUpgradeOutput, upgradeCommand, UPGRADE_EXIT_MARKER } from "@/lib/relay/legacyRelayUpgrade";
 
 describe("needsLegacyUpgrade", () => {
   it("is a relay on an older release that cannot update itself", () => {
     expect(needsLegacyUpgrade({ version: "0.2.40", features: ["bots"] }, "0.2.50")).toBe(true);
     expect(needsLegacyUpgrade({ version: "0.2.10" }, "0.2.50")).toBe(true);
+  });
+
+  it("only where an update the app has can work, by why the relay can't update itself", () => {
+    const old = { version: "0.2.40", features: ["bots"] };
+    expect(needsLegacyUpgrade({ ...old, platform: "darwin", updateSupport: "managed_elsewhere" }, "0.2.50")).toBe(true);
+    // A tree the installer did not lay out would refuse the installer: no
+    // notice that can only fail, every launch.
+    expect(needsLegacyUpgrade({ ...old, platform: "linux", updateSupport: "not_installer_layout" }, "0.2.50")).toBe(false);
+    expect(needsLegacyUpgrade({ ...old, platform: "darwin", updateSupport: "not_installer_layout" }, "0.2.50")).toBe(false);
+    expect(needsLegacyUpgrade({ ...old, platform: "linux", updateSupport: "managed_elsewhere" }, "0.2.50")).toBe(false);
+    // A relay older than the field: by its platform, as before.
+    expect(needsLegacyUpgrade({ ...old, platform: "linux" }, "0.2.50")).toBe(true);
+    expect(legacyUpgradeKind({ platform: "linux" })).toBe("installer");
+    expect(legacyUpgradeKind({ platform: "darwin" })).toBe("homebrew");
+    expect(legacyUpgradeKind({ platform: "darwin", updateSupport: "managed_elsewhere" })).toBe("homebrew");
+    expect(legacyUpgradeKind({ platform: "linux", updateSupport: "source_checkout" })).toBeNull();
   });
 
   it("never a relay that updates itself, one on the app's release or newer, or a build from source", () => {

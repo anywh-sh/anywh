@@ -9,6 +9,8 @@ import {
   BREW_UPGRADE_STEPS,
   closeUpgradeTerminal,
   findBusySessions,
+  legacyUpgradeKind,
+  type LegacyUpgradeKind,
   needsLegacyUpgrade,
   NOTHING_NEWER_EXIT,
   runInRelayTerminal,
@@ -127,6 +129,8 @@ interface Entry {
   /** Where this profile's relay was last asked whether it needs this. */
   checked?: string;
   platform?: string;
+  /** How the app can update it (`legacyUpgradeKind`). */
+  kind?: LegacyUpgradeKind;
   version?: string;
   /** The run in progress, if any: a run that is no longer this one (called
    * off, or replaced) stops at its next step. */
@@ -160,10 +164,10 @@ export function resetLegacyRelayUpgrades(): void {
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 /** Whether the relay is a Homebrew one on this very Mac, so the app itself
- * can upgrade it: the relay says it runs on macOS, the profile reaches it on
+ * can upgrade it: its update is Homebrew's, the profile reaches it on
  * loopback, and this is the desktop app on macOS (a browser has no shell). */
-export function runsHomebrewRelayHere(profile: Pick<Profile, "host">, relayPlatform: string | undefined): boolean {
-  return relayPlatform === "darwin" && LOOPBACK_HOSTS.has(profile.host) && currentPlatform() === "macos" && localInstallPossible();
+export function runsHomebrewRelayHere(profile: Pick<Profile, "host">, kind: LegacyUpgradeKind | undefined): boolean {
+  return kind === "homebrew" && LOOPBACK_HOSTS.has(profile.host) && currentPlatform() === "macos" && localInstallPossible();
 }
 
 /** The failure the app's own Homebrew run ended in. */
@@ -189,7 +193,7 @@ const running = (state: LegacyUpgradeState): boolean => ["checking", "waiting", 
 
 async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUpgradeTiming): Promise<void> {
   const entry = entryFor(profile.id);
-  const manual = entry.platform === "darwin" ? MANUAL_BREW_COMMAND : MANUAL_UPGRADE_COMMAND;
+  const manual = entry.kind === "homebrew" ? MANUAL_BREW_COMMAND : MANUAL_UPGRADE_COMMAND;
   const run = Symbol("legacy-relay-upgrade");
   entry.run = run;
   entry.noticeDismissed = false;
@@ -211,7 +215,7 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
     }
 
     setState(profile.id, { phase: "updating" });
-    if (runsHomebrewRelayHere(profile, entry.platform)) {
+    if (runsHomebrewRelayHere(profile, entry.kind)) {
       // The relay is on this Mac, where its own terminal cannot run anything
       // (it needs tmux; a stock Mac has none) — and the app is already here.
       await upgradeBrewRelay().catch((error: unknown) => {
@@ -226,7 +230,7 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
         throw new Failed("terminal");
       });
       if (outcome.exitCode === 3) throw new Failed("not_installed");
-      if (entry.platform === "darwin" && outcome.exitCode === NOTHING_NEWER_EXIT) throw new NotPublished();
+      if (entry.kind === "homebrew" && outcome.exitCode === NOTHING_NEWER_EXIT) throw new NotPublished();
       if (outcome.exitCode !== 0) throw new Failed("installer", outcome.failure);
     }
 
@@ -239,7 +243,7 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
       );
       // Homebrew installs whatever its formula names, not a version of ours
       // to pick: a different one is the update having happened.
-      if (entry.platform === "darwin" ? version !== null && version !== entry.version : version === appVersion) break;
+      if (entry.kind === "homebrew" ? version !== null && version !== entry.version : version === appVersion) break;
       if (Date.now() > deadline) throw new Failed("not_back");
       await sleep(timing.versionPollMs);
     }
@@ -303,11 +307,13 @@ export function useLegacyRelayUpgrade(
           // another host, or updated by hand): whatever was offered for the
           // old one must not be run against it — it could be a downgrade.
           entry.platform = undefined;
+          entry.kind = undefined;
           entry.version = undefined;
           if (entry.state.phase !== "hidden") setState(profile.id, { phase: "hidden" });
           return;
         }
         entry.platform = info.platform;
+        entry.kind = legacyUpgradeKind(info) ?? undefined;
         entry.version = info.version;
         if (entry.state.phase === "hidden" || entry.state.phase === "done" || entry.state.phase === "failed") {
           if (recentlyNotPublished(profile.id, info.version, appVersion)) entry.noticeDismissed = true;
@@ -345,8 +351,10 @@ export function useLegacyRelayUpgrade(
   }, [profile.id]);
 
   const entry = entryFor(profile.id);
-  // A Homebrew relay on this Mac never updates itself: the update is offered
-  // again with every release, and the notice must not promise otherwise.
-  const eachTime = runsHomebrewRelayHere(profile, entry.platform);
+  // A Homebrew relay never updates itself, on this Mac or another: the
+  // update is offered again with every release, and the notice must not
+  // promise otherwise. Only the installer's relay keeps itself up to date
+  // after this one update.
+  const eachTime = entry.kind === "homebrew";
   return { state, noticeDismissed: entry.noticeDismissed, relayVersion: entry.version, eachTime, start, dismiss };
 }

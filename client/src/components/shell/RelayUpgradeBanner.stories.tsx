@@ -24,7 +24,7 @@ type Story = StoryObj<typeof meta>;
 /** An older relay that cannot update itself: one button. */
 export const Available: Story = {};
 
-/** A Homebrew relay on this Mac: offered with every release, so no promise
+/** A Homebrew relay (on this Mac or another): offered with every release, so no promise
  * that it keeps itself up to date. */
 export const AvailableEachTime: Story = { args: { eachTime: true } };
 

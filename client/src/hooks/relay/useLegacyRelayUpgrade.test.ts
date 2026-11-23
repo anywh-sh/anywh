@@ -44,6 +44,8 @@ import type { Profile } from "@/lib/profiles/profiles";
 interface FakeRelay {
   version: string;
   platform?: string;
+  /** What `/host-info` says about updating itself; absent from an older relay. */
+  updateSupport?: string;
   /** Conversation ids with a turn in flight. */
   busy: Set<string>;
   /** What the terminal prints once the command is typed. */
@@ -98,7 +100,7 @@ beforeEach(() => {
     "fetch",
     vi.fn((input: string) => {
       const path = new URL(input).pathname;
-      if (path === "/host-info") return Promise.resolve(new Response(JSON.stringify({ hostname: "h", platform: relay.platform ?? "linux", editor: null, version: relay.version, features: ["bots"] })));
+      if (path === "/host-info") return Promise.resolve(new Response(JSON.stringify({ hostname: "h", platform: relay.platform ?? "linux", editor: null, version: relay.version, features: ["bots"], updateSupport: relay.updateSupport })));
       if (path === "/sessions") return Promise.resolve(new Response(JSON.stringify({ sessions: [{ id: "s1", title: "a", lastActiveAt: Date.now() }] })));
       return Promise.resolve(new Response("{}"));
     }),
@@ -210,6 +212,30 @@ describe("useLegacyRelayUpgrade", () => {
     await waitFor(() => expect(result.current.state.phase).toBe("available"));
     act(() => result.current.start());
     await waitFor(() => expect(result.current.state).toMatchObject({ phase: "failed", reason: "not_back" }));
+  });
+
+  it("is not offered at all where the installer would refuse the relay (a tree it did not lay out)", async () => {
+    relay.updateSupport = "not_installer_layout";
+    const { result } = mount();
+    // Give the check time to land; it must stay hidden.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(result.current.state.phase).toBe("hidden");
+  });
+
+  it("an installer relay is promised it keeps itself up to date afterwards", async () => {
+    const { result } = mount();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    expect(result.current.eachTime).toBe(false);
+  });
+
+  it("a Homebrew relay on another Mac is not promised that, and goes through its terminal", async () => {
+    Object.assign(relay, { platform: "darwin", updateSupport: "managed_elsewhere" });
+    const { result } = mount();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    expect(result.current.eachTime).toBe(true);
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    expect(relay.commands[0]).toContain("brew upgrade anywh-relay");
   });
 
   it("every place showing it shares one run: a second start does nothing while it runs", async () => {
@@ -326,15 +352,15 @@ describe("a Homebrew relay on this Mac", () => {
 
   it("a Mac relay reached over the network still goes through its own terminal", () => {
     const remote: Profile = { ...local, host: "100.64.0.7" };
-    expect(runsHomebrewRelayHere(remote, "darwin")).toBe(false);
-    expect(runsHomebrewRelayHere(local, "darwin")).toBe(true);
-    expect(runsHomebrewRelayHere(local, "linux")).toBe(false);
+    expect(runsHomebrewRelayHere(remote, "homebrew")).toBe(false);
+    expect(runsHomebrewRelayHere(local, "homebrew")).toBe(true);
+    expect(runsHomebrewRelayHere(local, "installer")).toBe(false);
   });
 
   it("never outside the desktop app on macOS", () => {
     native.tauri = false;
-    expect(runsHomebrewRelayHere(local, "darwin")).toBe(false);
+    expect(runsHomebrewRelayHere(local, "homebrew")).toBe(false);
     Object.assign(native, { tauri: true, platform: "linux" });
-    expect(runsHomebrewRelayHere(local, "darwin")).toBe(false);
+    expect(runsHomebrewRelayHere(local, "homebrew")).toBe(false);
   });
 });

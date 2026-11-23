@@ -33,7 +33,7 @@ describe("Relay update notice stories", () => {
     expect(onUpdate).toHaveBeenCalledOnce();
   });
 
-  it("a Homebrew relay on this Mac is not promised that it keeps itself up to date", () => {
+  it("a Homebrew relay is not promised that it keeps itself up to date", () => {
     render(<AvailableEachTime />);
     expect(screen.getByTestId("relay-upgrade-notice")).toHaveTextContent(copy.bodyEachTime.replace("{profile}", "Home server"));
     expect(screen.getByTestId("relay-upgrade-notice")).not.toHaveTextContent("keeps itself up to date");

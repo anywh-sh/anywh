@@ -36,13 +36,38 @@ export const NOTHING_NEWER_EXIT = 4;
 /** The terminal the update runs in (one per conversation id, see `/terminal`). */
 export const UPGRADE_TERMINAL_ID = "anywh-relay-upgrade";
 
+/** How the app can update a relay that cannot update itself: through the
+ * installer (Linux; from then on the relay updates itself), or through
+ * Homebrew (macOS; needed again with every release). */
+export type LegacyUpgradeKind = "installer" | "homebrew";
+
 /**
- * Whether this relay needs the one update by hand: it runs a release older
- * than the app and cannot update itself. A build from source on either side
+ * Which update can work on this relay, from why it says it cannot update
+ * itself (`updateSupport`), or `null` when none can: a source checkout or
+ * a tree the installer did not lay out would refuse the installer, so
+ * offering it would only fail, again on every launch. A relay older than
+ * `updateSupport` is judged by its platform, as before it existed.
+ */
+export function legacyUpgradeKind(info: { platform?: string; updateSupport?: string }): LegacyUpgradeKind | null {
+  switch (info.updateSupport) {
+    case undefined:
+      return info.platform === "darwin" ? "homebrew" : "installer";
+    case "managed_elsewhere":
+      return info.platform === "darwin" ? "homebrew" : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Whether this relay needs the update by hand, and the app has one that
+ * works there: it runs a release older than the app, cannot update itself,
+ * and `legacyUpgradeKind` names a way. A build from source on either side
  * has no release to compare or install.
  */
-export function needsLegacyUpgrade(info: Pick<HostInfo, "version" | "features">, appVersion: string): boolean {
+export function needsLegacyUpgrade(info: Pick<HostInfo, "version" | "features" | "updateSupport"> & { platform?: string }, appVersion: string): boolean {
   if (info.features?.includes("self_update")) return false;
+  if (legacyUpgradeKind(info) === null) return false;
   if (info.version === undefined || isUnreleasedVersion(info.version) || isUnreleasedVersion(appVersion)) return false;
   const vsApp = compareVersions(info.version, appVersion);
   return vsApp !== null && vsApp < 0;

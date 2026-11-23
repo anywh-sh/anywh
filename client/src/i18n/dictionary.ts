@@ -1381,7 +1381,7 @@ export interface Dictionary {
       /** `{profile}` — the profile's label, rendered as its own element. For
        * a relay that updates itself from then on. */
       body: string;
-      /** Same, for a relay that needs this every time (Homebrew on this Mac). */
+      /** Same, for a relay that needs this with every release (Homebrew). */
       bodyEachTime: string;
       update: string;
       checking: string;

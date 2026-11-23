@@ -42,7 +42,7 @@ export function RelayUpgradeNotice({
 }: {
   profileLabel: string;
   state: LegacyUpgradeState;
-  /** The relay needs this with every release (Homebrew on this Mac). */
+  /** The relay needs this with every release (Homebrew). */
   eachTime?: boolean;
   onUpdate: () => void;
   onDismiss: () => void;
