@@ -5,13 +5,21 @@ import { currentPlatform } from "@/lib/platform/platform";
 import { isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { getHostInfo } from "@/lib/relay/filesClient";
-import { closeUpgradeTerminal, findBusySessions, needsLegacyUpgrade, runInRelayTerminal, upgradeCommand } from "@/lib/relay/legacyRelayUpgrade";
+import {
+  BREW_UPGRADE_STEPS,
+  closeUpgradeTerminal,
+  findBusySessions,
+  needsLegacyUpgrade,
+  NOTHING_NEWER_EXIT,
+  runInRelayTerminal,
+  upgradeCommand,
+} from "@/lib/relay/legacyRelayUpgrade";
 import { fetchSessions } from "@/lib/relay/relayClient";
 
 /** The command for the relay's machine, for when the app cannot run it:
  * install, then restart every profile's relay there (they share the tree). */
 export const MANUAL_UPGRADE_COMMAND = "curl -fsSL https://anywh.sh/install | sh -s -- --relay-only && systemctl --user restart 'anywh-relay@*'";
-export const MANUAL_BREW_COMMAND = "brew upgrade anywh-relay && brew services restart anywh-relay";
+export const MANUAL_BREW_COMMAND = BREW_UPGRADE_STEPS;
 
 /** Why an update stopped, each with its own sentence in the dictionary. */
 export type LegacyUpgradeFailure =
@@ -43,6 +51,9 @@ export type LegacyUpgradeState =
   | { phase: "updating" }
   | { phase: "restarting" }
   | { phase: "done" }
+  /** Homebrew has no newer relay yet (its tap follows stable releases, and
+   * can be behind the app): nothing was upgraded or restarted. */
+  | { phase: "not_published" }
   | { phase: "failed"; reason: LegacyUpgradeFailure; detail?: string; command: string };
 
 export interface LegacyUpgradeTiming {
@@ -65,6 +76,46 @@ class Failed extends Error {
   ) {
     super(reason);
   }
+}
+
+/** Homebrew had no newer relay to install: not a failure, and nothing was
+ * restarted. */
+class NotPublished extends Error {}
+
+// Once Homebrew had nothing newer for a relay, the notice stays closed for
+// a while on the next launches too (the profile's settings and the bots
+// section still offer the update): the tap only catches up once a stable
+// release is published, and until then the notice could only end the same
+// way every time. Kept per profile, for that relay and app version only.
+const NOT_PUBLISHED_KEY = "anywh:relay-upgrade-not-published";
+export const NOT_PUBLISHED_QUIET_MS = 12 * 60 * 60 * 1000;
+type NotPublishedMarks = Record<string, { relay: string; app: string; at: number }>;
+
+function readNotPublished(): NotPublishedMarks {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(NOT_PUBLISHED_KEY) ?? "{}") as unknown;
+    return typeof parsed === "object" && parsed !== null ? (parsed as NotPublishedMarks) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeNotPublished(profileId: string, mark: NotPublishedMarks[string] | null): void {
+  const marks = readNotPublished();
+  if (mark) marks[profileId] = mark;
+  else delete marks[profileId];
+  try {
+    localStorage.setItem(NOT_PUBLISHED_KEY, JSON.stringify(marks));
+  } catch {
+    // No storage: the notice comes back on the next launch, as before.
+  }
+}
+
+/** Whether Homebrew had nothing newer for this relay and app version
+ * recently enough that the notice should not offer it again yet. */
+export function recentlyNotPublished(profileId: string, relayVersion: string | undefined, appVersion: string, now = Date.now()): boolean {
+  const mark = readNotPublished()[profileId] as NotPublishedMarks[string] | undefined;
+  return mark !== undefined && mark.relay === relayVersion && mark.app === appVersion && now - mark.at < NOT_PUBLISHED_QUIET_MS;
 }
 
 // One update per profile, shared by every place that shows it (the notice,
@@ -116,9 +167,11 @@ export function runsHomebrewRelayHere(profile: Pick<Profile, "host">, relayPlatf
 }
 
 /** The failure the app's own Homebrew run ended in. */
-function brewFailure(error: unknown): Failed {
+function brewFailure(error: unknown): Failed | NotPublished {
   if (!(error instanceof BrewUpgradeError)) return new Failed("homebrew", error instanceof Error ? error.message : String(error));
   switch (error.code) {
+    case "nothing_newer":
+      return new NotPublished();
     case "unsupported_platform":
       return new Failed("unsupported");
     case "busy":
@@ -173,6 +226,7 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
         throw new Failed("terminal");
       });
       if (outcome.exitCode === 3) throw new Failed("not_installed");
+      if (entry.platform === "darwin" && outcome.exitCode === NOTHING_NEWER_EXIT) throw new NotPublished();
       if (outcome.exitCode !== 0) throw new Failed("installer", outcome.failure);
     }
 
@@ -192,10 +246,17 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
     if (terminalSession !== undefined) await closeUpgradeTerminal(profile, terminalSession);
     if (cancelled()) return;
     entry.run = undefined;
+    writeNotPublished(profile.id, null);
     setState(profile.id, { phase: "done" });
   } catch (error) {
     if (cancelled()) return;
     entry.run = undefined;
+    if (error instanceof NotPublished) {
+      if (terminalSession !== undefined) await closeUpgradeTerminal(profile, terminalSession);
+      if (entry.version !== undefined) writeNotPublished(profile.id, { relay: entry.version, app: appVersion, at: Date.now() });
+      setState(profile.id, { phase: "not_published" });
+      return;
+    }
     const failure = error instanceof Failed ? error : new Failed("terminal");
     setState(profile.id, { phase: "failed", reason: failure.reason, ...(failure.detail ? { detail: failure.detail } : {}), command: manual });
   }
@@ -248,7 +309,10 @@ export function useLegacyRelayUpgrade(
         }
         entry.platform = info.platform;
         entry.version = info.version;
-        if (entry.state.phase === "hidden" || entry.state.phase === "done" || entry.state.phase === "failed") setState(profile.id, { phase: "available" });
+        if (entry.state.phase === "hidden" || entry.state.phase === "done" || entry.state.phase === "failed") {
+          if (recentlyNotPublished(profile.id, info.version, appVersion)) entry.noticeDismissed = true;
+          setState(profile.id, { phase: "available" });
+        }
       },
       // Unreachable now: asked again the next time this mounts.
       () => (entry.checked = undefined),

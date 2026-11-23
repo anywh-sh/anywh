@@ -170,6 +170,9 @@ export type BrewUpgradeErrorCode =
   | "unsupported_platform"
   /** The app is already upgrading the relay, or installing one. */
   | "busy"
+  /** The Homebrew tap has no newer relay than the one installed yet;
+   * nothing was upgraded or restarted. */
+  | "nothing_newer"
   /** Homebrew ran for too long, and was stopped. */
   | "timeout"
   /** Homebrew could not be started at all. */

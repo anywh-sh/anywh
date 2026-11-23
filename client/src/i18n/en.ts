@@ -642,6 +642,7 @@ export const en: Dictionary = {
         timed_out: "Homebrew didn't finish within 10 minutes, so the app stopped it.",
         already_running: "The app is already installing or updating the relay on this Mac. Try again once it's done.",
       },
+      notPublished: "The new relay version isn't on Homebrew yet, so the relay was left as it was. Try again later.",
       runThere: "On the relay's machine, run:",
       dismiss: "Dismiss notice",
     },

@@ -63,6 +63,9 @@ export const HomebrewAlreadyRunning: Story = {
   args: { eachTime: true, state: { phase: "failed", reason: "already_running", command: MANUAL_BREW_COMMAND } },
 };
 
+/** Homebrew had no newer relay yet: nothing was restarted, try again later. */
+export const NotPublished: Story = { args: { eachTime: true, state: { phase: "not_published" } } };
+
 const SIMULATED: readonly LegacyUpgradeState[] = [
   { phase: "checking" },
   { phase: "waiting", busy: 1 },

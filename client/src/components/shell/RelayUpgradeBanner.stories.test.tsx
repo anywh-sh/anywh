@@ -5,11 +5,21 @@ import * as stories from "./RelayUpgradeBanner.stories";
 import { MANUAL_BREW_COMMAND, MANUAL_UPGRADE_COMMAND } from "@/hooks/relay/useLegacyRelayUpgrade";
 import { en } from "@/i18n/en";
 
-const { Available, AvailableEachTime, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, InstallerFailed, HomebrewFailed, HomebrewTimedOut, HomebrewAlreadyRunning, Simulated } =
+const { Available, AvailableEachTime, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, InstallerFailed, HomebrewFailed, HomebrewTimedOut, HomebrewAlreadyRunning, NotPublished, Simulated } =
   composeStories(stories);
 const copy = en.shell.relayUpgrade;
 
 describe("Relay update notice stories", () => {
+  it("Homebrew having nothing newer yet is said as such, not as a failure, with no command and the button to try later", () => {
+    const onUpdate = vi.fn();
+    render(<NotPublished onUpdate={onUpdate} />);
+    expect(screen.getByText(copy.notPublished)).toBeInTheDocument();
+    expect(screen.queryByText(copy.runThere)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: copy.update }));
+    expect(onUpdate).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: copy.dismiss })).toBeInTheDocument();
+  });
+
   afterEach(() => {
     act(() => cleanup());
     vi.useRealTimers();

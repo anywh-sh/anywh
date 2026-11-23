@@ -1406,6 +1406,9 @@ export interface Dictionary {
         /** Homebrew on this Mac was already updating or installing the relay. */
         already_running: string;
       };
+      /** Homebrew had no newer relay yet: the relay was left running as it
+       * was, and the update can be tried again later. */
+      notPublished: string;
       /** Shown above the command to run on the relay's machine. */
       runThere: string;
       dismiss: string;

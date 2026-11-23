@@ -26,7 +26,15 @@ vi.mock("@/lib/install/localRelay", async (importOriginal) => {
   };
 });
 
-import { MANUAL_BREW_COMMAND, MANUAL_UPGRADE_COMMAND, resetLegacyRelayUpgrades, runsHomebrewRelayHere, useLegacyRelayUpgrade } from "@/hooks/relay/useLegacyRelayUpgrade";
+import {
+  MANUAL_BREW_COMMAND,
+  MANUAL_UPGRADE_COMMAND,
+  NOT_PUBLISHED_QUIET_MS,
+  recentlyNotPublished,
+  resetLegacyRelayUpgrades,
+  runsHomebrewRelayHere,
+  useLegacyRelayUpgrade,
+} from "@/hooks/relay/useLegacyRelayUpgrade";
 import { UPGRADE_EXIT_MARKER } from "@/lib/relay/legacyRelayUpgrade";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -82,6 +90,7 @@ const fast = { busyPollMs: 5, busyTimeoutMs: 2000, versionPollMs: 5, restartTime
 
 beforeEach(() => {
   resetLegacyRelayUpgrades();
+  localStorage.clear();
   Object.assign(native, { platform: "linux", tauri: false, brewRuns: 0, brewError: null, onBrew: () => undefined });
   relay = { version: "0.2.40", busy: new Set(), terminalOutput: `ANYWH done ok\r\n${UPGRADE_EXIT_MARKER}=0\r\n`, versionAfter: "0.2.50", commands: [] };
   vi.stubGlobal("WebSocket", FakeSocket);
@@ -227,6 +236,50 @@ describe("a Homebrew relay on this Mac", () => {
     native.onBrew = () => {
       relay.version = "0.2.50";
     };
+  });
+
+  it("Homebrew having nothing newer ends the run without a restart wait, and keeps the notice closed for a while", async () => {
+    native.brewError = { code: "nothing_newer" };
+    const { result, unmount } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    // Straight there: no "restarting" while the app waits for a version
+    // that is not coming.
+    await waitFor(() => expect(result.current.state).toEqual({ phase: "not_published" }));
+    expect(native.brewRuns).toBe(1);
+    unmount();
+
+    // The next launch: still offered, but not as the notice.
+    resetLegacyRelayUpgrades();
+    const again = mountLocal();
+    await waitFor(() => expect(again.result.current.state.phase).toBe("available"));
+    expect(again.result.current.noticeDismissed).toBe(true);
+    again.unmount();
+
+    // A new app version is a new chance for the tap to have caught up.
+    resetLegacyRelayUpgrades();
+    const newer = renderHook(() => useLegacyRelayUpgrade(local, { appVersion: "0.2.51", timing: fast }));
+    await waitFor(() => expect(newer.result.current.state.phase).toBe("available"));
+    expect(newer.result.current.noticeDismissed).toBe(false);
+  });
+
+  it("the quiet spell ends", () => {
+    localStorage.setItem("anywh:relay-upgrade-not-published", JSON.stringify({ mac: { relay: "0.2.40", app: "0.2.50", at: 1000 } }));
+    expect(recentlyNotPublished("mac", "0.2.40", "0.2.50", 1000 + NOT_PUBLISHED_QUIET_MS - 1)).toBe(true);
+    expect(recentlyNotPublished("mac", "0.2.40", "0.2.50", 1000 + NOT_PUBLISHED_QUIET_MS)).toBe(false);
+    expect(recentlyNotPublished("mac", "0.2.41", "0.2.50", 1001)).toBe(false);
+    expect(recentlyNotPublished("other", "0.2.40", "0.2.50", 1001)).toBe(false);
+  });
+
+  it("a Mac reached through its terminal says the same when Homebrew has nothing newer", async () => {
+    Object.assign(native, { platform: "linux", tauri: false });
+    relay.terminalOutput = `${UPGRADE_EXIT_MARKER}=4\r\n`;
+    relay.versionAfter = "0.2.40";
+    const { result } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state).toEqual({ phase: "not_published" }));
+    expect(relay.commands[0]).toContain("brew outdated --quiet anywh-relay");
   });
 
   it("is upgraded by the app itself after the busy check, with no terminal and no paste", async () => {

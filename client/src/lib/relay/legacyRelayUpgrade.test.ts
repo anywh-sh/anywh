@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { installerSucceeded, needsLegacyUpgrade, parseUpgradeOutput, upgradeCommand, UPGRADE_EXIT_MARKER } from "@/lib/relay/legacyRelayUpgrade";
+import { BREW_UPGRADE_STEPS, installerSucceeded, needsLegacyUpgrade, NOTHING_NEWER_EXIT, parseUpgradeOutput, upgradeCommand, UPGRADE_EXIT_MARKER } from "@/lib/relay/legacyRelayUpgrade";
 
 describe("needsLegacyUpgrade", () => {
   it("is a relay on an older release that cannot update itself", () => {
@@ -57,7 +57,16 @@ describe("upgradeCommand", () => {
   });
 
   it("on macOS upgrades and restarts the Homebrew relay", () => {
-    expect(upgradeCommand({ platform: "darwin", port: 8765, version: "0.2.50" })).toContain("brew upgrade anywh-relay && brew services restart anywh-relay");
+    expect(upgradeCommand({ platform: "darwin", port: 8765, version: "0.2.50" })).toContain(`then ${BREW_UPGRADE_STEPS}; else`);
+  });
+
+  it("on macOS restarts nothing when the tap has no newer relay, and never prints the marker with its number in the command line", () => {
+    const command = upgradeCommand({ platform: "darwin", port: 8765, version: "0.2.50" }) ?? "";
+    expect(command).toContain(`if brew outdated --quiet anywh-relay | grep -q anywh-relay; then`);
+    expect(command).toContain(`else (exit ${String(NOTHING_NEWER_EXIT)}); fi`);
+    // The terminal echoes the command back; only the run itself may read as
+    // an exit status.
+    expect(parseUpgradeOutput(command).exitCode).toBeUndefined();
   });
 
   it("nothing for another platform, or for a port, version or unit that could carry anything else", () => {

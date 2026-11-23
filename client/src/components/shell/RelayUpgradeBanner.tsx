@@ -23,6 +23,7 @@ function progressText(state: LegacyUpgradeState, dict: ReturnType<typeof useDict
     case "hidden":
     case "available":
     case "done":
+    case "not_published":
     case "failed":
       return null;
   }
@@ -75,6 +76,7 @@ export function RelayUpgradeNotice({
             {progress}
           </span>
         )}
+        {state.phase === "not_published" && <span className="text-xs text-muted-foreground">{dict.notPublished}</span>}
         {state.phase === "failed" && (
           <div className="flex flex-col gap-1 pt-1">
             <span className="text-xs text-destructive">{dict.failedReasons[state.reason]}</span>
@@ -87,7 +89,7 @@ export function RelayUpgradeNotice({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {(state.phase === "available" || state.phase === "failed") && (
+        {(state.phase === "available" || state.phase === "not_published" || state.phase === "failed") && (
           <Button variant="outline" size="sm" onClick={onUpdate}>
             {dict.update}
           </Button>
@@ -127,6 +129,7 @@ export function RelayUpgradeAction({ state, onUpdate, align = "end" }: { state: 
       <Button variant="outline" size="sm" onClick={onUpdate}>
         {dict.update}
       </Button>
+      {state.phase === "not_published" && <span className="text-xs text-muted-foreground">{dict.notPublished}</span>}
       {state.phase === "failed" && (
         <>
           <span className="text-xs text-destructive">{dict.failedReasons[state.reason]}</span>

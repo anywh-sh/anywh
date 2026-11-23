@@ -23,6 +23,16 @@ export const RELAY_INSTALLER_URL = "https://anywh.sh/install-relay";
 /** What the command prints last, with its exit status. */
 export const UPGRADE_EXIT_MARKER = "ANYWH_RELAY_UPGRADE_EXIT";
 
+/** The Homebrew relay's upgrade and restart: what the relay's terminal runs
+ * on a Mac, and what a person runs there by hand. The app's own run on this
+ * Mac is the same steps in Rust (`BREW_UPGRADE_COMMAND`, relay_setup.rs). */
+export const BREW_UPGRADE_STEPS = "brew upgrade anywh-relay && brew services restart anywh-relay";
+
+/** The darwin command's exit status when the tap has no newer relay than
+ * the one installed (the Homebrew tap follows stable releases, bumped once
+ * one is published, so it can be behind the app). Nothing was restarted. */
+export const NOTHING_NEWER_EXIT = 4;
+
 /** The terminal the update runs in (one per conversation id, see `/terminal`). */
 export const UPGRADE_TERMINAL_ID = "anywh-relay-upgrade";
 
@@ -89,7 +99,13 @@ export function upgradeCommand(options: { platform: string; port: number; versio
     return ` sh -c '${steps.join("; ")}'`;
   }
   if (platform === "darwin") {
-    return ` sh -c 'PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; brew update >/dev/null && brew upgrade anywh-relay && brew services restart anywh-relay; ${done}'`;
+    // Upgraded and restarted only when the tap has a newer relay than the
+    // one installed; otherwise it ends with NOTHING_NEWER_EXIT and leaves
+    // the relay running as it was (`(exit N)` sets the status the marker
+    // echoes without the number ever appearing next to the marker in the
+    // command line the terminal echoes back).
+    const outdated = "brew outdated --quiet anywh-relay | grep -q anywh-relay";
+    return ` sh -c 'PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; brew update >/dev/null && brew list --versions anywh-relay >/dev/null && if ${outdated}; then ${BREW_UPGRADE_STEPS}; else (exit ${String(NOTHING_NEWER_EXIT)}); fi; ${done}'`;
   }
   return null;
 }

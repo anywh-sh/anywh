@@ -400,8 +400,24 @@ async fn active_relay_units() -> Vec<String> {
 /// The Homebrew relay's update and restart, as one shell line. Homebrew's
 /// own bin directories go first on PATH: a login bash does not read the zsh
 /// profile where most Macs set Homebrew up, and the app's own PATH has none.
-const BREW_UPGRADE_COMMAND: &str =
-    "PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; brew update >/dev/null && brew upgrade anywh-relay && brew services restart anywh-relay";
+///
+/// It upgrades and restarts only when the tap's formula has a newer relay
+/// than the one installed, and exits `BREW_NOTHING_NEWER` otherwise: the
+/// tap follows stable releases only, and is bumped after one is published,
+/// so an app can be ahead of it. Restarting a relay that `brew upgrade` left
+/// as it was would only make the app wait for a version that never comes.
+/// (The same steps, for a Mac the app reaches through the relay's terminal:
+/// `upgradeCommand` in client/src/lib/relay/legacyRelayUpgrade.ts.)
+const BREW_UPGRADE_COMMAND: &str = concat!(
+    "PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; ",
+    "brew update >/dev/null && brew list --versions anywh-relay >/dev/null && ",
+    "if brew outdated --quiet anywh-relay | grep -q anywh-relay; ",
+    "then brew upgrade anywh-relay && brew services restart anywh-relay; ",
+    "else exit 4; fi",
+);
+
+/// `BREW_UPGRADE_COMMAND`'s exit status when the formula has nothing newer.
+const BREW_NOTHING_NEWER: i32 = 4;
 
 /// Why a Homebrew run failed, short enough to show: its last `Error:` line
 /// (Homebrew's own words for it, on stderr), else the last few lines of
@@ -508,6 +524,7 @@ async fn run_in_own_group(bash_args: &[&str], limit: Duration) -> Result<std::pr
 /// Why `relay_brew_upgrade` did not upgrade the relay. `code` is one of a
 /// closed set the app maps to its dictionary: `unsupported_platform`,
 /// `busy` (Homebrew is already updating or installing the relay),
+/// `nothing_newer` (the tap has no newer relay yet; nothing was restarted),
 /// `timeout`, `spawn_failed`, `failed`.
 #[derive(Debug, PartialEq, Serialize)]
 pub struct BrewUpgradeError {
@@ -530,6 +547,7 @@ impl BrewUpgradeError {
 fn brew_outcome(status: Option<i32>, stdout: &str, stderr: &str) -> Result<(), BrewUpgradeError> {
     match status {
         Some(0) => Ok(()),
+        Some(BREW_NOTHING_NEWER) => Err(BrewUpgradeError::new("nothing_newer")),
         _ => Err(BrewUpgradeError::with_detail("failed", failure_tail(stdout, stderr))),
     }
 }
@@ -1296,7 +1314,53 @@ mod tests {
     #[test]
     fn the_brew_update_finds_homebrew_without_the_zsh_profile() {
         assert!(BREW_UPGRADE_COMMAND.starts_with("PATH=/opt/homebrew/bin:/usr/local/bin:$PATH;"));
-        assert!(BREW_UPGRADE_COMMAND.ends_with("brew upgrade anywh-relay && brew services restart anywh-relay"));
+    }
+
+    /// The command line itself, run by a real shell against a stand-in
+    /// `brew` that records what it was asked and says whether the formula
+    /// is outdated.
+    #[test]
+    #[cfg(unix)]
+    fn the_brew_update_restarts_the_relay_only_when_the_tap_has_a_newer_one() {
+        use std::os::unix::fs::PermissionsExt;
+        if std::path::Path::new("/opt/homebrew/bin/brew").exists() || std::path::Path::new("/usr/local/bin/brew").exists() {
+            // A real Homebrew would come first on PATH; never run it here.
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("anywh-fake-brew-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("calls");
+        let brew = dir.join("brew");
+        std::fs::write(
+            &brew,
+            format!(
+                "#!/bin/sh\necho \"$*\" >> '{}'\nif [ \"$1\" = outdated ] && [ -n \"$FAKE_OUTDATED\" ]; then echo anywh-relay; fi\nexit 0\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&brew, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let run = |outdated: bool| {
+            std::fs::remove_file(&log).ok();
+            let mut command = std::process::Command::new("bash");
+            command.args(["-c", BREW_UPGRADE_COMMAND]).env("PATH", format!("{}:/usr/bin:/bin", dir.display()));
+            if outdated {
+                command.env("FAKE_OUTDATED", "1");
+            }
+            let status = command.status().unwrap().code();
+            (status, std::fs::read_to_string(&log).unwrap_or_default())
+        };
+
+        let (status, calls) = run(true);
+        assert_eq!(status, Some(0));
+        assert_eq!(calls, "update\nlist --versions anywh-relay\noutdated --quiet anywh-relay\nupgrade anywh-relay\nservices restart anywh-relay\n");
+
+        let (status, calls) = run(false);
+        assert_eq!(status, Some(BREW_NOTHING_NEWER));
+        assert!(!calls.contains("upgrade anywh-relay\n") && !calls.contains("services"), "restarted with nothing newer: {calls}");
+        assert_eq!(brew_outcome(status, "", ""), Err(BrewUpgradeError::new("nothing_newer")));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -642,6 +642,7 @@ export const ptBr: Dictionary = {
         timed_out: "O Homebrew não terminou em 10 minutos, então o app o interrompeu.",
         already_running: "O app já está instalando ou atualizando o relay neste Mac. Tente de novo quando terminar.",
       },
+      notPublished: "A versão nova do relay ainda não chegou ao Homebrew, então o relay ficou como estava. Tente de novo mais tarde.",
       runThere: "Na máquina do relay, rode:",
       dismiss: "Dispensar aviso",
     },
