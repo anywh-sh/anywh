@@ -285,10 +285,11 @@ test("a scheduled run's result reaches the phone, titled with its schedule; the 
     method: "PUT",
     body: JSON.stringify({ gatewayUrl: `http://127.0.0.1:${(gateway.address() as AddressInfo).port}/push/v1/notify`, pushKey: "bot-key" }),
   });
-  assert.equal(registered.status, 204);
-  const { id, roomId } = await createBot({ name: "Bob" });
-  const socket = await connectSession(relay.port, roomId);
+  let socket: WebSocket | undefined;
   try {
+    assert.equal(registered.status, 204);
+    const { id, roomId } = await createBot({ name: "Bob" });
+    socket = await connectSession(relay.port, roomId);
     await waitFor(async () => !((await (await fetch(`${base}/bots`)).json()) as { bots: { id: string; busy: boolean }[] }).bots.find((each) => each.id === id)?.busy, 20_000, "the kickoff to end");
     await botTurn(socket, `plan ${marker("schedule_create", { name: "Morning", cron: "0 9 * * *", prompt: "Say good morning." })} ${marker("schedule_create", { name: "Quiet", cron: "0 * * * *", prompt: "[[look-then-silent]]" })}`);
     const [morning, quiet] = (await getBot(id)).bot.schedules;
@@ -299,7 +300,7 @@ test("a scheduled run's result reaches the phone, titled with its schedule; the 
 
     const ran = await fetch(`${base}/bots/${id}/schedules/${morning.id}/run`, { method: "POST" });
     assert.equal(ran.status, 200, await ran.text());
-    await waitFor(() => pushed.length > 0, 20_000, "the run's push");
+    await waitFor(() => pushed.some((event) => event.title === "Bob · Morning"), 20_000, "the run's push");
     // Late pushes of the turns above would show up by now too.
     await new Promise((resolve) => setTimeout(resolve, 200));
     assert.deepEqual(
@@ -309,7 +310,7 @@ test("a scheduled run's result reaches the phone, titled with its schedule; the 
     );
     assert.match(pushed[0].preview ?? "", /Say good morning\./);
   } finally {
-    socket.close();
+    socket?.close();
     await fetch(`${base}/push/devices/${device}`, { method: "DELETE" });
     await new Promise<void>((resolve) => gateway.close(() => resolve()));
   }
