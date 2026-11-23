@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -17,17 +17,61 @@ import { RelayUpdater, updateSupport, type RelayUpdateStatus } from "./relayUpda
 const INSTALLER = resolve(import.meta.dirname, "../../../install-relay.sh");
 const TARGET = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "arm64" ? "arm64" : "x64"}`;
 
-/** A relay tree as the release tarball lays it out, at `version`: its
- * server answers `/host-info` with that version on RELAY_PORT, as the
- * installer's boot check expects — or, `broken`, dies at once like a release
- * whose native module cannot load on this machine. */
-function writeTree(root: string, version: string, options: { broken?: boolean } = {}): void {
-  mkdirSync(join(root, "relay", "dist"), { recursive: true });
+/** How a release's processes behave when the installer boots it:
+ * - `ok`: the server answers `/host-info` with the tree's version on
+ *   RELAY_PORT, and the agent host listens on its `--socket`;
+ * - `broken`: the server dies at once, like a release whose native module
+ *   cannot load on this machine;
+ * - `wrongVersion`: the server answers, as another version;
+ * - `hang`: the server never answers and ignores SIGTERM, and so does a
+ *   child it spawns; both pids go to `pidFile`, so the test can tell they
+ *   were killed;
+ * - `brokenHost`: the server is fine, the agent host dies at once. */
+type Behavior =
+  | { kind: "ok" }
+  | { kind: "broken" }
+  | { kind: "wrongVersion"; answers: string }
+  | { kind: "hang"; pidFile: string }
+  | { kind: "brokenHost" };
+
+function serverSource(version: string, behavior: Behavior): string {
+  const listen = (answer: string) =>
+    `require("http").createServer((req, res) => res.end(JSON.stringify({ version: ${JSON.stringify(answer)} }))).listen(Number(process.env.RELAY_PORT), "127.0.0.1");\n`;
+  switch (behavior.kind) {
+    case "broken":
+      return `// relay ${version}\nconsole.error("Error: Failed to load native module: pty.node (GLIBC_2.42 not found)");\nprocess.exit(1);\n`;
+    case "wrongVersion":
+      return `// relay ${version}\n${listen(behavior.answers)}`;
+    case "hang":
+      // With a child of its own that ignores SIGTERM too, as an agent CLI
+      // probe it started at boot would be.
+      return [
+        `// relay ${version}`,
+        `const child = require("child_process").spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"], { stdio: "ignore" });`,
+        `require("fs").writeFileSync(${JSON.stringify(behavior.pidFile)}, JSON.stringify([process.pid, child.pid]));`,
+        `process.on("SIGTERM", () => {});`,
+        `setInterval(() => {}, 1000);`,
+        "",
+      ].join("\n");
+    case "ok":
+    case "brokenHost":
+      return `// relay ${version}\n${listen(version)}`;
+  }
+}
+
+function agentHostSource(behavior: Behavior): string {
+  return behavior.kind === "brokenHost"
+    ? `console.error("node:internal/modules/esm/resolve:873");\nconsole.error("Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'node-pty' imported from dist/agentHost/claudeProcess.js");\nconsole.error("");\nconsole.error("Node.js " + process.version);\nprocess.exit(1);\n`
+    : `require("net").createServer().listen(process.argv[process.argv.indexOf("--socket") + 1]);\n`;
+}
+
+/** A relay tree as the release tarball lays it out, at `version`, its
+ * processes behaving as `behavior` says. */
+function writeTree(root: string, version: string, behavior: Behavior = { kind: "ok" }): void {
+  mkdirSync(join(root, "relay", "dist", "agentHost"), { recursive: true });
   mkdirSync(join(root, "infra", "systemd"), { recursive: true });
-  const server = options.broken
-    ? `// relay ${version}\nconsole.error("Error: Failed to load native module: pty.node (GLIBC_2.42 not found)");\nprocess.exit(1);\n`
-    : `// relay ${version}\nrequire("http").createServer((req, res) => res.end(JSON.stringify({ version: ${JSON.stringify(version)} }))).listen(Number(process.env.RELAY_PORT), "127.0.0.1");\n`;
-  writeFileSync(join(root, "relay", "dist", "server.js"), server);
+  writeFileSync(join(root, "relay", "dist", "server.js"), serverSource(version, behavior));
+  writeFileSync(join(root, "relay", "dist", "agentHost", "main.js"), agentHostSource(behavior));
   writeFileSync(join(root, "relay", "package.json"), JSON.stringify({ name: "anywh-relay", version }));
   writeFileSync(join(root, "infra", "systemd", "add-profile.sh"), "#!/bin/sh\n");
   copyFileSync(INSTALLER, join(root, "infra", "install-relay.sh"));
@@ -40,9 +84,9 @@ interface Release {
 
 /** Serves `anywh-relay-<version>-<target>.tar.gz` and its SHA256SUMS, with
  * the sum optionally wrong. */
-async function serveRelease(dir: string, version: string, options: { corruptSum?: boolean; broken?: boolean } = {}): Promise<Release> {
+async function serveRelease(dir: string, version: string, options: { corruptSum?: boolean; behavior?: Behavior } = {}): Promise<Release> {
   const stage = join(dir, `stage-${version}`);
-  writeTree(stage, version, { broken: options.broken });
+  writeTree(stage, version, options.behavior);
   const asset = `anywh-relay-${version}-${TARGET}.tar.gz`;
   const assetPath = join(dir, asset);
   execFileSync("tar", ["czf", assetPath, "-C", stage, "relay", "infra"]);
@@ -78,13 +122,13 @@ function setup(running: string) {
   return { dir, installDir, relayDir: join(installDir, "relay") };
 }
 
-function updaterFor(relayDir: string, running: string, baseUrl: string, installed: string[] = []): RelayUpdater {
+function updaterFor(relayDir: string, running: string, baseUrl: string, installed: string[] = [], env: NodeJS.ProcessEnv = {}): RelayUpdater {
   return new RelayUpdater({
     runningVersion: running,
     relayDir,
     sea: false,
     withService: false,
-    env: { ...process.env, ANYWH_RELEASE_BASE_URL: baseUrl, ANYWH_SKIP_AGENT_LOGIN_CHECK: "1", AGENT_BIN: "true" },
+    env: { ...process.env, ANYWH_RELEASE_BASE_URL: baseUrl, ANYWH_SKIP_AGENT_LOGIN_CHECK: "1", AGENT_BIN: "true", ...env },
     onInstalled: (version) => installed.push(version),
   });
 }
@@ -161,7 +205,7 @@ test("a tarball that fails its checksum is refused and the running tree is left 
 
 test("a release that cannot start on this machine is never swapped in: the running tree stays", async () => {
   const { dir, relayDir } = setup("0.2.40");
-  const release = await serveRelease(dir, "0.2.41", { broken: true });
+  const release = await serveRelease(dir, "0.2.41", { behavior: { kind: "broken" } });
   writeFileSync(join(relayDir, ".env"), "AGENT_BIN=/opt/claude\n");
   try {
     const installed: string[] = [];
@@ -177,6 +221,75 @@ test("a release that cannot start on this machine is never swapped in: the runni
     release.server.close();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/** Runs one update of the tree `setup` laid out to a release behaving as
+ * `behavior`, with the installer's temp files in a directory of the test's
+ * own, and returns how it ended. */
+async function refusedUpdate(behavior: Behavior, env: NodeJS.ProcessEnv = {}) {
+  const { dir, relayDir } = setup("0.2.40");
+  const release = await serveRelease(dir, "0.2.41", { behavior });
+  const scratch = join(dir, "tmp");
+  mkdirSync(scratch);
+  try {
+    const installed: string[] = [];
+    const updater = updaterFor(relayDir, "0.2.40", release.baseUrl, installed, { TMPDIR: scratch, ...env });
+    assert.equal(updater.start("0.2.41").ok, true);
+    const status = await settled(updater);
+    assert.equal(status.state === "failed" && status.code, "preflight_failed");
+    assert.deepEqual(installed, []);
+    assert.equal(versionIn(relayDir), "0.2.40");
+    // The throwaway state the release booted with went with the installer.
+    assert.deepEqual(readdirSync(scratch), [], "no preflight directory left behind");
+    return status.state === "failed" ? status.message : "";
+  } finally {
+    release.server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test("a release that answers as another version is never swapped in, and says so", async () => {
+  const message = await refusedUpdate({ kind: "wrongVersion", answers: "0.2.39" });
+  assert.match(message, /answered as version 0\.2\.39 instead of 0\.2\.41/);
+});
+
+test("a release that never answers and ignores SIGTERM is refused on time and killed", async () => {
+  const pidFile = join(tmpdir(), `anywh-preflight-hang-${process.pid}-${Date.now()}`);
+  try {
+    const started = Date.now();
+    const message = await refusedUpdate({ kind: "hang", pidFile }, { ANYWH_PREFLIGHT_TIMEOUT: "1", ANYWH_PREFLIGHT_STOP_GRACE: "1" });
+    assert.match(message, /didn't answer within 1s/);
+    assert.ok(Date.now() - started < 15_000, "the deadline and the stop grace bound the wait");
+    const [pid, childPid] = JSON.parse(readFileSync(pidFile, "utf8")) as [number, number];
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" }, "the release that ignored SIGTERM was killed");
+    // Its process group goes with it where the installer has setsid (Linux).
+    if (process.platform === "linux") {
+      // Re-parented to init when its parent died, then reaped there: give that a moment.
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline && alive(childPid)) await new Promise((r) => setTimeout(r, 50));
+      assert.equal(alive(childPid), false, "what the release spawned was killed with it");
+    } else if (alive(childPid)) {
+      process.kill(childPid, "SIGKILL");
+    }
+  } finally {
+    rmSync(pidFile, { force: true });
+  }
+});
+
+test("a release whose agent host cannot start is never swapped in: the reason is the error, not Node's trailer", async () => {
+  const message = await refusedUpdate({ kind: "brokenHost" });
+  assert.match(message, /agent host 0\.2\.41 exited/);
+  assert.match(message, /Error \[ERR_MODULE_NOT_FOUND\]: Cannot find package 'node-pty'/);
+  assert.doesNotMatch(message, /Node\.js v/);
 });
 
 test("a release that does not exist fails with the installer's own reason", async () => {
