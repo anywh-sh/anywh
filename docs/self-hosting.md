@@ -99,6 +99,44 @@ for a program driving the script — the desktop app's own setup uses it.
 Re-running with the same flags is a no-op for the profile and never
 restarts a running relay.
 
+### Updates
+
+A relay installed by the script keeps itself on the app's version. When the
+app connects and finds the relay on an older release, it asks the relay
+(`POST /relay/update`) to install the app's version. The relay runs the same
+installer, downloading and checksum-verifying that release and swapping it in,
+then restarts onto it on its own once no conversation has a reply running.
+The agent host does the same once every agent is idle. Idle agents are
+hibernated and resume on their next message, so a conversation sees at most a
+reconnect. It never downgrades: a relay ahead of the app is left alone. Only
+a systemd-managed relay restarts itself. A relay started by hand (`npm
+start`, `--mode dev`) or run from a source checkout is never touched.
+
+A relay from before this existed cannot be asked to update itself, so the
+app shows a notice for it with an **Update** button. Pressing it checks that
+no conversation on that relay has a reply running, waits while one does, then
+runs the installer and the restart on the relay's machine, through the
+relay's own terminal. The relay comes back on the app's version and updates
+itself from then on. Which service to update is found on that machine (the
+unit the terminal runs in, or the one listening on the relay's port), never
+guessed from the app's profile, and it is updated only if it runs from a tree
+the installer laid out, never over a source checkout. Files the release does
+not ship, such as `relay/.env`, are carried over to the new tree. If it cannot run the update from there (no
+tmux on that machine, say), the notice shows the one command to paste on the
+relay's machine instead.
+
+Several profiles on one machine share one install, and each relay is
+restarted only after its own conversations are checked. Updating one profile
+installs the release and restarts that profile's relay. Each other profile on
+the machine keeps its own notice: its update finds the release already
+installed (the installer takes one lock per install directory, so two
+updates never run at once), and only restarts it, once its conversations
+are idle. A relay started by hand without `RELAY_SESSIONS_FILE` and the
+other `RELAY_*_FILE` paths keeps those files beside its code: they are
+carried into the new tree, but anything it writes between the install and
+its restart is lost. Profiles created by the installer always set those
+paths.
+
 On macOS the script installs the tree and stops there: it has no launchd
 unit to offer, so the service comes from the Homebrew formula instead
 (`brew install anywh-sh/tap/anywh-relay`), and a profile requested on macOS

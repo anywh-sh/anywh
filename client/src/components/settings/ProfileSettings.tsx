@@ -9,7 +9,6 @@ import { FolderPickerDialog } from "@/components/chat/FolderPickerDialog";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { SettingsRow, SettingsSectionHeading } from "@/components/settings/SettingsRow";
 import { useDefaultPaths } from "@/hooks/useDefaultPaths";
-import { useLocalRelayProbe } from "@/hooks/platform/useLocalRelayProbe";
 import { useRevokedProfiles } from "@/hooks/profiles/useProfileRevoked";
 import {
   DEFAULT_MODEL_PREFERENCE,
@@ -18,11 +17,11 @@ import {
   type ModelPreferenceMode,
 } from "@/hooks/relay/useModelPreference";
 import { useDict } from "@/i18n";
-import { APP_VERSION, MIN_RELAY_VERSION } from "@/lib/install/appVersion";
-import { onInstallDone, startLocalInstall } from "@/lib/install/localRelay";
+import { APP_VERSION } from "@/lib/install/appVersion";
+import { useLegacyRelayUpgrade } from "@/hooks/relay/useLegacyRelayUpgrade";
+import { RelayUpgradeAction } from "@/components/shell/RelayUpgradeBanner";
 import { getModelCatalogs } from "@/lib/composer/modelCatalog";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
-import { currentPlatform } from "@/lib/platform/platform";
 import { profileBadge } from "@/lib/profiles/profileBadge";
 import {
   addProfile,
@@ -34,7 +33,6 @@ import {
   type Profile,
 } from "@/lib/profiles/profiles";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
-import { evaluateRelayDrift } from "@/lib/relay/relayDrift";
 import { updateProfileMeta } from "@/lib/relay/relayClient";
 import { getHostInfo } from "@/lib/relay/filesClient";
 import type { AgentPreference } from "@/lib/relay/relay-types";
@@ -350,74 +348,18 @@ function IdentityRows({ profile, effectiveColorIndex }: { profile: Profile; effe
 }
 
 /**
- * The quiet per-profile affordance for a stale *local* relay (Fase A4 of the
- * updater plan) — never a banner, and only for the one profile whose relay
- * actually runs on this machine (a loopback host). `evaluateRelayDrift`
- * (relayDrift.ts) is what decides severity/action; this only renders it.
+ * The profile's relay, when it is older than the app and cannot update
+ * itself: the same one-button update the notice above the conversation
+ * offers (useLegacyRelayUpgrade), shown here too because this is where
+ * someone looking for it would look.
  */
 function RelayDriftRow({ profile }: { profile: Profile }) {
   const dict = useDict().settings.profile.relay;
-  const probe = useLocalRelayProbe();
-  const platform = currentPlatform();
-  const [status, setStatus] = useState<"idle" | "running" | "done" | "failed">("idle");
-  const [error, setError] = useState<string | null>(null);
-
-  if (profile.host !== "127.0.0.1" || !probe?.installedVersion) return null;
-
-  const drift = evaluateRelayDrift(probe.installedVersion, APP_VERSION, MIN_RELAY_VERSION, platform);
-  if (drift.severity === "none") return null;
-
-  async function handleUpdate(): Promise<void> {
-    setStatus("running");
-    setError(null);
-    try {
-      // The existing `.env`'s own host/port/home win the installer's resume
-      // check (add-profile.sh) as long as they match what's already on
-      // file, which this profile's own fields always do — so this is a
-      // plain re-run, not a reprovision. It refreshes the relay tree on
-      // disk and deliberately leaves the running service alone (same
-      // reasoning as add-profile.sh's own "must not be the thing that
-      // restarts a relay with a conversation in flight").
-      const registered = probe?.profiles.find((p) => p.id === profile.id);
-      await startLocalInstall({
-        profileId: profile.id,
-        relayHost: profile.host,
-        profileHome: registered?.homeOverride ?? undefined,
-        mode: "prod",
-      });
-      const unlisten = await onInstallDone((event) => {
-        setStatus(event.ok ? "done" : "failed");
-        if (!event.ok) setError(event.failure?.message ?? null);
-        unlisten();
-      });
-    } catch (err) {
-      setStatus("failed");
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
+  const { state, relayVersion, start } = useLegacyRelayUpgrade(profile);
+  if (state.phase === "hidden" || relayVersion === undefined) return null;
   return (
-    <SettingsRow
-      title={dict.title}
-      description={dict.description.replace("{relayVersion}", probe.installedVersion).replace("{appVersion}", APP_VERSION)}
-    >
-      {drift.action === "brew-upgrade" ? (
-        <div className="flex flex-col items-end gap-1">
-          <span className="text-xs text-muted-foreground">{dict.brewHint}</span>
-          <code className="border border-border bg-bg-chrome px-2.5 py-1 font-mono text-[11.5px] text-foreground">
-            brew upgrade anywh-relay
-          </code>
-        </div>
-      ) : status === "done" ? (
-        <span className="text-xs text-muted-foreground">{dict.updated}</span>
-      ) : (
-        <div className="flex flex-col items-end gap-1.5">
-          <Button variant="outline" size="sm" onClick={() => void handleUpdate()} disabled={status === "running"}>
-            {status === "running" ? dict.updating : dict.update}
-          </Button>
-          {error && <span className="text-xs text-destructive">{error}</span>}
-        </div>
-      )}
+    <SettingsRow title={dict.title} description={dict.description.replace("{relayVersion}", relayVersion).replace("{appVersion}", APP_VERSION)}>
+      <RelayUpgradeAction state={state} onUpdate={start} />
     </SettingsRow>
   );
 }

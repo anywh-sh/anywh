@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentEventLog, LogReader, type RawRecord } from "./eventLog.js";
@@ -251,6 +251,36 @@ test("a truncated record keeps every field a consumer relies on; only the big te
     assert.deepEqual(ev3.usage, { output_tokens: 9 });
     assert.ok((ev3.result as string).length < 10_000);
     for (const record of [toolResult, toolUse, result]) assert.ok(record.next - record.off <= 64 * 1024);
+    log.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** Open descriptors of this process on files under `dir` (Linux only). */
+function openFilesUnder(dir: string): number {
+  return readdirSync("/proc/self/fd").filter((fd) => {
+    try {
+      return readlinkSync(`/proc/self/fd/${fd}`).startsWith(dir);
+    } catch {
+      return false;
+    }
+  }).length;
+}
+
+test("a reader closed while its segment is still opening closes that file and ends", { skip: !existsSync("/proc/self/fd") }, async () => {
+  const dir = tempDir();
+  try {
+    const log = AgentEventLog.open(dir);
+    log.append({ type: "user", i: 0 });
+    await log.settle();
+    const before = openFilesUnder(dir);
+    const reader = new LogReader(log, 0);
+    // The step is waiting on the file's open when the close lands.
+    const stepping = reader.step();
+    await reader.close();
+    assert.equal((await stepping).kind, "end");
+    assert.equal(openFilesUnder(dir), before, "the segment the step opened is closed again");
     log.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

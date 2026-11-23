@@ -163,6 +163,9 @@ describe("color and type", () => {
           // two hexes as the static `assets/logo.svg`) — a token would imply
           // they're themeable, which is exactly what they must not be.
           file.path === "components/shell/AnywhLogo.tsx" ||
+          // A bot's mascot is its identity: the same face on every theme, as
+          // fixed as the brand mark, so its few tones are data, not tokens.
+          file.path === "lib/bots/mascot.ts" ||
           // Claude's mark keeps its fixed brand orange for the same reason:
           // it identifies a vendor's product and must not follow the theme.
           file.path === "components/chat/AgentLogo.tsx",

@@ -7,6 +7,7 @@ import { trackStateSince } from "@/lib/sala/agentCard";
 import { forgetRoomStatus, publishRoomStatus, roomStatusOf } from "@/lib/sala/roomStatus";
 import type { RoomAgentState } from "@/lib/relay/roomClient";
 import type { Profile } from "@/lib/profiles/profiles";
+import type { BotView } from "@/lib/bots/botTypes";
 
 /** The relay closes the channel of a room that does not exist with this code. */
 export const ROOM_GONE_CODE = 4404;
@@ -23,6 +24,8 @@ export interface RoomChannelState {
   summary: RoomSummary | null;
   /** When this screen first saw each agent in its present state. */
   since: ReadonlyMap<string, { state: RoomAgentState; since: number }>;
+  /** The bot, when the room is a bot's. */
+  bot?: BotView;
 }
 
 const INITIAL: RoomChannelState = { status: "connecting", agents: [], summary: null, since: new Map() };
@@ -34,10 +37,15 @@ export function reduceRoomChannel(state: RoomChannelState, frame: unknown, now: 
   if (!message) return state;
   let agents = state.agents;
   let summary = state.summary;
+  let bot = state.bot;
   switch (message.type) {
     case "room_snapshot":
       agents = message.agents;
       summary = message.summary;
+      bot = message.bot;
+      break;
+    case "room_bot":
+      bot = message.bot;
       break;
     case "room_agent_state": {
       const index = agents.findIndex((a) => a.agentId === message.agent.agentId);
@@ -51,7 +59,7 @@ export function reduceRoomChannel(state: RoomChannelState, frame: unknown, now: 
       summary = message.summary;
       break;
   }
-  return { status: "open", agents, summary, since: trackStateSince(state.since, agents, now) };
+  return { status: "open", agents, summary, since: trackStateSince(state.since, agents, now), ...(bot ? { bot } : {}) };
 }
 
 /**

@@ -559,6 +559,9 @@ jobs:
           mkdir -p stage/relay
           cp -a relay/dist relay/node_modules relay/package.json stage/relay/
           cp -a infra stage/infra
+          # The relay's self-update (relay/src/update/relayUpdater.ts) runs
+          # this same installer to put a newer release over itself.
+          cp install-relay.sh stage/infra/install-relay.sh
 
       # macOS ships a Node Single Executable Application instead of dist/ +
       # node_modules + a shared Node — see relay/sea-build/build.mjs's own

@@ -579,6 +579,42 @@ body {
   &[data-state="closed"] { animation: search-out 90ms linear both; }
 }
 
+/* The "New bot" dialog: drops in like the search palette, over a backdrop
+ * that fades alone, and fades out shorter. The dialog keeps its content
+ * through the close so the `closed` animation has something to play. */
+[data-slot="new-bot-dialog"] {
+  &[data-state="open"] { animation: search-in 160ms var(--motion-ease) both; }
+  &[data-state="closed"] { animation: search-out 100ms linear both; }
+}
+[data-slot="dialog-overlay"]:has(+ [data-slot="new-bot-dialog"]) {
+  &[data-state="open"] { animation: search-fade-in 160ms ease both; }
+  &[data-state="closed"] { animation: search-out 100ms linear both; }
+}
+
+/* The mascot picker's carousel: the character picked slides in from the
+ * side it came from, and its neighbours fade in. `transform` only on the
+ * carousel's own faces (pixel art stays crisp once it lands). */
+@keyframes mascot-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+@keyframes mascot-in-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+@keyframes mascot-side-in {
+  from {
+    opacity: 0;
+  }
+}
+[data-carousel-dir="next"] [data-carousel-slot="current"] { animation: mascot-in-next 240ms var(--motion-ease) both; }
+[data-carousel-dir="prev"] [data-carousel-slot="current"] { animation: mascot-in-prev 240ms var(--motion-ease) both; }
+[data-carousel-dir] [data-carousel-slot="side"] { animation: mascot-side-in 240ms ease both; }
+
 /* Radix's `ScrollArea` injects an inner wrapper with `display:table;
  * min-width:100%` (as an inline style, not a class) around the content — a
  * table grows to the size of its content without wrapping (our `truncate`

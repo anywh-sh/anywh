@@ -101,16 +101,63 @@ describe("buildTopBarMenuPayload", () => {
     });
   });
 
+  describe("agent", () => {
+    const agents = ["claude", "codex", "kimi"];
+
+    it("is null unless the relay reports more than one agent", () => {
+      expect(build({ agentId: "claude" }).agent).toBeNull();
+      expect(build({ agentId: "claude", agents: ["claude"] }).agent).toBeNull();
+    });
+
+    it("marks the session's agent and names every option", () => {
+      const { agent } = build({ agentId: "codex", agents });
+      expect(agent?.label).toBe(en.chat.composer.menu.agent);
+      expect(agent?.currentId).toBe("codex");
+      expect(agent?.currentLabel).toBe(en.chat.composer.agentNames.codex);
+      expect(agent?.options).toEqual([
+        { id: "claude", label: en.chat.composer.agentNames.claude },
+        { id: "codex", label: en.chat.composer.agentNames.codex },
+        { id: "kimi", label: en.chat.composer.agentNames.kimi },
+      ]);
+      expect(agent?.enabled).toBe(true);
+    });
+
+    it("names an agent this build does not know by its id", () => {
+      expect(build({ agentId: "claude", agents: ["claude", "newcli"] }).agent?.options[1]).toEqual({ id: "newcli", label: "newcli" });
+    });
+
+    it("is locked with the model after the first turn, carrying the hint", () => {
+      const { agent } = build({ agentId: "claude", agents, locked: true });
+      expect(agent?.locked).toBe(true);
+      expect(agent?.enabled).toBe(false);
+      expect(agent?.lockedHint).toBe(en.chat.composer.modelLocked);
+    });
+
+    it("is disabled while disconnected or before the agent is known", () => {
+      expect(build({ agentId: "claude", agents, connected: false }).agent?.enabled).toBe(false);
+      const { agent } = build({ agentId: null, agents });
+      expect(agent?.enabled).toBe(false);
+      expect(agent?.currentLabel).toBe(en.chat.composer.pending);
+    });
+  });
+
   it("matches the shared fixture the native side decodes", () => {
     const payload = build({
+      agentId: "claude",
+      agents: ["claude", "codex"],
       permissionMode: "default",
       effort: "high",
       effortCatalogOption: { id: "opus", label: "Opus", efforts: [{ id: "low" }, { id: "high" }, { id: "max" }] },
     });
     expect(payload.model).toMatchObject({ currentId: "opus", enabled: true, locked: false });
-    expect({ ...payload, model: { ...payload.model, lockedHint: en.chat.composer.modelLocked } }).toEqual({
+    expect({
+      ...payload,
+      model: { ...payload.model, lockedHint: en.chat.composer.modelLocked },
+      agent: { ...payload.agent, lockedHint: en.chat.composer.modelLocked },
+    }).toEqual({
       ...fixture,
       model: { ...fixture.model, lockedHint: en.chat.composer.modelLocked },
+      agent: { ...fixture.agent, lockedHint: en.chat.composer.modelLocked },
     });
   });
 });

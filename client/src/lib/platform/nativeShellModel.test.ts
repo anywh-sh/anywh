@@ -3,6 +3,7 @@ import { en } from "@/i18n/en";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import type { Profile } from "@/lib/profiles/profiles";
 import { buildDrawerPayload, buildShellTheme, buildTopBarPayload } from "./nativeShellModel";
+import drawerFixture from "../../../src-tauri/plugins/tauri-plugin-native-chrome/tests/fixtures/drawer_payload.json";
 
 const NOW = new Date(2026, 8, 20, 12, 0, 0).getTime();
 const theme = buildShellTheme(() => "#112233");
@@ -44,6 +45,28 @@ function build(over: Partial<Parameters<typeof buildDrawerPayload>[0]> = {}) {
 }
 
 describe("buildDrawerPayload", () => {
+  it("produces exactly the JSON the Rust side passes on to Swift, bots included (shared fixture)", () => {
+    const payload = buildDrawerPayload({
+      sessions: [session("s1", "a", 5)].map((each) => ({ ...each, title: "A conversation" })),
+      profiles: [profile("a", "Personal")],
+      activeProfileId: "a",
+      selectedSessionId: null,
+      running: new Set(),
+      backgroundJobSessions: new Set(),
+      loading: false,
+      error: false,
+      dict: en,
+      locale: "en",
+      theme,
+      profileCssColor: () => "#7aa2f7",
+      resolve: (css) => css,
+      now: NOW,
+      bots: [{ id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { character: "bip", tone: "sand" }, paused: false, firstRun: false, needsYou: 1, working: 0, busy: false, lastRunFailed: false, createdAt: 1 }],
+      section: "conversations",
+    });
+    expect(JSON.parse(JSON.stringify(payload))).toEqual(drawerFixture);
+  });
+
   it("groups by recency and puts the count in the heading", () => {
     const payload = build({ sessions: [session("1", "a", 5), session("2", "a", 10), session("3", "a", 60 * 24 * 3)] });
     expect(payload.groups.map((g) => g.id)).toEqual(["today", "week"]);
@@ -114,5 +137,34 @@ describe("buildTopBarPayload", () => {
   it("labels the dot by connection state", () => {
     expect(buildTopBarPayload({ title: "t", modelLabel: "Opus", connected: true, dict: en, theme }).connectionLabel).toBe(en.shell.titleBar.connected);
     expect(buildTopBarPayload({ title: "t", modelLabel: null, connected: false, dict: en, theme }).connectionLabel).toBe(en.shell.titleBar.reconnecting);
+  });
+});
+
+describe("buildDrawerPayload — bots", () => {
+  const bot = (over: Partial<import("@/lib/bots/botTypes").BotSummary> = {}): import("@/lib/bots/botTypes").BotSummary => ({
+    id: "vigia", roomId: "room-vigia", name: "Vigia", mascot: { character: "bip", tone: "sand" }, paused: false, firstRun: false, needsYou: 0, working: 0, busy: false, lastRunFailed: false, createdAt: 1, ...over,
+  });
+
+  it("leaves the bots out for a build that has none", () => {
+    expect(build().bots).toBeUndefined();
+  });
+
+  it("sends each bot's face drawn, its line written and its corner mark, and which section is open", () => {
+    const payload = build({ bots: [bot({ needsYou: 1 }), bot({ id: "faxina", roomId: "room-faxina", name: "Faxina", mascot: { character: "helmet", tone: "stone" }, paused: true })], section: "bots", selectedSessionId: "room-faxina" });
+    const bots = payload.bots!;
+    expect(bots.section).toBe("bots");
+    expect(bots.waitingLabel).toBe("1 need you");
+    expect(bots.items.map((item) => ({ name: item.name, line: item.line, tone: item.tone, badge: item.badge, selected: item.selected }))).toEqual([
+      { name: "Vigia", line: "1 needs you", tone: "attention", badge: "needsYou", selected: false },
+      { name: "Faxina", line: "paused", tone: "normal", badge: "paused", selected: true },
+    ]);
+    expect(bots.items[0].mascot).toHaveLength(256);
+    const letters = new Set(bots.items[0].mascot.replace(/\./g, ""));
+    expect(letters.size).toBe(bots.items[0].mascotPalette.length);
+    expect(bots.items[1].mascotPalette).toContain("#77736e");
+  });
+
+  it("says nothing on the folded heading when no bot waits", () => {
+    expect(build({ bots: [bot()] }).bots?.waitingLabel).toBe("");
   });
 });

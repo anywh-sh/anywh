@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { useDict } from "@/i18n";
-import type { KnownAgentId } from "@/i18n/dictionary";
+import { agentName } from "@/lib/composer/agentName";
 import { getHostInfo } from "@/lib/relay/filesClient";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { ModelCatalog, ModelChoice, ModelOption } from "@/lib/relay/relay-types";
@@ -25,12 +25,7 @@ import { effectiveModel, labelForModel, splitModelOptions } from "@/lib/composer
 import { effectiveEffort, effectiveModelOption, labelForEffort } from "@/lib/composer/effortCatalog";
 import { cn } from "@/lib/utils";
 
-/** Same id-switch-with-literal-fallback shape as `PermissionModeButton`'s
- * `modeCopy` — an agent id this build has no name for (a def added after
- * this build shipped) renders as the raw id rather than crashing. */
-export function agentName(agentNames: Record<KnownAgentId, string>, id: string): string {
-  return agentNames[id as KnownAgentId] ?? id;
-}
+export { agentName };
 
 /** The runtime's own mark, bare: no tile behind it, no border. */
 function AgentTile({ agentId, dim }: { agentId: string; dim?: boolean }) {
@@ -323,9 +318,17 @@ export function AgentModelEffortMenu({
 /** The menu wired to the relay: reads which agents it can run from
  * `/host-info`, everything else from the session. */
 export function AgentModelEffortButton({ profile, ...props }: Omit<AgentModelEffortMenuProps, "agents" | "defaultOpen" | "defaultSubmenu"> & { profile: Profile }) {
+  const agents = useHostAgents(profile);
+  return <AgentModelEffortMenu agents={agents} {...props} />;
+}
+
+/** Ids of the agents the profile's relay can run, from `/host-info`; empty
+ * until it answers (or when `enabled` is false). */
+export function useHostAgents(profile: Profile, enabled = true): string[] {
   const [agents, setAgents] = useState<string[]>([]);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     getHostInfo(profile)
       .then((info) => {
@@ -335,7 +338,7 @@ export function AgentModelEffortButton({ profile, ...props }: Omit<AgentModelEff
     return () => {
       cancelled = true;
     };
-  }, [profile]);
+  }, [profile, enabled]);
 
-  return <AgentModelEffortMenu agents={agents} {...props} />;
+  return agents;
 }

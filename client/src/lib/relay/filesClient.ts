@@ -198,6 +198,11 @@ export interface HostInfo {
    * (server.ts) — empty/absent until the boot-time detection probe
    * resolves. */
   agents?: SelectableAgentInfo[];
+  /** The relay's own version; absent from a relay older than the field. */
+  version?: string;
+  /** Features this relay has that an older one lacks, by name (`bots`);
+   * absent from a relay older than the list, which has none of them. */
+  features?: string[];
 }
 
 /** Whether/how the client can open a file panel path in a local editor —
@@ -207,4 +212,26 @@ export interface HostInfo {
 export async function getHostInfo(profile: Profile): Promise<HostInfo> {
   const { base, token } = await resolveBase(profile);
   return getJson<HostInfo>(`${base}/host-info`, token);
+}
+
+/** Where the relay's self-update stands (`GET /relay/update`), from a relay
+ * that names `self_update` among its features. */
+export type RelayUpdateStatus =
+  | { state: "unsupported"; reason: string }
+  | { state: "idle" }
+  | { state: "installing"; version: string }
+  | { state: "installed"; version: string }
+  | { state: "failed"; version: string; code: string; message: string };
+
+export async function getRelayUpdateStatus(profile: Profile): Promise<RelayUpdateStatus> {
+  const { base, token } = await resolveBase(profile);
+  return getJson<RelayUpdateStatus>(`${base}/relay/update`, token);
+}
+
+/** Asks the relay to install `version` over itself. It restarts onto it on
+ * its own once no turn is in flight. Rejects with the relay's error code
+ * (`unsupported`, `not_newer`, `busy`, `bad_version`). */
+export async function requestRelayUpdate(profile: Profile, version: string): Promise<RelayUpdateStatus> {
+  const { base, token } = await resolveBase(profile);
+  return postJson<RelayUpdateStatus>(`${base}/relay/update`, { version }, token);
 }

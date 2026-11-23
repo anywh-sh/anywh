@@ -7,6 +7,7 @@ import { bubbleMenu } from "@/lib/platform/bubbleMenu";
 import { blocksDrawerGesture } from "@/lib/platform/drawerGestureHint";
 import { listenNativeShell, setNativeDrawer, setNativeGestureHint, setNativeTopBar } from "@/lib/platform/nativeShell";
 import { buildDrawerPayload, buildShellTheme, buildTopBarPayload } from "@/lib/platform/nativeShellModel";
+import type { BotSummary } from "@/lib/bots/botTypes";
 
 interface UseNativeShellArgs {
   /** Only iOS has the native shell; elsewhere the hook does nothing. */
@@ -28,6 +29,12 @@ interface UseNativeShellArgs {
   onRenameSession: (profileId: string, sessionId: string, title: string) => void;
   onDeleteSession: (profileId: string, sessionId: string) => void;
   onNewConversation: () => void;
+  /** The active profile's bots and which drawer section is open. */
+  bots: readonly BotSummary[];
+  section: "bots" | "conversations";
+  onSelectBot: (bot: BotSummary) => void;
+  onNewBot: () => void;
+  onSection: (section: "bots" | "conversations") => void;
 }
 
 export function toHex(css: string): string {
@@ -77,7 +84,7 @@ export function useNativeShell(args: UseNativeShellArgs): void {
     if (enabled) void setNativeTopBar(topBar).catch(() => {});
   }, [enabled, topBar]);
 
-  const { sessions, profiles, activeProfileId, selectedSessionId, running, backgroundJobSessions, sessionsLoading, sessionsError } = args;
+  const { sessions, profiles, activeProfileId, selectedSessionId, running, backgroundJobSessions, sessionsLoading, sessionsError, bots, section } = args;
   const drawer = useMemo(
     () =>
       buildDrawerPayload({
@@ -94,8 +101,10 @@ export function useNativeShell(args: UseNativeShellArgs): void {
         theme,
         profileCssColor: profileColorVar,
         resolve: toHex,
+        bots,
+        section,
       }),
-    [sessions, profiles, activeProfileId, selectedSessionId, running, backgroundJobSessions, sessionsLoading, sessionsError, dict, locale, theme],
+    [sessions, profiles, activeProfileId, selectedSessionId, running, backgroundJobSessions, sessionsLoading, sessionsError, dict, locale, theme, bots, section],
   );
   useEffect(() => {
     if (enabled) void setNativeDrawer(drawer).catch(() => {});
@@ -118,6 +127,12 @@ export function useNativeShell(args: UseNativeShellArgs): void {
       drawerRetry: () => argsRef.current.onRetrySessions(),
       drawerRename: ({ sessionId, profileId, title: next }) => argsRef.current.onRenameSession(profileId, sessionId, next),
       drawerDelete: ({ sessionId, profileId }) => argsRef.current.onDeleteSession(profileId, sessionId),
+      drawerSelectBot: ({ botId }) => {
+        const bot = argsRef.current.bots.find((each) => each.id === botId);
+        if (bot) argsRef.current.onSelectBot(bot);
+      },
+      drawerNewBot: () => argsRef.current.onNewBot(),
+      drawerSection: ({ section: next }) => argsRef.current.onSection(next === "bots" ? "bots" : "conversations"),
       topBarNewConversation: () => argsRef.current.onNewConversation(),
       contextMenuSelect: (event) => bubbleMenu.dispatch(event),
     })

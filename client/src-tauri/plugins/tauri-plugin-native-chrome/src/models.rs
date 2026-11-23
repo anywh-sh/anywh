@@ -126,6 +126,20 @@ pub struct TopBarEffortMenu {
   pub enabled: bool,
 }
 
+/// Agent entry of the dropdown: offered only when the relay runs more than one
+/// agent, and locked exactly when the model is (after the first turn).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopBarAgentMenu {
+  pub label: String,
+  pub current_id: Option<String>,
+  pub current_label: String,
+  pub options: Vec<TopBarMenuOption>,
+  pub locked: bool,
+  pub locked_hint: String,
+  pub enabled: bool,
+}
+
 /// Contents of the dropdown the top bar's center opens. Each entry is `None`
 /// when there is nothing to offer for it; with all `None` the bar stays a
 /// plain label.
@@ -135,6 +149,9 @@ pub struct TopBarMenuRequest {
   pub model: Option<TopBarModelMenu>,
   pub mode: Option<TopBarModeMenu>,
   pub effort: Option<TopBarEffortMenu>,
+  /// Absent from a web build older than the agent entry.
+  #[serde(default)]
+  pub agent: Option<TopBarAgentMenu>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -189,6 +206,37 @@ pub struct DrawerGroup {
   pub sessions: Vec<DrawerSession>,
 }
 
+/// A bot of the drawer's Bots section, drawn and written by the web side: its
+/// face is 256 characters, row by row, `.` empty and `a`, `b`, ... the first,
+/// second, ... color of `mascot_palette`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrawerBot {
+  pub id: String,
+  pub room_id: String,
+  pub name: String,
+  pub line: String,
+  pub tone: String,
+  pub mascot: String,
+  pub mascot_palette: Vec<String>,
+  pub badge: Option<String>,
+  pub selected: bool,
+}
+
+/// The drawer's Bots and Conversations sections, which take turns.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrawerBots {
+  pub section: String,
+  pub bots_label: String,
+  pub conversations_label: String,
+  pub new_bot_label: String,
+  pub empty_title: String,
+  pub empty_body: String,
+  pub waiting_label: String,
+  pub items: Vec<DrawerBot>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DrawerRequest {
@@ -200,6 +248,10 @@ pub struct DrawerRequest {
   pub has_more: bool,
   pub error: bool,
   pub groups: Vec<DrawerGroup>,
+  /// Absent from a web build without bots. Typed here because this struct is
+  /// what reaches Swift: a field it does not declare is dropped on the way.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub bots: Option<DrawerBots>,
 }
 
 /// Sent on `touchstart`: whether the touch began inside something that
@@ -372,8 +424,17 @@ mod tests {
     let effort = request.effort.as_ref().unwrap();
     assert_eq!(effort.current_id.as_deref(), Some("high"));
     assert_eq!(effort.options.len(), 4);
+    let agent = request.agent.as_ref().unwrap();
+    assert_eq!(agent.current_id.as_deref(), Some("claude"));
+    assert_eq!(agent.options.len(), 2);
     let again = serde_json::to_value(&request).unwrap();
     assert_eq!(again, serde_json::from_str::<serde_json::Value>(MENU_FIXTURE).unwrap());
+  }
+
+  #[test]
+  fn top_bar_menu_without_an_agent_entry_still_decodes() {
+    let request: TopBarMenuRequest = serde_json::from_str(r#"{"model":null,"mode":null,"effort":null}"#).unwrap();
+    assert!(request.agent.is_none());
   }
 
   #[test]
@@ -409,6 +470,27 @@ mod tests {
     let absent: VisibleSessionRequest = serde_json::from_str(r#"{}"#).unwrap();
     assert_eq!(absent.session_id, None);
     assert_eq!(serde_json::to_string(&some).unwrap(), r#"{"sessionId":"s1"}"#);
+  }
+
+  const DRAWER_FIXTURE: &str = include_str!("../tests/fixtures/drawer_payload.json");
+
+  #[test]
+  fn drawer_payload_keeps_its_bots_on_the_way_to_swift() {
+    // The web side's own output (`nativeShellModel.test.ts` checks it): a
+    // field this struct does not declare would be dropped before Swift.
+    let request: DrawerRequest = serde_json::from_str(DRAWER_FIXTURE).unwrap();
+    assert_eq!(request.bots.as_ref().map(|bots| bots.items.len()), Some(1));
+    let again = serde_json::to_value(&request).unwrap();
+    assert_eq!(again, serde_json::from_str::<serde_json::Value>(DRAWER_FIXTURE).unwrap());
+  }
+
+  #[test]
+  fn drawer_payload_without_bots_still_decodes_and_sends_none() {
+    let mut value: serde_json::Value = serde_json::from_str(DRAWER_FIXTURE).unwrap();
+    value.as_object_mut().unwrap().remove("bots");
+    let request: DrawerRequest = serde_json::from_value(value.clone()).unwrap();
+    assert!(request.bots.is_none());
+    assert_eq!(serde_json::to_value(&request).unwrap(), value);
   }
 
   #[test]

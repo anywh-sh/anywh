@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { Mascot } from "@/components/bots/Mascot";
+import { useBotByRoom } from "@/lib/bots/botsStore";
+import { mascotStateOf } from "@/lib/bots/mascot";
+import { isBotTemplatesTab } from "@/lib/bots/botTabs";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
-import { Plus, X } from "lucide-react";
+import { LayoutGrid, Plus, X } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -109,7 +113,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: tab.id });
   const menu = useContextMenu();
   const dict = useDict();
-  const title = tab.title ?? dict.common.untitledSession;
+  const title = isBotTemplatesTab(tab.id) ? dict.bots.templatesTab.title : (tab.title ?? dict.common.untitledSession);
 
   return (
     <Tooltip>
@@ -191,7 +195,8 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
                 clears (a finished turn is marked "seen" the moment its tab
                 is opened). */}
             <span className="flex size-3.5 shrink-0 items-center justify-center">
-              {tab.isNew && tab.title === null && !tab.isRunning && !tab.hasUnreadCompletion && (
+              {isBotTemplatesTab(tab.id) && <LayoutGrid className="size-3.5 shrink-0" aria-hidden="true" />}
+              {tab.isNew && tab.title === null && !isBotTemplatesTab(tab.id) && !tab.isRunning && !tab.hasUnreadCompletion && (
                 // A conversation that has not started: the tab wears the same plus as
                 // the new-session row it came from.
                 <Plus className="size-3.5 shrink-0" aria-hidden="true" />
@@ -208,6 +213,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               )}
             </span>
             {tab.room && <RoomGlyph size={14} className="shrink-0" aria-label={dict.sala.roomGlyph} role="img" />}
+            {tab.bot && <BotTabFace roomId={tab.id} />}
             <span className="min-w-0 flex-1 truncate">{tab.titlePending === true ? <TitleSkeleton className="w-24" /> : title}</span>
           </TabTrigger>
           <Button
@@ -405,4 +411,12 @@ export function TabGroupStrip({
       />
     </>
   );
+}
+
+/** A bot's face on its conversation's tab, as on its sidebar row; nothing
+ * while the bot is not known (its list not in yet). */
+function BotTabFace({ roomId }: { roomId: string }) {
+  const bot = useBotByRoom(roomId);
+  if (!bot) return null;
+  return <Mascot mascot={bot.mascot} state={mascotStateOf(bot)} size={16} />;
 }

@@ -58,5 +58,23 @@
       }
     ],
     "enabled": true
+  },
+  "agent": {
+    "label": "Agent",
+    "currentId": "claude",
+    "currentLabel": "Claude Code",
+    "options": [
+      {
+        "id": "claude",
+        "label": "Claude Code"
+      },
+      {
+        "id": "codex",
+        "label": "Codex"
+      }
+    ],
+    "locked": false,
+    "lockedHint": "The model is fixed after the first message",
+    "enabled": true
   }
 }

@@ -69,5 +69,17 @@ for unit in "${UNITS[@]}"; do
   cp "$SCRIPT_DIR/$unit.service" "$HOME/.config/systemd/user/$unit.service"
 done
 systemctl --user daemon-reload
-loginctl enable-linger "$(whoami)"
-echo "Installed the anywh-relay@ and anywh-agent-host@ units and enabled linger for $(whoami)."
+# Linger is per user, so it is usually on already from the first install.
+# Enabling it is asked only when it is off: from inside a service (the
+# relay updating itself) there is no login session, and polkit refuses
+# `enable-linger` even for a user who already has it. Off and refused is a
+# warning, not a failed install: the units are in place, they just stop
+# when the user's last session ends.
+if [[ "$(loginctl show-user "$(whoami)" -p Linger --value 2>/dev/null)" == "yes" ]]; then
+  echo "Installed the anywh-relay@ and anywh-agent-host@ units (linger already enabled for $(whoami))."
+elif loginctl enable-linger "$(whoami)"; then
+  echo "Installed the anywh-relay@ and anywh-agent-host@ units and enabled linger for $(whoami)."
+else
+  echo "Installed the anywh-relay@ and anywh-agent-host@ units." >&2
+  echo "warning: couldn't enable linger for $(whoami) — the relay stops when your last session ends; run 'loginctl enable-linger $(whoami)' once from a login session" >&2
+fi

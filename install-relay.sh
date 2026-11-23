@@ -87,6 +87,7 @@ err() {
 tmp=""
 staging=""
 old_suffix=""
+lock_held=0
 
 cleanup() {
   status=$?
@@ -96,6 +97,7 @@ cleanup() {
   # so a retry starts clean. The live tree is never touched here.
   [ -n "$staging" ] && rm -rf "$staging"
   [ -n "$old_suffix" ] && rm -rf "$INSTALL_DIR/relay.old.$old_suffix" "$INSTALL_DIR/infra.old.$old_suffix"
+  [ "$lock_held" -eq 1 ] && rm -rf "$INSTALL_DIR/.install.lock"
   if [ "$status" -ne 0 ] && [ "$failed" -eq 0 ]; then
     porcelain "fail ${step:-setup} unexpected exited with status $status"
   fi
@@ -402,27 +404,69 @@ end_step "download asset=$asset"
 # across filesystems degrades to a copy, and the window would be back.
 begin_step install
 mkdir -p "$INSTALL_DIR"
-for leftover in "$INSTALL_DIR"/.staging.* "$INSTALL_DIR"/relay.old.* "$INSTALL_DIR"/infra.old.*; do
-  [ -e "$leftover" ] && rm -rf "$leftover"
+# One install at a time per directory: every profile on a machine shares
+# this tree, and two relays asked to update at once would each sweep and
+# swap it under the other (one deleting the other's old tree, .env and all,
+# or nesting one tree inside the other). mkdir is the atomic test-and-set;
+# a lock whose holder is gone is taken over.
+lock="$INSTALL_DIR/.install.lock"
+waited=0
+while ! mkdir "$lock" 2>/dev/null; do
+  holder="$(cat "$lock/pid" 2>/dev/null || true)"
+  if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+    rm -rf "$lock"
+    continue
+  fi
+  [ "$waited" -lt 600 ] || err install_locked "another install into $INSTALL_DIR has held it for 10 minutes — if none is running, remove $lock and retry"
+  [ "$waited" -eq 0 ] && echo "Waiting for another install into $INSTALL_DIR to finish..."
+  sleep 1
+  waited=$((waited + 1))
 done
+lock_held=1
+echo "$$" > "$lock/pid"
 
-staging="$INSTALL_DIR/.staging.$$"
-mkdir "$staging"
-tar xzf "$tmp/$asset" -C "$staging" || err extract_failed "couldn't extract $asset into $staging (disk full, or a damaged archive)"
-# The two files everything downstream stands on. A tarball without them
-# is refused before it can replace a working install.
-[ -f "$staging/relay/dist/server.js" ] && [ -f "$staging/infra/systemd/add-profile.sh" ] ||
-  err tarball_incomplete "$asset doesn't contain a complete relay (relay/dist/server.js and infra/systemd/add-profile.sh) — the previous install, if any, was left untouched"
+# The release asked for already in place (a second profile on this machine
+# asked for the same update): nothing to swap.
+installed_version="$(node -p 'require(process.argv[1]).version' "$INSTALL_DIR/relay/package.json" 2>/dev/null || true)"
+if [ -n "$VERSION" ] && [ -f "$INSTALL_DIR/relay/dist/server.js" ] && [ -f "$INSTALL_DIR/infra/systemd/add-profile.sh" ] && [ "$installed_version" = "$version" ]; then
+  echo "Release $version is already installed in $INSTALL_DIR"
+else
+  for leftover in "$INSTALL_DIR"/.staging.* "$INSTALL_DIR"/relay.old.* "$INSTALL_DIR"/infra.old.*; do
+    [ -e "$leftover" ] && rm -rf "$leftover"
+  done
 
-old_suffix="$$"
-[ -e "$INSTALL_DIR/relay" ] && mv "$INSTALL_DIR/relay" "$INSTALL_DIR/relay.old.$old_suffix"
-[ -e "$INSTALL_DIR/infra" ] && mv "$INSTALL_DIR/infra" "$INSTALL_DIR/infra.old.$old_suffix"
-mv "$staging/relay" "$INSTALL_DIR/relay"
-mv "$staging/infra" "$INSTALL_DIR/infra"
-rm -rf "$staging"
-staging=""
-rm -rf "$INSTALL_DIR/relay.old.$old_suffix" "$INSTALL_DIR/infra.old.$old_suffix"
-old_suffix=""
+  staging="$INSTALL_DIR/.staging.$$"
+  mkdir "$staging"
+  tar xzf "$tmp/$asset" -C "$staging" || err extract_failed "couldn't extract $asset into $staging (disk full, or a damaged archive)"
+  # The two files everything downstream stands on. A tarball without them
+  # is refused before it can replace a working install.
+  [ -f "$staging/relay/dist/server.js" ] && [ -f "$staging/infra/systemd/add-profile.sh" ] ||
+    err tarball_incomplete "$asset doesn't contain a complete relay (relay/dist/server.js and infra/systemd/add-profile.sh) — the previous install, if any, was left untouched"
+
+  old_suffix="$$"
+  [ -e "$INSTALL_DIR/relay" ] && mv "$INSTALL_DIR/relay" "$INSTALL_DIR/relay.old.$old_suffix"
+  [ -e "$INSTALL_DIR/infra" ] && mv "$INSTALL_DIR/infra" "$INSTALL_DIR/infra.old.$old_suffix"
+  mv "$staging/relay" "$INSTALL_DIR/relay"
+  mv "$staging/infra" "$INSTALL_DIR/infra"
+  # What lived in the old relay/ and the release does not ship stays: the
+  # shared relay/.env both units load first, and any *.local.json a relay
+  # started without RELAY_*_FILE keeps beside its code. Only names the new
+  # tree does not have are carried over, so nothing from the release is
+  # overwritten by the previous one.
+  if [ -d "$INSTALL_DIR/relay.old.$old_suffix" ]; then
+    for kept in "$INSTALL_DIR/relay.old.$old_suffix"/* "$INSTALL_DIR/relay.old.$old_suffix"/.[!.]*; do
+      [ -e "$kept" ] || continue
+      name="$(basename "$kept")"
+      [ -e "$INSTALL_DIR/relay/$name" ] || mv "$kept" "$INSTALL_DIR/relay/$name"
+    done
+  fi
+  rm -rf "$staging"
+  staging=""
+  rm -rf "$INSTALL_DIR/relay.old.$old_suffix" "$INSTALL_DIR/infra.old.$old_suffix"
+  old_suffix=""
+fi
+rm -rf "$lock"
+lock_held=0
 echo "Installed to $INSTALL_DIR"
 end_step "install dir=$INSTALL_DIR"
 

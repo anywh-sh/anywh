@@ -72,10 +72,24 @@ struct TopBarEffortMenuArgs: Decodable {
   let enabled: Bool
 }
 
+/// Offered only when the relay runs more than one agent; locked exactly when
+/// the model is (after the first turn).
+struct TopBarAgentMenuArgs: Decodable {
+  let label: String
+  let currentId: String?
+  let currentLabel: String
+  let options: [TopBarMenuOption]
+  let locked: Bool
+  let lockedHint: String
+  let enabled: Bool
+}
+
 struct TopBarMenuArgs: Decodable {
   let model: TopBarModelMenuArgs?
   let mode: TopBarModeMenuArgs?
   let effort: TopBarEffortMenuArgs?
+  /// Optional: absent (not just `null`) from a web build older than this entry.
+  let agent: TopBarAgentMenuArgs?
 }
 
 struct DrawerStrings: Decodable {
@@ -121,6 +135,34 @@ struct DrawerGroup: Decodable, Identifiable {
   let sessions: [DrawerSession]
 }
 
+/// A bot of the drawer's Bots section. Its face arrives drawn: 256
+/// characters, row by row, `.` empty and `a`, `b`, ... the first, second, ...
+/// color of `mascotPalette`.
+struct DrawerBot: Decodable, Identifiable {
+  let id: String
+  let roomId: String
+  let name: String
+  let line: String
+  let tone: String
+  let mascot: String
+  let mascotPalette: [String]
+  let badge: String?
+  let selected: Bool
+}
+
+/// Bots and Conversations take turns in the drawer: the open section on top,
+/// the other folded to its heading at the bottom.
+struct DrawerBots: Decodable {
+  let section: String
+  let botsLabel: String
+  let conversationsLabel: String
+  let newBotLabel: String
+  let emptyTitle: String
+  let emptyBody: String
+  let waitingLabel: String
+  let items: [DrawerBot]
+}
+
 struct DrawerArgs: Decodable {
   let theme: ShellTheme
   let strings: DrawerStrings
@@ -130,6 +172,8 @@ struct DrawerArgs: Decodable {
   let error: Bool
   let hasMore: Bool
   let groups: [DrawerGroup]
+  /// Optional: absent from a web build without bots.
+  let bots: DrawerBots?
 }
 
 struct GestureHintArgs: Decodable {
@@ -149,6 +193,10 @@ struct RenameEvent: Encodable {
   let title: String
 }
 
+struct AgentEvent: Encodable {
+  let agentId: String
+}
+
 struct ModelEvent: Encodable {
   let modelId: String
 }
@@ -163,6 +211,14 @@ struct EffortEvent: Encodable {
 
 struct ProfileEvent: Encodable {
   let profileId: String
+}
+
+struct BotEvent: Encodable {
+  let botId: String
+}
+
+struct SectionEvent: Encodable {
+  let section: String
 }
 
 extension UIColor {
@@ -200,6 +256,7 @@ extension Color {
 final class TopBarStore: ObservableObject {
   @Published var args: TopBarArgs?
   @Published var menu: TopBarMenuArgs?
+  var onAgentSelect: (String) -> Void = { _ in }
   var onModelSelect: (String) -> Void = { _ in }
   var onModeSelect: (String) -> Void = { _ in }
   var onEffortSelect: (String) -> Void = { _ in }
@@ -218,4 +275,7 @@ final class DrawerStore: ObservableObject {
   var onRetry: () -> Void = {}
   var onRename: (DrawerSession, String) -> Void = { _, _ in }
   var onDelete: (DrawerSession) -> Void = { _ in }
+  var onSelectBot: (DrawerBot) -> Void = { _ in }
+  var onNewBot: () -> Void = {}
+  var onSection: (String) -> Void = { _ in }
 }

@@ -18,6 +18,13 @@ import type { ModelCatalog, RoomAgentSetup } from "./runtimes/types.js";
 import { FileCursorStore, HostClient } from "./agentHost/hostClient.js";
 import { relayAgentHostSocket } from "./agentHost/paths.js";
 import { gracefulShutdown } from "./lifecycle.js";
+import { isSea } from "node:sea";
+import { dirname } from "node:path";
+import { RELEASE_VERSION } from "./agentHost/release.js";
+import { resolveShipped } from "./host/paths.js";
+import { RelayUpdater } from "./update/relayUpdater.js";
+import { readPackageVersion, relayRestartAllowed, supervisedForRestart, watchForNewRelease } from "./update/releaseWatch.js";
+import { handleUpdateRoutes } from "./routes/update.js";
 import { handleAgentCatalogRoutes } from "./routes/agentCatalog.js";
 import { handleAgentRoutes } from "./routes/agents.js";
 import { handleFilesRoutes } from "./routes/files.js";
@@ -40,11 +47,16 @@ import { RoomWorktrees } from "./session/roomWorktrees.js";
 import { WorktreeRegistry, worktreeRegistryPathFor } from "./host/worktreeRegistry.js";
 import { RoomContextStore } from "./session/roomContextStore.js";
 import { HOST_RUNTIMES, RoomManager } from "./session/roomManager.js";
+import { BotStore, botsPathFor } from "./session/botStore.js";
+import { BotFiles } from "./session/botFiles.js";
+import { BotManager } from "./session/botManager.js";
+import { handleBotRoutes } from "./routes/bots.js";
 import { ActivityTrail } from "./session/roomActivity.js";
 import { ContextTally } from "./session/roomContextUsage.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
 import { createPlanUsageService } from "./planUsage/service.js";
+import { spentWindowResetAt } from "./planUsage/windows.js";
 import { planUsageCapture } from "./planUsage/capture.js";
 import { PLAN_USAGE_WATCH_PATH, handlePlanUsageConnection, handlePlanUsageRoutes } from "./routes/planUsage.js";
 import { dispatchChatMessage } from "./ws/chat.js";
@@ -92,6 +104,16 @@ const roomContext = new RoomContextStore({
   root: process.env.RELAY_ROOM_CONTEXT_DIR ?? join(defaultCwd(HOME_OVERRIDE), ".anywh", "rooms"),
   extractPdf: (path) => extractPdfText(path),
 });
+// The profile's bots (session/bot.ts), beside the sessions file, and their
+// soul and memory files under the profile's home.
+const botStore = new BotStore(process.env.RELAY_BOTS_FILE ?? botsPathFor(SESSIONS_FILE));
+const botFiles = new BotFiles(process.env.RELAY_BOT_DIR ?? join(defaultCwd(HOME_OVERRIDE), ".anywh", "bots"));
+/** Whether a session is a bot (its room's principal). Read from the stores,
+ * not the room manager, which is built after the sessions are. */
+function isBotSession(id: string): boolean {
+  const room = sessionStore.getRoom(id);
+  return room?.role === "principal" && botStore.isBotRoom(room.roomId);
+}
 // Per room agent: what it read from the model's cache and what it wrote.
 const agentContext = new ContextTally();
 // How much of each installed agent's plan is spent (planUsage/service.ts):
@@ -166,13 +188,15 @@ const sessionManager = new SessionManager(
   (agentId) => modelCatalogs[agentId],
   // A room's workers never hold a tool-permission call open for a person: the
   // request becomes an approval card and the turn ends.
-  (id) => (sessionStore.getRoom(id)?.role === "worker" ? { deferredApproval: true } : {}),
+  // A bot works unattended the same way.
+  (id) => (sessionStore.getRoom(id)?.role === "worker" || isBotSession(id) ? { deferredApproval: true } : {}),
   {
     agentHost,
     roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id),
     admit: (id): string | undefined => roomManager.admit(id),
     onTurnSettled: (id, outcome): void => roomManager.onTurnSettled(id, outcome),
     onRoomDeleted: (roomId) => {
+      botManager.onRoomDeleted(roomId);
       roomCanvas.delete(roomId);
       roomChannel.closeRoom(roomId);
       roomContext.deleteRoom(roomId);
@@ -181,7 +205,9 @@ const sessionManager = new SessionManager(
     onMemberChanged: (id) => {
       const roomId = sessionStore.getRoom(id)?.roomId;
       if (roomId !== undefined) roomChannel.touch(roomId);
+      if (roomId !== undefined && botStore.isBotRoom(roomId)) botsChanged();
     },
+    isBot: (id) => isBotSession(id),
     turnNote: (id) => roomManager.turnNote(id),
     answerRefusal: (id) => roomManager.answerRefusal(id),
     onUsage: (id, event) => agentContext.observe(id, event),
@@ -253,15 +279,62 @@ const roomManager: RoomManager = new RoomManager({
   ...(process.env.RELAY_ROOM_WARMUP_MS ? { warmUpMs: Number(process.env.RELAY_ROOM_WARMUP_MS) } : {}),
 });
 roomBridge.attach(roomManager);
+const botManager = new BotManager({
+  store: botStore,
+  files: botFiles,
+  sessionStore,
+  rooms: roomManager,
+  sessions: sessionManager,
+  runtimes: () => roomRuntimes,
+  hostConnected: () => agentHost?.status === "connected",
+  // A bot whose agent hit a usage limit waits for that agent's spent window.
+  usageResetAt: (agentId) => {
+    const usage = planUsage.getSnapshot().runtimes.find((each) => each.runtime === agentId);
+    return usage ? spentWindowResetAt(usage.windows, Date.now()) : undefined;
+  },
+  ...(pushDispatcher ? { notifyPerson: ({ roomId, draft, watched }) => pushDispatcher.notify({ ...draft, sessionId: roomId, ts: Date.now(), watched }) } : {}),
+});
+roomManager.setBots(botManager);
 // Every room's state on one socket per watcher (`/rooms/:roomId/watch`).
 const roomChannel = new RoomChannel({
-  // What an agent has just been doing lives here, not in the room's store.
+  // What an agent has just been doing lives here, not in the room's store;
+  // a bot's room also carries the bot (its tasks and schedules).
   snapshot: (roomId) => {
     const snapshot = roomManager.snapshot(roomId);
-    return snapshot && { ...snapshot, agents: snapshot.agents.map((agent) => ({ ...agent, activity: roomActivity.recent(agent.agentId) })) };
+    if (!snapshot) return snapshot;
+    const bot = botManager.view(roomId);
+    return { ...snapshot, agents: snapshot.agents.map((agent) => ({ ...agent, activity: roomActivity.recent(agent.agentId) })), ...(bot ? { bot } : {}) };
   },
 });
-sessionStore.onRoomChange((_sessionId, roomId) => roomChannel.touch(roomId));
+sessionStore.onRoomChange((_sessionId, roomId) => {
+  roomChannel.touch(roomId);
+  if (botStore.isBotRoom(roomId)) botsChanged();
+});
+// The bots, as the sidebar lists them, go to every `/sessions/watch` socket
+// whenever one changes (coalesced: a bot's turn touches it many times).
+let botsTimer: NodeJS.Timeout | undefined;
+function botsFrame(): string {
+  return JSON.stringify({ type: "bots_state", bots: botManager.summaries() });
+}
+function sendBots(socket: WebSocket): void {
+  socket.send(botsFrame());
+}
+function botsChanged(): void {
+  if (botsTimer) return;
+  botsTimer = setTimeout(() => {
+    botsTimer = undefined;
+    // Built once for every watcher: the summaries walk each bot's tasks and
+    // workers, and a bot's turn changes them many times.
+    let frame: string | undefined;
+    for (const watcher of sessionListWatchers) if (watcher.readyState === watcher.OPEN) watcher.send((frame ??= botsFrame()));
+  }, 300);
+  botsTimer.unref();
+}
+botStore.onChange((bot) => {
+  if (bot) roomChannel.touch(bot.roomId);
+  botsChanged();
+});
+botManager.start();
 // Removals that were waiting out their undo window when the relay stopped.
 roomManager.sweepRemoved();
 // At start, and then daily: finish what a crash interrupted, forget worktrees
@@ -294,6 +367,7 @@ if (sessionStore.loadedOk && !sessionStore.recoveredFromCorrupt && (sessionStore
 // have are removed there, then messages queued before a restart go out.
 agentHost?.on("status", (status) => {
   if (status !== "connected") return;
+  botManager.onHostConnected();
   roomManager
     .reconcileHost()
     .then(
@@ -311,6 +385,34 @@ agentHost?.on("status", (status) => {
 });
 
 
+// Self-update: a newer release installed over this one (by `/relay/update`,
+// or by hand) is picked up by restarting once no conversation this process
+// runs has a turn in flight — only under a service manager that starts the
+// relay again, never from a shell where exiting would just end it.
+const PACKAGE_JSON_PATH = resolveShipped(import.meta.url, "../package.json", "package.json");
+const restartOnRelease = supervisedForRestart();
+const releaseWatch = restartOnRelease
+  ? watchForNewRelease({
+      running: RELEASE_VERSION,
+      readOnDisk: () => readPackageVersion(PACKAGE_JSON_PATH),
+      safeToRestart: () => relayRestartAllowed(sessionManager.relayTurnInFlight(), relayUpdater.status()),
+      restart: () => {
+        planUsage.stop();
+        void gracefulShutdown("release update", { httpServer, sessionManager });
+      },
+      log: (line) => console.log(`[relay] ${line}`),
+    })
+  : null;
+const relayUpdater = new RelayUpdater({
+  runningVersion: RELEASE_VERSION,
+  relayDir: dirname(PACKAGE_JSON_PATH),
+  sea: isSea(),
+  // The units are systemd's; under any other supervisor the installer
+  // only swaps the tree.
+  withService: Boolean(process.env.INVOCATION_ID),
+  onInstalled: () => void releaseWatch?.check(),
+});
+
 const routeContext: RouteContext = {
   sessionStore,
   sessionManager,
@@ -324,9 +426,11 @@ const routeContext: RouteContext = {
   agentHost,
   roomCanvas,
   roomManager,
+  botManager,
   roomContext,
   agentContext,
   planUsage,
+  relayUpdater,
 };
 
 // Tried in this order, but order only matters within a group — no two
@@ -342,7 +446,9 @@ const routeHandlers: readonly RouteHandler[] = [
   handleAgentRoutes,
   handleAgentCatalogRoutes,
   handleRoomRoutes,
+  handleBotRoutes,
   handlePlanUsageRoutes,
+  handleUpdateRoutes,
 ];
 
 /**
@@ -633,6 +739,7 @@ wss.on("connection", (socket: WebSocket, request) => {
     // rather than leaving the client to follow up with `GET /sessions`
     // also leaves no gap between the snapshot and the first broadcast.
     socket.send(JSON.stringify({ type: "session_list_snapshot", sessions: sessionManager.listTitled() }));
+    sendBots(socket);
     // The client's liveness probe (useSessionNames.ts). A socket whose
     // other end vanished without a close frame — the sandbox suspended,
     // the NAT mapping expired — still reads as OPEN on the client

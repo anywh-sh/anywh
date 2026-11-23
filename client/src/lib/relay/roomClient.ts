@@ -1,5 +1,6 @@
 import type { Profile } from "@/lib/profiles/profiles";
 import { authHeaders, resolveConnection } from "@/lib/profiles/connectionResolver";
+import type { BotView } from "@/lib/bots/botTypes";
 
 // Client for a room's HTTP surface and its channel (see the relay's
 // `routes/rooms.ts` and `session/roomChannel.ts`). The shapes mirror the
@@ -101,7 +102,8 @@ export interface RoomSummary {
 }
 
 export type RoomChannelMessage =
-  | { type: "room_snapshot"; roomId: string; agents: RoomAgent[]; summary: RoomSummary }
+  | { type: "room_snapshot"; roomId: string; agents: RoomAgent[]; summary: RoomSummary; bot?: BotView }
+  | { type: "room_bot"; roomId: string; bot: BotView }
   | { type: "room_agent_state"; roomId: string; agent: RoomAgent }
   | { type: "room_agent_removed"; roomId: string; agentId: string }
   | { type: "room_summary"; roomId: string; summary: RoomSummary };
@@ -388,6 +390,7 @@ export function parseRoomChannelMessage(value: unknown): RoomChannelMessage | nu
     case "room_agent_state":
     case "room_agent_removed":
     case "room_summary":
+    case "room_bot":
       return value as RoomChannelMessage;
     default:
       return null;

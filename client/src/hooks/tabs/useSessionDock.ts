@@ -8,16 +8,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * perspective (use `togglePane`, which removes it instead).
  *
  * `agent` and `about` are a room's: one agent's conversation, and the room's
- * own information. Only a room's tab ever opens them.
+ * own information. Only a room's tab ever opens them. `bot` is a bot's task
+ * list and automations, opened only on a bot's conversation.
  *
  * `none` is the "no selection" view: the panel is open but nothing was picked
  * in it yet, so it draws an empty state that asks for a choice. It is what a
  * non-room tab's panel shows the first time it opens, and the place future
  * views (integrations, ...) are chosen from.
  */
-export type DockPaneKind = "none" | "terminal" | "files" | "agent" | "about";
+export type DockPaneKind = "none" | "terminal" | "files" | "agent" | "about" | "bot";
 
-const PANE_KINDS: readonly DockPaneKind[] = ["none", "terminal", "files", "agent", "about"];
+const PANE_KINDS: readonly DockPaneKind[] = ["none", "terminal", "files", "agent", "about", "bot"];
 /** How many panes the column holds at once: one view, and opening another
  * switches to it. */
 export const MAX_DOCK_PANES = 1;
@@ -85,7 +86,7 @@ function loadOpen(): boolean {
 export function dockWidthBounds(panes: readonly DockPaneKind[]): { min: number; max: number } {
   const min = panes.includes("files")
     ? MIN_WIDTH_WITH_FILES
-    : panes.includes("agent") || panes.includes("about")
+    : panes.includes("agent") || panes.includes("about") || panes.includes("bot")
       ? MIN_WIDTH_ROOM_PANE
       : MIN_WIDTH;
   return { min, max: MAX_WIDTH };

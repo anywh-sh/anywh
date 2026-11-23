@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 import { isSilentEvent } from "../../../protocol/silentEvents.js";
-import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../../../protocol/relayNote.js";
+import { BOT_TURN_NOTE_PREFIX, WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../../../protocol/relayNote.js";
 import { withRoomCard } from "../../../protocol/roomCard.js";
 import type { RoomCard } from "../../../protocol/agent-event.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
@@ -388,6 +388,77 @@ test("a person's text that merely contains the card marker is left alone", () =>
     const user = readHistoryFromTranscript(home, home, "rc5").map((m) => m.event)[1];
     assert.ok(user.type === "user_message" && user.room === undefined);
     assert.equal(user.text, "see [anywh-card] {not json}\nmore");
+  });
+});
+
+/** A bot's turn note, as `BotManager.turnNote` writes it. */
+const BOT_NOTE = `${BOT_TURN_NOTE_PREFIX} It is now Sun, Nov 22, 2026, 09:00 in America/Fortaleza, the host's time zone, where your schedules run.`;
+/** A schedule firing as the relay sends it (`botScheduleText`, which this
+ * layer may not import): the header, the prompt as written, then the note. */
+const BOT_SCHEDULE = withRelayNote('[anywh-bot] Schedule "CI check" fired.\n\nCheck the CI.', BOT_NOTE);
+function assistantToolUse(id: string, name: string, input: unknown): string {
+  return JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } });
+}
+function toolResult(id: string, content: string): string {
+  return JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content }] } });
+}
+
+test("a bot's scheduled run that looked something up and answered NO_REPLY collapses to its note, as it was live", () => {
+  withFixture("bs1", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantText("Let me check."), assistantToolUse("t1", "Bash", { command: "gh run list" }), toolResult("t1", "all green"), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bs1").map((m) => m.event);
+    const note = events.find((e) => e.type === "user_message" && e.synthetic === "bot_schedule");
+    assert.ok(note && note.type === "user_message" && note.label === "CI check");
+    assert.equal(isSilentEvent(note), false, "the note stays: the person sees each automation that ran");
+    assert.ok(!events.some((e) => e.type === "tool_started" && !isSilentEvent(e)), "the lookup is not shown");
+    assert.ok(!events.some((e) => e.type === "text" && !isSilentEvent(e) && /NO_REPLY|Let me check/.test(e.text)), "nor its words");
+  });
+});
+
+for (const [id, name, input] of [
+  ["bs3", "TodoWrite", { todos: [{ content: "Check CI", status: "in_progress" }] }],
+  ["bs4", "Task", { description: "Look at the failing job", prompt: "..." }],
+  ["bs5", "Agent", { description: "Look at the failing job", prompt: "..." }],
+] as const) {
+  test(`a scheduled run that used ${name} is shown even if it ends with NO_REPLY, as it was live`, () => {
+    withFixture(id, [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantToolUse("t1", name, input), toolResult("t1", "done"), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+      const events = readHistoryFromTranscript(home, home, id).map((m) => m.event);
+      const note = events.find((e) => e.type === "user_message" && e.synthetic === "bot_schedule");
+      assert.ok(note);
+      assert.equal(isSilentEvent(note), false);
+    });
+  });
+}
+
+test("a scheduled run that changed the bot's tasks is shown even if it ends with NO_REPLY, as it was live", () => {
+  withFixture("bs2", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantToolUse("t1", "mcp__anywh-room__task_create", { title: "Fix CI" }), toolResult("t1", '{"task":1}'), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bs2").map((m) => m.event);
+    const note = events.find((e) => e.type === "user_message" && e.synthetic === "bot_schedule");
+    assert.ok(note);
+    assert.equal(isSilentEvent(note), false);
+    assert.ok(events.some((e) => e.type === "tool_started"));
+  });
+});
+
+test("what the person told a bot reads back as they wrote it, without the note the bot got with it", () => {
+  const firstRun = `${BOT_TURN_NOTE_PREFIX} This is your first conversation with the person.\n\nIt is now Sun, Nov 22, 2026, 09:00 in America/Fortaleza.`;
+  withFixture("bn1", [userLine(withRelayNote("watch anywh-sh/anywh", firstRun)), assistantText("ok"), userLine(withRelayNote("and the CI", BOT_NOTE)), assistantText("sure")], (home) => {
+    const texts = readHistoryFromTranscript(home, home, "bn1")
+      .map((m) => m.event)
+      .filter((e) => e.type === "user_message")
+      .map((e) => (e.type === "user_message" ? e.text : ""));
+    assert.deepEqual(texts, ["watch anywh-sh/anywh", "and the CI"]);
+  });
+});
+
+test("a scheduled run that edited a file, or wrote findings before its NO_REPLY, is shown, as it was live", () => {
+  withFixture("bs6", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantToolUse("t1", "Edit", { file_path: "/x/a.ts", old_string: "a", new_string: "b" }), toolResult("t1", "ok"), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+    const note = readHistoryFromTranscript(home, home, "bs6").map((m) => m.event).find((e) => e.type === "user_message" && e.synthetic === "bot_schedule");
+    assert.ok(note && !isSilentEvent(note));
+    assert.ok(readHistoryFromTranscript(home, home, "bs6").some((m) => m.event.type === "tool_started" && !isSilentEvent(m.event)), "the edit is shown");
+  });
+  withFixture("bs7", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantToolUse("t1", "Bash", { command: "gh run list" }), toolResult("t1", "one failed"), assistantText("The e2e job failed twice on main."), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bs7").map((m) => m.event);
+    assert.ok(events.some((e) => e.type === "text" && !isSilentEvent(e) && e.text.includes("failed twice")), "the findings are shown");
   });
 });
 

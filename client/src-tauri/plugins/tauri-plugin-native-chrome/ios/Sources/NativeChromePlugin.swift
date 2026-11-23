@@ -76,6 +76,9 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
 
     topBarStore.onMenu = { [weak controller] in controller?.toggle() }
     topBarStore.onNewConversation = { [weak self] in self?.trigger("topBarNewConversation", data: JSObject()) }
+    topBarStore.onAgentSelect = { [weak self] agentId in
+      try? self?.trigger("topBarAgentSelect", data: AgentEvent(agentId: agentId))
+    }
     topBarStore.onModelSelect = { [weak self] modelId in
       try? self?.trigger("topBarModelSelect", data: ModelEvent(modelId: modelId))
     }
@@ -98,6 +101,17 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     }
     drawerStore.onDelete = { [weak self] session in
       try? self?.trigger("drawerDelete", data: SessionEvent(sessionId: session.id, profileId: session.profileId))
+    }
+    drawerStore.onSelectBot = { [weak self, weak controller] bot in
+      try? self?.trigger("drawerSelectBot", data: BotEvent(botId: bot.id))
+      controller?.setOpen(false)
+    }
+    drawerStore.onNewBot = { [weak self, weak controller] in
+      self?.trigger("drawerNewBot", data: JSObject())
+      controller?.setOpen(false)
+    }
+    drawerStore.onSection = { [weak self] section in
+      try? self?.trigger("drawerSection", data: SectionEvent(section: section))
     }
 
     wireComposer(composer)

@@ -3,6 +3,8 @@ import { RowButton } from "@/components/ui/row-button";
 import { Plus, Search } from "lucide-react";
 import { KbdShortcut } from "@/components/ui/kbd";
 import { SessionList } from "@/components/shell/SessionList";
+import { BotsSection, type BotsSectionActions } from "@/components/bots/BotsSection";
+import { BotsHeading, loadBotsOpen, saveBotsOpen } from "@/components/shell/SidebarSections";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { ProfileSwitcher } from "@/components/shell/ProfileSwitcher";
 import { useDict } from "@/i18n";
@@ -38,6 +40,9 @@ export interface SidebarProps {
   onNewConversation: () => void;
   onRenameSession: (session: MergedSession, title: string) => void;
   onDeleteSession: (session: MergedSession) => void;
+  /** What the Bots section does; one object with a stable identity (the
+   * sidebar is memoized). */
+  botActions: BotsSectionActions;
 }
 
 /**
@@ -74,9 +79,16 @@ export const Sidebar = memo(function Sidebar({
   onNewConversation,
   onRenameSession,
   onDeleteSession,
+  botActions,
 }: SidebarProps) {
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ session: MergedSession; title: string } | null>(null);
+  // Bots sit above the conversation groups and fold on their own, like them.
+  const [botsOpen, setBotsOpen] = useState(loadBotsOpen);
+  const toggleBots = (): void => {
+    setBotsOpen(!botsOpen);
+    saveBotsOpen(!botsOpen);
+  };
   const allProfilesShown = selectedProfileIds.size >= profiles.length;
 
   return (
@@ -104,22 +116,32 @@ export const Sidebar = memo(function Sidebar({
         </RowButton>
       </div>
 
-      <SessionList
-        sessions={sessions}
-        profiles={profiles}
-        selectedProfileCount={selectedProfileIds.size}
-        loading={sessionsLoading}
-        error={sessionsError}
-        onRetry={onRetrySessions}
-        selected={selectedSession}
-        running={runningSessions}
-        backgroundJobSessions={backgroundJobSessions}
-        onSelect={onSelectSession}
-        onRename={(session) => setRenaming({ session, title: session.title })}
-        onDelete={onDeleteSession}
-        onClearFilter={onClearProfileFilter}
-        onOpenSearch={onOpenSearch}
-      />
+      <BotsHeading open={botsOpen} profileId={activeProfile.id} onToggle={toggleBots} onAdd={() => botActions.onNewBot()} onSelectBot={botActions.onSelectBot} />
+      {botsOpen && (
+        // The bots keep their natural height, up to a share of the column;
+        // past it they scroll and the conversations keep the rest.
+        <div className="flex max-h-[45%] min-h-0 shrink-0 flex-col" data-testid="sidebar-bots">
+          <BotsSection profile={activeProfile} selectedSession={selectedSession} {...botActions} />
+        </div>
+      )}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <SessionList
+          sessions={sessions}
+          profiles={profiles}
+          selectedProfileCount={selectedProfileIds.size}
+          loading={sessionsLoading}
+          error={sessionsError}
+          onRetry={onRetrySessions}
+          selected={selectedSession}
+          running={runningSessions}
+          backgroundJobSessions={backgroundJobSessions}
+          onSelect={onSelectSession}
+          onRename={(session) => setRenaming({ session, title: session.title })}
+          onDelete={onDeleteSession}
+          onClearFilter={onClearProfileFilter}
+          onOpenSearch={onOpenSearch}
+        />
+      </div>
 
       <RenameSessionDialog
         open={renaming !== null}

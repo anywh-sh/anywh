@@ -61,6 +61,19 @@ export interface NativeTopBarMenuPayload {
     options: { id: string; label: string }[];
     enabled: boolean;
   } | null;
+  /** The agent the conversation runs on. `null` when the relay reports fewer
+   * than two agents; locked exactly when `model` is (after the first turn).
+   * Optional on the native side, so an older web build that never sends it
+   * still decodes. */
+  agent: {
+    label: string;
+    currentId: string | null;
+    currentLabel: string;
+    options: { id: string; label: string }[];
+    locked: boolean;
+    lockedHint: string;
+    enabled: boolean;
+  } | null;
 }
 
 export interface NativeDrawerStrings {
@@ -102,6 +115,37 @@ export interface NativeDrawerGroup {
   sessions: NativeDrawerSession[];
 }
 
+/** A bot as the drawer's Bots section lists it. Its face arrives drawn: 256
+ * characters, row by row, `.` empty and `a`, `b`, … the first, second, …
+ * color of `mascotPalette` (see `mascotPixels` in `mascot.ts`). */
+export interface NativeDrawerBot {
+  id: string;
+  roomId: string;
+  name: string;
+  /** Pre-formatted status line. */
+  line: string;
+  tone: "attention" | "fail" | "normal";
+  mascot: string;
+  mascotPalette: string[];
+  /** The corner mark: `needsYou`, `failed`, `working`, `paused`, `limit`, or none. */
+  badge: string | null;
+  selected: boolean;
+}
+
+/** The drawer's two sections: Bots and Conversations take turns, the open one
+ * on top, the other folded to its heading at the bottom. */
+export interface NativeDrawerBots {
+  section: "bots" | "conversations";
+  botsLabel: string;
+  conversationsLabel: string;
+  newBotLabel: string;
+  emptyTitle: string;
+  emptyBody: string;
+  /** Shown on the folded Bots heading when some bot needs the person; empty otherwise. */
+  waitingLabel: string;
+  items: NativeDrawerBot[];
+}
+
 export interface NativeDrawerPayload {
   theme: NativeShellTheme;
   strings: NativeDrawerStrings;
@@ -112,6 +156,8 @@ export interface NativeDrawerPayload {
   /** More sessions exist than the groups carry. */
   hasMore: boolean;
   groups: NativeDrawerGroup[];
+  /** Absent for a build without bots: the drawer is the conversations alone. */
+  bots?: NativeDrawerBots;
 }
 
 /** Events the native shell sends back. Native only captures input and draws;
@@ -122,6 +168,9 @@ export interface NativeShellHandlers {
   drawerRetry: () => void;
   drawerRename: (event: { sessionId: string; profileId: string; title: string }) => void;
   drawerDelete: (event: { sessionId: string; profileId: string }) => void;
+  drawerSelectBot: (event: { botId: string }) => void;
+  drawerNewBot: () => void;
+  drawerSection: (event: { section: string }) => void;
   topBarNewConversation: () => void;
   contextMenuSelect: (event: { targetId: string; itemId: string }) => void;
 }
@@ -157,6 +206,12 @@ export function setNativeTopBarMenu(payload: NativeTopBarMenuPayload): Promise<v
 /** Fires when the user picks a model in the top bar dropdown. */
 export async function listenTopBarModelSelect(handler: (event: { modelId: string }) => void): Promise<() => void> {
   const listener = await addPluginListener("native-chrome", "topBarModelSelect", handler);
+  return () => void listener.unregister();
+}
+
+/** Fires when the user picks an agent in the top bar dropdown. */
+export async function listenTopBarAgentSelect(handler: (event: { agentId: string }) => void): Promise<() => void> {
+  const listener = await addPluginListener("native-chrome", "topBarAgentSelect", handler);
   return () => void listener.unregister();
 }
 

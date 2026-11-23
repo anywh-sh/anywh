@@ -3,9 +3,10 @@
 # needing to know profile ids ahead of time. Discovers them from the
 # default.target.wants/ symlinks systemd itself created on `enable` (one per
 # profile, see add-profile.sh) instead of a hardcoded list, so a newly added
-# profile is picked up automatically. Also the intended hook point for a
-# future self-update flow to restart all profiles after pulling new code
-# (docs mention this is not built yet).
+# profile is picked up automatically. A relay installed from a release
+# does not need this to pick up an update: it restarts itself onto a newer
+# release once it is idle (relay/src/update/releaseWatch.ts). This is for a
+# checkout, after `npm run build`.
 set -euo pipefail
 
 WANTS_DIR="$HOME/.config/systemd/user/default.target.wants"

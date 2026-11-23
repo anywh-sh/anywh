@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROOM_CONTEXT_NOTE_PREFIX, stripRelayNote, WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "./relayNote.js";
+import { BOT_TURN_NOTE_PREFIX, ROOM_CONTEXT_NOTE_PREFIX, stripRelayNote, WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "./relayNote.js";
 
 test("a known note is appended behind a marker and stripped back off", () => {
   const prompt = withRelayNote("never mind", WITHDRAWN_APPROVAL_NOTE);
@@ -30,4 +30,10 @@ test("a room-context notice, alone or stacked with another note, is stripped bac
 test("text that merely mentions the notice is left alone", () => {
   const quoted = `a person wrote:\n\n[anywh-note] ${ROOM_CONTEXT_NOTE_PREFIX} x\nand then went on`;
   assert.equal(stripRelayNote(quoted), quoted);
+});
+
+test("a bot's turn note goes whole on the way back, lines and all", () => {
+  const note = `${BOT_TURN_NOTE_PREFIX} This is your first conversation with the person.\n\nIt is now Sun, Nov 22, 2026, 09:00 in America/Fortaleza.`;
+  assert.equal(stripRelayNote(withRelayNote("check the CI", note)), "check the CI");
+  assert.equal(stripRelayNote(withRelayNote(withRelayNote("hi", WITHDRAWN_APPROVAL_NOTE), note)), "hi");
 });
