@@ -9,9 +9,12 @@ import { fileURLToPath } from "node:url";
 // Fixtures are real ELF shared objects compiled here with the host's C/C++
 // compiler (the CI runner has gcc/g++ preinstalled), so objdump reads the
 // same kind of symbol-version table a node-gyp build of node-pty carries.
-// Their actual requirements are whatever the host toolchain emits, so the
-// "over the floor" cases lower the floor through the script's env overrides
-// instead of depending on the runner's glibc being new enough.
+// Their actual requirements are whatever the host toolchain emits (an older
+// g++ can need nothing past GLIBCXX_3.4), so the "over the floor" cases
+// first assert the fixture really carries that library's versioned symbols,
+// then set the floor to 0 through the script's env overrides — below any
+// version a toolchain can emit — instead of depending on the runner's
+// compiler being new enough.
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "check-glibc-floor.sh");
 
@@ -32,6 +35,12 @@ function fixtureDir(name) {
   const dir = join(root, name);
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+function assertRequires(module, lib) {
+  const r = spawnSync("objdump", ["-T", module], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, new RegExp(`\\b${lib}_[0-9]`), `fixture carries no ${lib}_ symbols`);
 }
 
 function run(dir, env = {}) {
@@ -64,18 +73,20 @@ test("passes a module within the default floor, and skips non-ELF prebuilds", { 
 test("fails a module that needs a newer glibc than the floor", { skip: needsToolchain }, () => {
   const dir = fixtureDir("glibc-over");
   compile("cc", C_MODULE, "c", join(dir, "pty.node"));
-  const r = run(dir, { GLIBC_FLOOR: "2.0" });
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /::error::.*pty\.node needs GLIBC_[0-9.]+, newer than the GLIBC_2\.0 floor/);
+  assertRequires(join(dir, "pty.node"), "GLIBC");
+  const r = run(dir, { GLIBC_FLOOR: "0" });
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /::error::.*pty\.node needs GLIBC_[0-9.]+, newer than the GLIBC_0 floor/);
 });
 
 test("fails a C++ module that needs a newer libstdc++ than the floor", { skip: needsToolchain }, () => {
   const dir = fixtureDir("glibcxx-over");
   compile("c++", CXX_MODULE, "cc", join(dir, "pty.node"));
   assert.equal(run(dir).status, 0, "the host's own libstdc++ needs should pass the default floor");
-  const r = run(dir, { GLIBCXX_FLOOR: "3.4" });
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /needs GLIBCXX_3\.4\.[0-9]+, newer than the GLIBCXX_3\.4 floor/);
+  assertRequires(join(dir, "pty.node"), "GLIBCXX");
+  const r = run(dir, { GLIBCXX_FLOOR: "0" });
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /needs GLIBCXX_[0-9.]+, newer than the GLIBCXX_0 floor/);
 });
 
 test("fails an ELF module objdump can't read", { skip: !has("objdump") }, () => {
