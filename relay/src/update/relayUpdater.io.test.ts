@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -113,6 +113,28 @@ test("a newer release is downloaded, verified and swapped in over the running tr
   }
 });
 
+test("two profiles asking at once on one machine get one install, the tree intact and its files kept", async () => {
+  const { dir, installDir, relayDir } = setup("0.2.40");
+  const release = await serveRelease(dir, "0.2.41");
+  writeFileSync(join(relayDir, ".env"), "AGENT_BIN=/opt/claude\n");
+  try {
+    // Two relays (profiles) sharing this tree, each with its own updater.
+    const first = updaterFor(relayDir, "0.2.40", release.baseUrl);
+    const second = updaterFor(relayDir, "0.2.40", release.baseUrl);
+    assert.equal(first.start("0.2.41").ok, true);
+    assert.equal(second.start("0.2.41").ok, true);
+    assert.deepEqual(await settled(first), { state: "installed", version: "0.2.41" });
+    assert.deepEqual(await settled(second), { state: "installed", version: "0.2.41" });
+    assert.equal(versionIn(relayDir), "0.2.41");
+    assert.equal(existsSync(join(relayDir, "relay")), false, "no tree nested inside the other");
+    assert.equal(readFileSync(join(relayDir, ".env"), "utf8"), "AGENT_BIN=/opt/claude\n");
+    assert.equal(existsSync(join(installDir, ".install.lock")), false, "the lock is released");
+  } finally {
+    release.server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a tarball that fails its checksum is refused and the running tree is left as it was", async () => {
   const { dir, relayDir } = setup("0.2.40");
   const release = await serveRelease(dir, "0.2.41", { corruptSum: true });
@@ -153,6 +175,21 @@ test("never a downgrade, a reinstall or a version that is not a release; nothing
     assert.deepEqual(updater.start("0.2.40"), { ok: false, code: "not_newer", status: { state: "idle" } });
     assert.deepEqual(updater.start("latest"), { ok: false, code: "bad_version", status: { state: "idle" } });
     assert.deepEqual(updater.start("0.0.0"), { ok: false, code: "bad_version", status: { state: "idle" } });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failure before the installer even starts is an error, never a stuck install", () => {
+  const { dir, installDir, relayDir } = setup("0.2.40");
+  try {
+    const updater = updaterFor(relayDir, "0.2.40", "http://127.0.0.1:9");
+    // The installer goes away after the updater found it: copying it fails.
+    rmSync(join(installDir, "infra", "install-relay.sh"));
+    const result = updater.start("0.2.41");
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.code, "start_failed");
+    assert.equal(updater.status().state, "failed");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
