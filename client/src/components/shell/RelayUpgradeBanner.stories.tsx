@@ -57,6 +57,12 @@ export const HomebrewFailed: Story = {
 /** Homebrew ran past the app's limit and was stopped. */
 export const HomebrewTimedOut: Story = { args: { eachTime: true, state: { phase: "failed", reason: "timed_out", command: MANUAL_BREW_COMMAND } } };
 
+/** The app was already running Homebrew for the relay (another update, or
+ * the in-app install). */
+export const HomebrewAlreadyRunning: Story = {
+  args: { eachTime: true, state: { phase: "failed", reason: "already_running", command: MANUAL_BREW_COMMAND } },
+};
+
 const SIMULATED: readonly LegacyUpgradeState[] = [
   { phase: "checking" },
   { phase: "waiting", busy: 1 },

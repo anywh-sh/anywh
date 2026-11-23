@@ -31,7 +31,9 @@ export type LegacyUpgradeFailure =
    * (`detail` is Homebrew's own words). */
   | "homebrew"
   /** The app ran Homebrew on this Mac, and stopped it at its limit. */
-  | "timed_out";
+  | "timed_out"
+  /** Homebrew on this Mac was already updating or installing the relay. */
+  | "already_running";
 
 export type LegacyUpgradeState =
   | { phase: "hidden" }
@@ -119,6 +121,8 @@ function brewFailure(error: unknown): Failed {
   switch (error.code) {
     case "unsupported_platform":
       return new Failed("unsupported");
+    case "busy":
+      return new Failed("already_running");
     case "timeout":
       return new Failed("timed_out");
     case "spawn_failed":

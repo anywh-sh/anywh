@@ -168,6 +168,8 @@ export function startLocalInstall(params: InstallStartParams): Promise<InstallRu
 export type BrewUpgradeErrorCode =
   /** Not the macOS desktop app. */
   | "unsupported_platform"
+  /** The app is already upgrading the relay, or installing one. */
+  | "busy"
   /** Homebrew ran for too long, and was stopped. */
   | "timeout"
   /** Homebrew could not be started at all. */

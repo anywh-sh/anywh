@@ -255,6 +255,7 @@ describe("a Homebrew relay on this Mac", () => {
   it("each way the native command fails has its own sentence, never its English", async () => {
     const cases: [{ code: string; detail?: string }, { reason: string; detail?: string }][] = [
       [{ code: "timeout" }, { reason: "timed_out" }],
+      [{ code: "busy" }, { reason: "already_running" }],
       [{ code: "spawn_failed", detail: "No such file or directory (os error 2)" }, { reason: "homebrew", detail: "No such file or directory (os error 2)" }],
       [{ code: "unsupported_platform" }, { reason: "unsupported" }],
     ];

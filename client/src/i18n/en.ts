@@ -640,6 +640,7 @@ export const en: Dictionary = {
         unsupported: "The app can't update a relay on that system.",
         homebrew: "Homebrew stopped before finishing.",
         timed_out: "Homebrew didn't finish within 10 minutes, so the app stopped it.",
+        already_running: "The app is already installing or updating the relay on this Mac. Try again once it's done.",
       },
       runThere: "On the relay's machine, run:",
       dismiss: "Dismiss notice",

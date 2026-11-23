@@ -1403,6 +1403,8 @@ export interface Dictionary {
         homebrew: string;
         /** The app ran Homebrew on this Mac, and it ran past its limit. */
         timed_out: string;
+        /** Homebrew on this Mac was already updating or installing the relay. */
+        already_running: string;
       };
       /** Shown above the command to run on the relay's machine. */
       runThere: string;

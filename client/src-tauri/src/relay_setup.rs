@@ -36,6 +36,7 @@ use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -429,25 +430,84 @@ pub fn failure_tail(stdout: &str, stderr: &str) -> String {
 /// person's own language; only `detail` (Homebrew's or the OS's own words)
 /// is shown as it is.
 #[tauri::command]
-pub async fn relay_brew_upgrade() -> Result<(), BrewUpgradeError> {
+pub async fn relay_brew_upgrade(app: tauri::AppHandle, state: tauri::State<'_, RelaySetup>) -> Result<(), BrewUpgradeError> {
     if !cfg!(target_os = "macos") {
         return Err(BrewUpgradeError::new("unsupported_platform"));
     }
-    let output = tokio::time::timeout(
-        Duration::from_secs(600),
-        tokio::process::Command::new("bash")
-            .args(["-lc", BREW_UPGRADE_COMMAND])
-            .stdin(std::process::Stdio::null())
-            .output(),
-    )
-    .await
-    .map_err(|_| BrewUpgradeError::new("timeout"))?
-    .map_err(|error| BrewUpgradeError::with_detail("spawn_failed", error.to_string()))?;
+    // One Homebrew run at a time: two upgrades, or an upgrade next to the
+    // in-app install's `brew install`, would fight over Homebrew's locks and
+    // the relay's service. Decided under the install's own lock, which
+    // `relay_setup_start` checks the flag under too.
+    let _running = {
+        let _inner = state.0.lock().await;
+        let installing = setup_dir(&app)
+            .ok()
+            .and_then(|dir| read_state(&dir))
+            .is_some_and(|run| run.exit_code.is_none() && pid_is_installer(run.pid, &run.script_path));
+        if installing {
+            return Err(BrewUpgradeError::new("busy"));
+        }
+        BrewUpgradeRunning::claim().ok_or_else(|| BrewUpgradeError::new("busy"))?
+    };
+    let output = run_in_own_group(&["-lc", BREW_UPGRADE_COMMAND], Duration::from_secs(600)).await?;
     brew_outcome(output.status.code(), &String::from_utf8_lossy(&output.stdout), &String::from_utf8_lossy(&output.stderr))
+}
+
+/// Set while the app runs a Homebrew upgrade of the relay.
+static BREW_UPGRADE_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// Holds `BREW_UPGRADE_RUNNING` for one run, and lets it go however the run
+/// ends.
+struct BrewUpgradeRunning;
+
+impl BrewUpgradeRunning {
+    fn claim() -> Option<Self> {
+        BREW_UPGRADE_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).ok().map(|_| BrewUpgradeRunning)
+    }
+}
+
+impl Drop for BrewUpgradeRunning {
+    fn drop(&mut self) {
+        BREW_UPGRADE_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
+/// Runs `bash` with `bash_args` (`-lc <line>`) in a process group of its own, and
+/// Runs `script` through `bash -lc` in a process group of its own, and
+/// stops the whole group if it runs past `limit`. Homebrew is a grandchild
+/// of that shell (and forks more of its own): dropping the wait would leave
+/// all of it running, and killing only the shell would orphan the rest.
+async fn run_in_own_group(bash_args: &[&str], limit: Duration) -> Result<std::process::Output, BrewUpgradeError> {
+    let mut command = tokio::process::Command::new("bash");
+    command
+        .args(bash_args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+    let child = command.spawn().map_err(|error| BrewUpgradeError::with_detail("spawn_failed", error.to_string()))?;
+    let group = child.id();
+    match tokio::time::timeout(limit, child.wait_with_output()).await {
+        Ok(output) => output.map_err(|error| BrewUpgradeError::with_detail("spawn_failed", error.to_string())),
+        Err(_) => {
+            // The shell itself went with the dropped wait (`kill_on_drop`);
+            // this reaches everything it started. `--` as in
+            // `relay_setup_cancel`.
+            #[cfg(unix)]
+            if let Some(pid) = group {
+                let _ = std::process::Command::new("kill").args(["-TERM", "--", &format!("-{pid}")]).status();
+            }
+            #[cfg(not(unix))]
+            let _ = group;
+            Err(BrewUpgradeError::new("timeout"))
+        }
+    }
 }
 
 /// Why `relay_brew_upgrade` did not upgrade the relay. `code` is one of a
 /// closed set the app maps to its dictionary: `unsupported_platform`,
+/// `busy` (Homebrew is already updating or installing the relay),
 /// `timeout`, `spawn_failed`, `failed`.
 #[derive(Debug, PartialEq, Serialize)]
 pub struct BrewUpgradeError {
@@ -1030,6 +1090,9 @@ pub async fn relay_setup_start(
     }
     let mut inner = state.0.lock().await;
     let dir = setup_dir(&app)?;
+    if BREW_UPGRADE_RUNNING.load(Ordering::SeqCst) {
+        return Err("Homebrew is updating the relay right now; try again once it is done".to_string());
+    }
 
     if let Some(existing) = read_state(&dir) {
         if existing.exit_code.is_none() && pid_is_installer(existing.pid, &existing.script_path) {
@@ -1189,6 +1252,45 @@ mod tests {
         // The shape the app reads.
         let json = serde_json::to_value(BrewUpgradeError::new("timeout")).unwrap();
         assert_eq!(json, serde_json::json!({ "code": "timeout" }));
+    }
+
+    /// What a timed-out Homebrew run leaves behind: nothing. The script
+    /// stands in for `bash -lc` starting `brew`, which forks more of its own.
+    #[test]
+    #[cfg(unix)]
+    fn a_brew_run_past_its_limit_is_stopped_with_everything_it_started() {
+        let dir = std::env::temp_dir().join(format!("anywh-brew-timeout-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pid_file = dir.join("grandchild.pid");
+        let script = format!("sleep 30 & echo $! > '{}'; wait", pid_file.display());
+        let outcome = tauri::async_runtime::block_on(run_in_own_group(&["-c", &script], Duration::from_millis(500)));
+        assert_eq!(outcome.err(), Some(BrewUpgradeError::new("timeout")));
+
+        let grandchild = std::fs::read_to_string(&pid_file).unwrap().trim().to_string();
+        // Polled: the signal lands at once, the exit takes a moment, and a
+        // zombie still answers `kill -0` until it is reaped.
+        let gone = (0..50).any(|_| {
+            let alive = std::process::Command::new("kill")
+                .args(["-0", &grandchild])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            let zombie = std::fs::read_to_string(format!("/proc/{grandchild}/stat")).is_ok_and(|stat| stat.contains(") Z "));
+            if alive && !zombie {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            !alive || zombie
+        });
+        assert!(gone, "the grandchild outlived the timeout");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn one_brew_upgrade_at_a_time() {
+        let first = BrewUpgradeRunning::claim().expect("nothing else is running");
+        assert!(BrewUpgradeRunning::claim().is_none(), "a second run started next to the first");
+        drop(first);
+        assert!(BrewUpgradeRunning::claim().is_some(), "the flag outlived its run");
     }
 
     #[test]

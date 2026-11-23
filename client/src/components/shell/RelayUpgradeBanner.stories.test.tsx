@@ -5,7 +5,7 @@ import * as stories from "./RelayUpgradeBanner.stories";
 import { MANUAL_BREW_COMMAND, MANUAL_UPGRADE_COMMAND } from "@/hooks/relay/useLegacyRelayUpgrade";
 import { en } from "@/i18n/en";
 
-const { Available, AvailableEachTime, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, InstallerFailed, HomebrewFailed, HomebrewTimedOut, Simulated } =
+const { Available, AvailableEachTime, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, InstallerFailed, HomebrewFailed, HomebrewTimedOut, HomebrewAlreadyRunning, Simulated } =
   composeStories(stories);
 const copy = en.shell.relayUpgrade;
 
@@ -72,6 +72,9 @@ describe("Relay update notice stories", () => {
     render(<HomebrewTimedOut />);
     expect(screen.getByText(copy.failedReasons.timed_out)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: copy.update })).toBeInTheDocument();
+    act(() => cleanup());
+    render(<HomebrewAlreadyRunning />);
+    expect(screen.getByText(copy.failedReasons.already_running)).toBeInTheDocument();
   });
 
   it("checking and waiting can be called off; an update already running cannot", () => {
