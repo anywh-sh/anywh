@@ -11,7 +11,10 @@ describe("anywh conversation tabs", () => {
   let baseline = 0;
 
   it("opens a conversation and names its tab from the dictionary", async () => {
-    const tabIds = async () => Promise.all((await $$('[role="tab"][data-tab-id]')).map((tab) => tab.getAttribute("data-tab-id")));
+    const tabIds = () =>
+      browser.execute(() =>
+        Array.from(document.querySelectorAll('[role="tab"][data-tab-id]'), (tab) => tab.getAttribute("data-tab-id")),
+      );
     const before = await tabIds();
     baseline = before.length;
 
