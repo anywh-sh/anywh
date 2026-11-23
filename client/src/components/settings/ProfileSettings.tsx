@@ -17,11 +17,11 @@ import {
   type ModelPreferenceMode,
 } from "@/hooks/relay/useModelPreference";
 import { useDict } from "@/i18n";
-import { APP_VERSION, MIN_RELAY_VERSION } from "@/lib/install/appVersion";
-import { useRelayUpdate } from "@/hooks/relay/useRelayUpdate";
+import { APP_VERSION } from "@/lib/install/appVersion";
+import { useLegacyRelayUpgrade } from "@/hooks/relay/useLegacyRelayUpgrade";
+import { RelayUpgradeAction } from "@/components/shell/RelayUpgradeBanner";
 import { getModelCatalogs } from "@/lib/composer/modelCatalog";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
-import { currentPlatform } from "@/lib/platform/platform";
 import { profileBadge } from "@/lib/profiles/profileBadge";
 import {
   addProfile,
@@ -33,7 +33,6 @@ import {
   type Profile,
 } from "@/lib/profiles/profiles";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
-import { evaluateRelayDrift } from "@/lib/relay/relayDrift";
 import { updateProfileMeta } from "@/lib/relay/relayClient";
 import { getHostInfo } from "@/lib/relay/filesClient";
 import type { AgentPreference } from "@/lib/relay/relay-types";
@@ -349,45 +348,18 @@ function IdentityRows({ profile, effectiveColorIndex }: { profile: Profile; effe
 }
 
 /**
- * The quiet per-profile affordance for a stale *local* relay (Fase A4 of the
- * updater plan) — never a banner, and only for the one profile whose relay
- * actually runs on this machine (a loopback host). `evaluateRelayDrift`
- * (relayDrift.ts) is what decides severity/action; this only renders it.
+ * The profile's relay, when it is older than the app and cannot update
+ * itself: the same one-button update the notice above the conversation
+ * offers (useLegacyRelayUpgrade), shown here too because this is where
+ * someone looking for it would look.
  */
 function RelayDriftRow({ profile }: { profile: Profile }) {
   const dict = useDict().settings.profile.relay;
-  const platform = currentPlatform();
-  const update = useRelayUpdate(profile);
-  const { probe, status, error } = update;
-
-  if (profile.host !== "127.0.0.1" || !probe?.installedVersion) return null;
-
-  const drift = evaluateRelayDrift(probe.installedVersion, APP_VERSION, MIN_RELAY_VERSION, platform);
-  if (drift.severity === "none") return null;
-  const handleUpdate = update.run;
-
+  const { state, relayVersion, start } = useLegacyRelayUpgrade(profile);
+  if (state.phase === "hidden" || relayVersion === undefined) return null;
   return (
-    <SettingsRow
-      title={dict.title}
-      description={dict.description.replace("{relayVersion}", probe.installedVersion).replace("{appVersion}", APP_VERSION)}
-    >
-      {drift.action === "brew-upgrade" ? (
-        <div className="flex flex-col items-end gap-1">
-          <span className="text-xs text-muted-foreground">{dict.brewHint}</span>
-          <code className="border border-border bg-bg-chrome px-2.5 py-1 font-mono text-[11.5px] text-foreground">
-            brew upgrade anywh-relay
-          </code>
-        </div>
-      ) : status === "done" ? (
-        <span className="text-xs text-muted-foreground">{dict.updated}</span>
-      ) : (
-        <div className="flex flex-col items-end gap-1.5">
-          <Button variant="outline" size="sm" onClick={() => void handleUpdate()} disabled={status === "running"}>
-            {status === "running" ? dict.updating : dict.update}
-          </Button>
-          {error && <span className="text-xs text-destructive">{error}</span>}
-        </div>
-      )}
+    <SettingsRow title={dict.title} description={dict.description.replace("{relayVersion}", relayVersion).replace("{appVersion}", APP_VERSION)}>
+      <RelayUpgradeAction state={state} onUpdate={start} />
     </SettingsRow>
   );
 }

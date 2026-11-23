@@ -28,6 +28,9 @@ import { parseArgs } from "node:util";
 import { AgentHost } from "./agentHost.js";
 import { agentHostDataDir, agentHostSocketPath } from "./paths.js";
 import { AGENT_MARK_ENV } from "./processTree.js";
+import { RELEASE_VERSION } from "./release.js";
+import { resolveShipped } from "../host/paths.js";
+import { readPackageVersion, supervisedForRestart, watchForNewRelease } from "../update/releaseWatch.js";
 
 function numberEnv(name: string): number | undefined {
   const raw = process.env[name];
@@ -115,4 +118,19 @@ process.on("unhandledRejection", (reason) => {
   shutdown("unhandledRejection", 1);
 });
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+// A newer release installed over this one (the relay's self-update, or by
+// hand) is picked up by restarting once every agent is idle — idle agents
+// are hibernated and resume on their next message, so nothing is lost. Only
+// under a service manager that starts the host again.
+if (supervisedForRestart()) {
+  const packageJsonPath = resolveShipped(import.meta.url, "../../package.json", "package.json");
+  watchForNewRelease({
+    running: RELEASE_VERSION,
+    readOnDisk: () => readPackageVersion(packageJsonPath),
+    safeToRestart: () => host.readyForRestart(),
+    restart: () => shutdown("release update"),
+    log: (line) => console.log(`[agent-host] ${line}`),
+  });
+}
 process.on("SIGINT", () => shutdown("SIGINT"));

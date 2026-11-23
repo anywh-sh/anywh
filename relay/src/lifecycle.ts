@@ -39,7 +39,7 @@ export interface GracefulShutdownDeps {
  * only resorts to SIGINT (`stopTurn`, same path as the "Stop" button) if
  * one gets stuck past the grace period.
  */
-export async function gracefulShutdown(signal: NodeJS.Signals, deps: GracefulShutdownDeps): Promise<void> {
+export async function gracefulShutdown(signal: NodeJS.Signals | "release update", deps: GracefulShutdownDeps): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[relay] ${signal} received — no longer accepting new connections, waiting for turn(s) in progress...`);

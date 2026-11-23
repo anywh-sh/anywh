@@ -43,7 +43,7 @@ const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { 
  * empty" without guessing from version numbers (a relay from a checkout has
  * none). A relay that predates the list sends none, which means "none of
  * them". */
-export const RELAY_FEATURES: readonly string[] = ["bots"];
+export const RELAY_FEATURES: readonly string[] = ["bots", "self_update"];
 
 export const handleHostRoutes: RouteHandler = async (req, res, ctx) => {
   // Tells the client whether/how it can open a file-panel path in a local

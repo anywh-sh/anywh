@@ -56,6 +56,18 @@ test("GET /host-info names the features this relay has, bots included", async ()
   assert.ok(Array.isArray(body.features) && body.features.includes("bots"));
 });
 
+test("GET /host-info names self_update, and a relay run from a checkout says it cannot update itself", async () => {
+  const info = (await (await fetch(httpUrl("/host-info"))).json()) as { features?: string[] };
+  assert.ok(info.features?.includes("self_update"));
+  const status = await (await fetch(httpUrl("/relay/update"))).json();
+  assert.deepEqual(status, { state: "unsupported", reason: "source_checkout" });
+  const refused = await fetch(httpUrl("/relay/update"), { method: "POST", body: JSON.stringify({ version: "99.0.0" }) });
+  assert.equal(refused.status, 409);
+  assert.equal(((await refused.json()) as { error: string }).error, "unsupported");
+  const malformed = await fetch(httpUrl("/relay/update"), { method: "POST", body: JSON.stringify({}) });
+  assert.equal(malformed.status, 400);
+});
+
 test("GET /host-info: ANYWH_EDITOR_LOCAL=1 resolves to local for a real loopback peer", async () => {
   process.env.ANYWH_EDITOR_LOCAL = "1";
   const body = (await (await fetch(httpUrl("/host-info"))).json()) as { editor: unknown };

@@ -333,3 +333,51 @@ test("following a Claude turn without a fresh transcript load reads from the sav
     driver.dispose();
   });
 });
+
+test("a message that meets the host draining for a restart is delivered to the host that comes back", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-hostdriver-restart-"));
+  const home = join(dir, "home");
+  mkdirSync(home);
+  const options = {
+    hostId: `hr-${process.pid}-${Math.random().toString(36).slice(2, 8)}`,
+    dataDir: join(dir, "data"),
+    socketPath: join(dir, "run", "host.sock"),
+    agentBin: FAKE_CLAUDE,
+    homeOverride: home,
+    stopGraceMs: 2000,
+    drainGraceMs: 10_000,
+    turnSettleMs: 200,
+  };
+  const first = await AgentHost.start(options);
+  const client = new HostClient({ socketPath: first.socketPath, reconnectMinMs: 10, reconnectMaxMs: 50 });
+  client.start();
+  await client.waitUntilConnected();
+  let second: AgentHost | undefined;
+  try {
+    // A turn in flight keeps the first host draining long enough to send into it.
+    const gate = join(dir, "gate");
+    await client.request("spawn", { agentId: "busy", spec: { cwd: dir, model: "haiku" }, message: `[[gate:${gate}]]` });
+    await waitFor(async () => (await agent(client, "busy"))?.state === "working", 5000, "busy working");
+    const draining = first.close();
+    await waitFor(async () => (await client.request("send", { agentId: "busy", message: "x" }).then(() => false, (e: Error) => /shutting down/.test(e.message))), 5000, "host draining");
+
+    const driver = driverFor(client, "w-restart");
+    const events: AgentEvent[] = [];
+    const turn = driver.sendTurn(ctx(dir, "after the restart"), (event) => events.push(event));
+    // Let it meet the drain at least once, then let the old host finish and
+    // start the new one on the same socket, as the service manager would.
+    await new Promise((r) => setTimeout(r, 300));
+    writeFileSync(gate, "");
+    await draining;
+    second = await AgentHost.start(options);
+
+    const result = await turn;
+    assert.equal(result.stopped, false);
+    assert.ok(events.some((event) => event.type === "text"), "the reply came from the new host");
+    assert.ok(second.activity().some((a) => a.agentId === "w-restart"), "the agent lives in the new host");
+  } finally {
+    client.close();
+    await second?.close({ drainGraceMs: 200 });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

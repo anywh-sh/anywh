@@ -92,6 +92,12 @@ relay/src/
                            into notifications sent to those addresses' gateway —
                            the relay never talks to a push service itself, see
                            docs/push.md
+  update/                  self-update: installs a newer release over this
+                           one through install-relay.sh (`relayUpdater.ts`,
+                           behind `POST /relay/update`), and the watch that
+                           restarts the relay and the agent host onto a new
+                           release on disk once nothing is in flight
+                           (`releaseWatch.ts`)
   bridges/                 MCP servers the relay runs for a turn to call
                            back into (present_choice, permission prompts,
                            plan-mode's text-marker fallback); a session can
