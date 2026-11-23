@@ -56,9 +56,12 @@ test("GET /host-info names the features this relay has, bots included", async ()
   assert.ok(Array.isArray(body.features) && body.features.includes("bots"));
 });
 
-test("GET /host-info names self_update, and a relay run from a checkout says it cannot update itself", async () => {
+test("a relay run from a checkout neither names self_update nor accepts an update", async () => {
   const info = (await (await fetch(httpUrl("/host-info"))).json()) as { features?: string[] };
-  assert.ok(info.features?.includes("self_update"));
+  // It has the code, not the ability: the app must offer the update that
+  // works there instead of asking this relay and being refused.
+  assert.ok(info.features?.includes("bots"));
+  assert.ok(!info.features?.includes("self_update"));
   const status = await (await fetch(httpUrl("/relay/update"))).json();
   assert.deepEqual(status, { state: "unsupported", reason: "source_checkout" });
   const refused = await fetch(httpUrl("/relay/update"), { method: "POST", body: JSON.stringify({ version: "99.0.0" }) });
