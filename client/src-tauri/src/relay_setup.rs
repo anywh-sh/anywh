@@ -446,9 +446,23 @@ pub fn failure_tail(stdout: &str, stderr: &str) -> String {
 /// person's own language; only `detail` (Homebrew's or the OS's own words)
 /// is shown as it is.
 #[tauri::command]
-pub async fn relay_brew_upgrade(app: tauri::AppHandle, state: tauri::State<'_, RelaySetup>) -> Result<(), BrewUpgradeError> {
+pub async fn relay_brew_upgrade(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, RelaySetup>,
+    relay_hostname: Option<String>,
+) -> Result<(), BrewUpgradeError> {
     if !cfg!(target_os = "macos") {
         return Err(BrewUpgradeError::new("unsupported_platform"));
+    }
+    // A loopback address is no proof the relay runs here: an SSH tunnel to
+    // another Mac looks the same. The relay names its machine in
+    // `/host-info` (Node's `os.hostname()`, gethostname(3)), and so does
+    // this side, the same way; when they differ, this Mac's Homebrew is the
+    // wrong one to touch, and the app goes through the relay's terminal.
+    if let Some(name) = relay_hostname.as_deref() {
+        if !same_machine(name, &tauri_plugin_os::hostname()) {
+            return Err(BrewUpgradeError::new("other_machine"));
+        }
     }
     // One Homebrew run at a time: two upgrades, or an upgrade next to the
     // in-app install's `brew install`, would fight over Homebrew's locks and
@@ -467,6 +481,13 @@ pub async fn relay_brew_upgrade(app: tauri::AppHandle, state: tauri::State<'_, R
     };
     let output = run_in_own_group(&["-lc", BREW_UPGRADE_COMMAND], Duration::from_secs(600)).await?;
     brew_outcome(output.status.code(), &String::from_utf8_lossy(&output.stdout), &String::from_utf8_lossy(&output.stderr))
+}
+
+/// Whether the relay's host name is this machine's. Case aside, the names
+/// come from the same call on the same machine; an empty one (a relay that
+/// sent none) proves nothing either way, and is taken as this machine.
+fn same_machine(relay: &str, this: &str) -> bool {
+    relay.is_empty() || relay.eq_ignore_ascii_case(this)
 }
 
 /// Set while the app runs a Homebrew upgrade of the relay.
@@ -523,6 +544,7 @@ async fn run_in_own_group(bash_args: &[&str], limit: Duration) -> Result<std::pr
 
 /// Why `relay_brew_upgrade` did not upgrade the relay. `code` is one of a
 /// closed set the app maps to its dictionary: `unsupported_platform`,
+/// `other_machine` (the relay names another machine than this one),
 /// `busy` (Homebrew is already updating or installing the relay),
 /// `nothing_newer` (the tap has no newer relay yet; nothing was restarted),
 /// `timeout`, `spawn_failed`, `failed`.
@@ -1301,6 +1323,14 @@ mod tests {
         });
         assert!(gone, "the grandchild outlived the timeout");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_relay_naming_another_machine_is_not_this_one() {
+        assert!(same_machine("Mac-mini.local", "Mac-mini.local"));
+        assert!(same_machine("mac-mini.local", "Mac-mini.local"));
+        assert!(!same_machine("studio.local", "Mac-mini.local"));
+        assert!(same_machine("", "Mac-mini.local"));
     }
 
     #[test]

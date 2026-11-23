@@ -6,6 +6,8 @@ const native = vi.hoisted(() => ({
   platform: "linux",
   tauri: false,
   brewRuns: 0,
+  /** The relay host name each run was given, to check against this machine. */
+  brewHosts: [] as (string | undefined)[],
   /** What the native command rejects with, as `relay_brew_upgrade` does. */
   brewError: null as { code: string; detail?: string } | null,
   onBrew: (): void => undefined,
@@ -16,7 +18,8 @@ vi.mock("@/lib/install/localRelay", async (importOriginal) => {
   return {
     ...original,
     localInstallPossible: () => native.tauri,
-    upgradeBrewRelay: () => {
+    upgradeBrewRelay: (relayHostname?: string) => {
+      native.brewHosts.push(relayHostname);
       native.brewRuns++;
       const error = native.brewError;
       if (error) return Promise.reject(new original.BrewUpgradeError(error.code as never, error.detail));
@@ -93,7 +96,7 @@ const fast = { busyPollMs: 5, busyTimeoutMs: 2000, versionPollMs: 5, restartTime
 beforeEach(() => {
   resetLegacyRelayUpgrades();
   localStorage.clear();
-  Object.assign(native, { platform: "linux", tauri: false, brewRuns: 0, brewError: null, onBrew: () => undefined });
+  Object.assign(native, { platform: "linux", tauri: false, brewRuns: 0, brewHosts: [], brewError: null, onBrew: () => undefined });
   relay = { version: "0.2.40", busy: new Set(), terminalOutput: `ANYWH done ok\r\n${UPGRADE_EXIT_MARKER}=0\r\n`, versionAfter: "0.2.50", commands: [] };
   vi.stubGlobal("WebSocket", FakeSocket);
   vi.stubGlobal(
@@ -355,6 +358,25 @@ describe("a Homebrew relay on this Mac", () => {
     expect(runsHomebrewRelayHere(remote, "homebrew")).toBe(false);
     expect(runsHomebrewRelayHere(local, "homebrew")).toBe(true);
     expect(runsHomebrewRelayHere(local, "installer")).toBe(false);
+    expect(runsHomebrewRelayHere({ ...local, host: "::1" }, "homebrew")).toBe(true);
+  });
+
+  it("the relay the app installed here counts as here even on a LAN address", () => {
+    const installedHere: Profile = { ...local, host: "192.168.0.48", localRelay: true };
+    expect(runsHomebrewRelayHere(installedHere, "homebrew")).toBe(true);
+  });
+
+  it("hands the native side the relay's host name, and falls back to the terminal when it is another machine", async () => {
+    native.brewError = { code: "other_machine" };
+    relay.terminalOutput = `${UPGRADE_EXIT_MARKER}=0\r\n`;
+    const { result } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    // "h" is what the fake relay's /host-info names.
+    expect(native.brewHosts).toEqual(["h"]);
+    expect(relay.commands).toHaveLength(1);
+    expect(relay.commands[0]).toContain("brew upgrade anywh-relay");
   });
 
   it("never outside the desktop app on macOS", () => {

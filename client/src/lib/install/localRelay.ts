@@ -168,6 +168,9 @@ export function startLocalInstall(params: InstallStartParams): Promise<InstallRu
 export type BrewUpgradeErrorCode =
   /** Not the macOS desktop app. */
   | "unsupported_platform"
+  /** The relay names another machine than this one (a loopback address
+   * that is an SSH tunnel to another Mac): nothing was touched here. */
+  | "other_machine"
   /** The app is already upgrading the relay, or installing one. */
   | "busy"
   /** The Homebrew tap has no newer relay than the one installed yet;
@@ -199,10 +202,12 @@ function toBrewUpgradeError(raw: unknown): BrewUpgradeError {
 
 /** Upgrades the Homebrew relay on this Mac and restarts its service
  * (`brew upgrade anywh-relay` + `brew services restart`). Rejects with a
- * `BrewUpgradeError`. */
-export function upgradeBrewRelay(): Promise<void> {
+ * `BrewUpgradeError`. `relayHostname` is the host name the relay gave
+ * (`/host-info`): the native side refuses (`other_machine`) when it is not
+ * this machine's. */
+export function upgradeBrewRelay(relayHostname?: string): Promise<void> {
   if (!inTauri()) return Promise.reject(new BrewUpgradeError("unsupported_platform"));
-  return invoke<void>("relay_brew_upgrade").catch((raw: unknown) => {
+  return invoke<void>("relay_brew_upgrade", { relayHostname: relayHostname ?? null }).catch((raw: unknown) => {
     throw toBrewUpgradeError(raw);
   });
 }

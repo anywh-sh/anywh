@@ -2,6 +2,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { BrewUpgradeError, localInstallPossible, upgradeBrewRelay } from "@/lib/install/localRelay";
 import { currentPlatform } from "@/lib/platform/platform";
+import { isLoopbackHost } from "@/lib/profiles/loopback";
 import { isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { getHostInfo } from "@/lib/relay/filesClient";
@@ -131,6 +132,8 @@ interface Entry {
   platform?: string;
   /** How the app can update it (`legacyUpgradeKind`). */
   kind?: LegacyUpgradeKind;
+  /** The machine the relay says it runs on (`/host-info`). */
+  hostname?: string;
   version?: string;
   /** The run in progress, if any: a run that is no longer this one (called
    * off, or replaced) stops at its next step. */
@@ -161,13 +164,15 @@ export function resetLegacyRelayUpgrades(): void {
   entries.clear();
 }
 
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
-
-/** Whether the relay is a Homebrew one on this very Mac, so the app itself
- * can upgrade it: its update is Homebrew's, the profile reaches it on
- * loopback, and this is the desktop app on macOS (a browser has no shell). */
-export function runsHomebrewRelayHere(profile: Pick<Profile, "host">, kind: LegacyUpgradeKind | undefined): boolean {
-  return kind === "homebrew" && LOOPBACK_HOSTS.has(profile.host) && currentPlatform() === "macos" && localInstallPossible();
+/** Whether the relay looks like a Homebrew one on this very Mac, so the app
+ * itself can upgrade it: its update is Homebrew's, the profile is the one
+ * the app installed here (`localRelay`, which may be bound to a LAN
+ * address) or reaches it on loopback, and this is the desktop app on macOS
+ * (a browser has no shell). The native side then checks the relay's host
+ * name against this machine's before touching Homebrew. */
+export function runsHomebrewRelayHere(profile: Pick<Profile, "host" | "localRelay">, kind: LegacyUpgradeKind | undefined): boolean {
+  const here = profile.localRelay === true || isLoopbackHost(profile.host);
+  return kind === "homebrew" && here && currentPlatform() === "macos" && localInstallPossible();
 }
 
 /** The failure the app's own Homebrew run ended in. */
@@ -178,6 +183,9 @@ function brewFailure(error: unknown): Failed | NotPublished {
       return new NotPublished();
     case "unsupported_platform":
       return new Failed("unsupported");
+    case "other_machine":
+      // Never reaches here: the caller goes through the relay's terminal.
+      return new Failed("terminal");
     case "busy":
       return new Failed("already_running");
     case "timeout":
@@ -215,13 +223,20 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
     }
 
     setState(profile.id, { phase: "updating" });
-    if (runsHomebrewRelayHere(profile, entry.kind)) {
-      // The relay is on this Mac, where its own terminal cannot run anything
-      // (it needs tmux; a stock Mac has none) — and the app is already here.
-      await upgradeBrewRelay().catch((error: unknown) => {
-        throw brewFailure(error);
-      });
-    } else {
+    // The relay is on this Mac, where its own terminal cannot run anything
+    // (it needs tmux; a stock Mac has none), and the app is already here.
+    // Unless it names another machine than this one (a loopback address
+    // that is an SSH tunnel): then its own terminal it is.
+    const ranHere =
+      runsHomebrewRelayHere(profile, entry.kind) &&
+      (await upgradeBrewRelay(entry.hostname).then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof BrewUpgradeError && error.code === "other_machine") return false;
+          throw brewFailure(error);
+        },
+      ));
+    if (!ranHere) {
       const command = upgradeCommand({ platform: entry.platform ?? "", port: profile.relayPort, version: appVersion });
       if (!command) throw new Failed("unsupported");
       const { host, port, token } = await resolveConnection(profile);
@@ -308,12 +323,14 @@ export function useLegacyRelayUpgrade(
           // old one must not be run against it — it could be a downgrade.
           entry.platform = undefined;
           entry.kind = undefined;
+          entry.hostname = undefined;
           entry.version = undefined;
           if (entry.state.phase !== "hidden") setState(profile.id, { phase: "hidden" });
           return;
         }
         entry.platform = info.platform;
         entry.kind = legacyUpgradeKind(info) ?? undefined;
+        entry.hostname = info.hostname;
         entry.version = info.version;
         if (entry.state.phase === "hidden" || entry.state.phase === "done" || entry.state.phase === "failed") {
           if (recentlyNotPublished(profile.id, info.version, appVersion)) entry.noticeDismissed = true;
