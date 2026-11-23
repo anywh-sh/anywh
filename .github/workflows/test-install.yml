@@ -25,6 +25,7 @@ on:
       - install-relay.sh
       - infra/**
       - .github/workflows/test-install.yml
+      - scripts/check-glibc-floor.sh
   workflow_dispatch:
 
 jobs:
@@ -50,6 +51,10 @@ jobs:
         run: |
           ./install.sh --porcelain --profile-id default --relay-host 127.0.0.1 | tee install.log
           grep -q '^ANYWH done ok ' install.log
+      # This runner is newer than many servers: a release that only starts on
+      # a recent glibc would pass every step above and still be down there.
+      - name: Check the published relay's glibc floor
+        run: scripts/check-glibc-floor.sh "$HOME/.local/share/anywh/relay" 2.35
       - name: Confirm the relay is running and listening
         run: |
           port="$(grep '^RELAY_PORT=' "$HOME/.config/anywh/env/default.env" | cut -d= -f2)"
@@ -67,7 +72,9 @@ jobs:
   checkout-linux:
     name: checkout tarball (Linux, real systemd)
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    # Same runner as release.yml's Linux relay build, so the tarball tested
+    # here is built the way a release is (see the glibc note there).
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
       ANYWH_RELEASE_BASE_URL: http://127.0.0.1:8765
@@ -101,6 +108,7 @@ jobs:
           mkdir -p stage/relay serve
           cp -a relay/dist relay/node_modules relay/package.json stage/relay/
           cp -a infra stage/infra
+          scripts/check-glibc-floor.sh stage 2.35
           tar czf serve/anywh-relay-linux-x64.tar.gz -C stage relay infra
           # An archive that is valid gzip/tar but has no relay in it — what a
           # truncated or wrong-asset download looks like once it passes the

@@ -493,11 +493,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-latest
+          # The oldest supported Ubuntu, on purpose: node-gyp links node-pty
+          # against the runner's glibc, and a relay built on a newer one does
+          # not start on servers with an older one (built on ubuntu-latest,
+          # it once needed GLIBC_2.42 and failed on Debian 13). 22.04 ships
+          # glibc 2.35; the floor check below holds the line. When this
+          # runner image retires, move to the next oldest, never to -latest.
+          - platform: ubuntu-22.04
             target: linux-x64
           # Hosted arm64 Ubuntu runner, free for public repos same as the
           # x64 ones — no cross-compilation, node-gyp just runs natively.
-          - platform: ubuntu-24.04-arm
+          - platform: ubuntu-22.04-arm
             target: linux-arm64
           # No node-gyp toolchain needed here: node-pty already ships a
           # darwin-arm64 prebuild, so `npm ci` just downloads it.
@@ -562,6 +568,13 @@ jobs:
           # The relay's self-update (relay/src/update/relayUpdater.ts) runs
           # this same installer to put a newer release over itself.
           cp install-relay.sh stage/infra/install-relay.sh
+
+      # Every native module must load on glibc 2.35 (Ubuntu 22.04, Debian 12
+      # and anything newer): a newer requirement means the relay would not
+      # start on those servers, and the installer would refuse it there.
+      - name: Check the glibc floor (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: scripts/check-glibc-floor.sh stage 2.35
 
       # macOS ships a Node Single Executable Application instead of dist/ +
       # node_modules + a shared Node — see relay/sea-build/build.mjs's own
