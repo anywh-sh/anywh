@@ -1050,7 +1050,7 @@ export const en: Dictionary = {
           checksum_missing: { body: "The release isn't fully published yet. Try again in a moment." },
           checksum_mismatch: { body: "The download didn't match the release's checksum, and trying again won't change that. The previous install, if any, was left untouched." },
           tarball_incomplete: { body: "The download isn't a complete anywh. The previous install, if any, was left untouched." },
-          preflight_failed: { body: "The new relay didn't start on this machine, so it wasn't installed. The previous install, if any, is still the one running." },
+          preflight_failed: { body: "This version didn't start on this machine, so it wasn't installed. The previous install, if any, keeps running." },
           install_locked: { body: "Another install into the same folder was still running. Try again once it's over." },
           extract_failed: { body: "anywh couldn't be unpacked — the disk may be full. The previous install, if any, was left untouched." },
           service_failed: { body: "anywh is installed, but couldn't be set up to start on its own." },
