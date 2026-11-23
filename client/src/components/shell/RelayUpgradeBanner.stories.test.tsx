@@ -5,7 +5,7 @@ import * as stories from "./RelayUpgradeBanner.stories";
 import { MANUAL_UPGRADE_COMMAND } from "@/hooks/relay/useLegacyRelayUpgrade";
 import { en } from "@/i18n/en";
 
-const { Available, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, InstallerFailed, Simulated } = composeStories(stories);
+const { Available, AvailableEachTime, Checking, WaitingForOne, WaitingForSeveral, Updating, Restarting, Done, Failed, InstallerFailed, Simulated } = composeStories(stories);
 const copy = en.shell.relayUpgrade;
 
 describe("Relay update notice stories", () => {
@@ -20,6 +20,12 @@ describe("Relay update notice stories", () => {
     expect(screen.getByText("Home server")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: copy.update }));
     expect(onUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("a Homebrew relay on this Mac is not promised that it keeps itself up to date", () => {
+    render(<AvailableEachTime />);
+    expect(screen.getByTestId("relay-upgrade-notice")).toHaveTextContent(copy.bodyEachTime.replace("{profile}", "Home server"));
+    expect(screen.getByTestId("relay-upgrade-notice")).not.toHaveTextContent("keeps itself up to date");
   });
 
   it("while it works, says what it is doing and offers no button", () => {

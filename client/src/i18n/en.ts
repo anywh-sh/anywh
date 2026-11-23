@@ -623,6 +623,7 @@ export const en: Dictionary = {
     relayUpgrade: {
       eyebrow: "relay update",
       body: "{profile}'s relay is on an older version. Update it once and from then on it keeps itself up to date.",
+      bodyEachTime: "{profile}'s relay is on an older version than the app. Update it to keep up with the app.",
       update: "Update",
       checking: "Checking that nothing is running…",
       waitingOne: "Waiting for 1 conversation to finish…",

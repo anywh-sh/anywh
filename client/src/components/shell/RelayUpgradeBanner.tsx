@@ -35,17 +35,20 @@ function progressText(state: LegacyUpgradeState, dict: ReturnType<typeof useDict
 export function RelayUpgradeNotice({
   profileLabel,
   state,
+  eachTime = false,
   onUpdate,
   onDismiss,
 }: {
   profileLabel: string;
   state: LegacyUpgradeState;
+  /** The relay needs this with every release (Homebrew on this Mac). */
+  eachTime?: boolean;
   onUpdate: () => void;
   onDismiss: () => void;
 }) {
   const dict = useDict().shell.relayUpgrade;
   if (state.phase === "hidden") return null;
-  const [before, after = ""] = dict.body.split("{profile}");
+  const [before, after = ""] = (eachTime ? dict.bodyEachTime : dict.body).split("{profile}");
   const progress = progressText(state, dict);
 
   return (
@@ -138,14 +141,14 @@ export function RelayUpgradeAction({ state, onUpdate, align = "end" }: { state: 
 
 /** The notice for one profile, driven by its relay. */
 export function RelayUpgradeBanner({ profile }: { profile: Profile }) {
-  const { state, noticeDismissed, start, dismiss } = useLegacyRelayUpgrade(profile);
+  const { state, noticeDismissed, eachTime, start, dismiss } = useLegacyRelayUpgrade(profile);
   useEffect(() => {
     if (state.phase !== "done") return;
     const timer = setTimeout(dismiss, DONE_NOTICE_MS);
     return () => clearTimeout(timer);
   }, [state.phase, dismiss]);
   if (noticeDismissed) return null;
-  return <RelayUpgradeNotice profileLabel={profile.label} state={state} onUpdate={start} onDismiss={dismiss} />;
+  return <RelayUpgradeNotice profileLabel={profile.label} state={state} eachTime={eachTime} onUpdate={start} onDismiss={dismiss} />;
 }
 
 /** One notice per profile whose relay needs the update — every profile, not

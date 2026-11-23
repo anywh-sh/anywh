@@ -623,6 +623,7 @@ export const ptBr: Dictionary = {
     relayUpgrade: {
       eyebrow: "atualização do relay",
       body: "O relay de {profile} está numa versão antiga. Atualize uma vez e, daí em diante, ele se mantém atualizado sozinho.",
+      bodyEachTime: "O relay de {profile} está numa versão mais antiga que a do app. Atualize para acompanhar o app.",
       update: "Atualizar",
       checking: "Conferindo se nada está rodando…",
       waitingOne: "Esperando 1 conversa terminar…",

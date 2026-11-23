@@ -191,7 +191,7 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
 export function useLegacyRelayUpgrade(
   profile: Profile,
   options: { appVersion?: string; timing?: Partial<LegacyUpgradeTiming> } = {},
-): { state: LegacyUpgradeState; noticeDismissed: boolean; relayVersion?: string; start: () => void; dismiss: () => void } {
+): { state: LegacyUpgradeState; noticeDismissed: boolean; relayVersion?: string; eachTime: boolean; start: () => void; dismiss: () => void } {
   const appVersion = options.appVersion ?? APP_VERSION;
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -257,5 +257,9 @@ export function useLegacyRelayUpgrade(
     }
   }, [profile.id]);
 
-  return { state, noticeDismissed: entryFor(profile.id).noticeDismissed, relayVersion: entryFor(profile.id).version, start, dismiss };
+  const entry = entryFor(profile.id);
+  // A Homebrew relay on this Mac never updates itself: the update is offered
+  // again with every release, and the notice must not promise otherwise.
+  const eachTime = runsHomebrewRelayHere(profile, entry.platform);
+  return { state, noticeDismissed: entry.noticeDismissed, relayVersion: entry.version, eachTime, start, dismiss };
 }

@@ -1378,8 +1378,11 @@ export interface Dictionary {
      * to come back. */
     relayUpgrade: {
       eyebrow: string;
-      /** `{profile}` — the profile's label, rendered as its own element. */
+      /** `{profile}` — the profile's label, rendered as its own element. For
+       * a relay that updates itself from then on. */
       body: string;
+      /** Same, for a relay that needs this every time (Homebrew on this Mac). */
+      bodyEachTime: string;
       update: string;
       checking: string;
       waitingOne: string;
