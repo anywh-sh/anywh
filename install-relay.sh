@@ -443,6 +443,48 @@ else
   [ -f "$staging/relay/dist/server.js" ] && [ -f "$staging/infra/systemd/add-profile.sh" ] ||
     err tarball_incomplete "$asset doesn't contain a complete relay (relay/dist/server.js and infra/systemd/add-profile.sh) — the previous install, if any, was left untouched"
 
+  # Boot the release before it replaces anything: a relay that cannot start
+  # on this machine (a native module built for a newer libc, a Node too old
+  # for it) must never take the place of one that works — the relay updates
+  # itself unattended, and nobody would be there to notice it down. It runs
+  # from the staging tree on a free loopback port with throwaway state, and
+  # has to answer /host-info with its own version.
+  begin_step preflight
+  expected_version="$(node -p 'require(process.argv[1]).version' "$staging/relay/package.json" 2>/dev/null || true)"
+  preflight="$(mktemp -d)"
+  mkdir -p "$preflight/home" "$preflight/env" "$preflight/work"
+  preflight_port="$(node -e 'const s = require("net").createServer().listen(0, "127.0.0.1", () => { console.log(s.address().port); s.close(); })')"
+  (
+    cd "$staging/relay" &&
+      exec env -i PATH="$PATH" HOME="$preflight/home" ANYWH_ENV_DIR="$preflight/env" \
+        RELAY_HOST=127.0.0.1 RELAY_PORT="$preflight_port" RELAY_PUSH_DISABLED=1 \
+        RELAY_SESSIONS_FILE="$preflight/work/sessions.json" RELAY_BACKGROUND_JOBS_FILE="$preflight/work/bg.json" \
+        RELAY_WAKEUPS_FILE="$preflight/work/wakeups.json" RELAY_PUSH_DEVICES_FILE="$preflight/work/push.json" \
+        RELAY_UPLOAD_DIR="$preflight/work/uploads" ANYWH_AGENT_HOST_SOCKET="$preflight/work/host.sock" \
+        ANYWH_SESSIONS_ROOT="$preflight/work/sessions" \
+        node dist/server.js
+  ) > "$preflight/relay.log" 2>&1 &
+  preflight_pid=$!
+  booted=""
+  tries=0
+  while [ "$tries" -lt 30 ] && kill -0 "$preflight_pid" 2>/dev/null; do
+    booted="$(curl -fsS --max-time 2 "http://127.0.0.1:$preflight_port/host-info" 2>/dev/null | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version' 2>/dev/null || true)"
+    [ -n "$booted" ] && break
+    sleep 1
+    tries=$((tries + 1))
+  done
+  kill "$preflight_pid" 2>/dev/null || true
+  wait "$preflight_pid" 2>/dev/null || true
+  if [ -z "$booted" ] || [ "$booted" != "$expected_version" ]; then
+    # The first error line says why (the stack under it does not).
+    why="$(grep -m 1 -E '^[[:alnum:]_]*Error: ' "$preflight/relay.log" 2>/dev/null || tail -n 1 "$preflight/relay.log" 2>/dev/null)"
+    why="$(printf '%s' "$why" | tr '\n' ' ' | cut -c1-300)"
+    rm -rf "$preflight"
+    err preflight_failed "the new relay ${expected_version:-?} didn't start on this machine, so the installed one was left as it is: ${why:-no output}"
+  fi
+  rm -rf "$preflight"
+  end_step "preflight version=$booted"
+
   old_suffix="$$"
   [ -e "$INSTALL_DIR/relay" ] && mv "$INSTALL_DIR/relay" "$INSTALL_DIR/relay.old.$old_suffix"
   [ -e "$INSTALL_DIR/infra" ] && mv "$INSTALL_DIR/infra" "$INSTALL_DIR/infra.old.$old_suffix"

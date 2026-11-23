@@ -17,11 +17,17 @@ import { RelayUpdater, updateSupport, type RelayUpdateStatus } from "./relayUpda
 const INSTALLER = resolve(import.meta.dirname, "../../../install-relay.sh");
 const TARGET = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "arm64" ? "arm64" : "x64"}`;
 
-/** A relay tree as the release tarball lays it out, at `version`. */
-function writeTree(root: string, version: string): void {
+/** A relay tree as the release tarball lays it out, at `version`: its
+ * server answers `/host-info` with that version on RELAY_PORT, as the
+ * installer's boot check expects — or, `broken`, dies at once like a release
+ * whose native module cannot load on this machine. */
+function writeTree(root: string, version: string, options: { broken?: boolean } = {}): void {
   mkdirSync(join(root, "relay", "dist"), { recursive: true });
   mkdirSync(join(root, "infra", "systemd"), { recursive: true });
-  writeFileSync(join(root, "relay", "dist", "server.js"), `// relay ${version}\n`);
+  const server = options.broken
+    ? `// relay ${version}\nconsole.error("Error: Failed to load native module: pty.node (GLIBC_2.42 not found)");\nprocess.exit(1);\n`
+    : `// relay ${version}\nrequire("http").createServer((req, res) => res.end(JSON.stringify({ version: ${JSON.stringify(version)} }))).listen(Number(process.env.RELAY_PORT), "127.0.0.1");\n`;
+  writeFileSync(join(root, "relay", "dist", "server.js"), server);
   writeFileSync(join(root, "relay", "package.json"), JSON.stringify({ name: "anywh-relay", version }));
   writeFileSync(join(root, "infra", "systemd", "add-profile.sh"), "#!/bin/sh\n");
   copyFileSync(INSTALLER, join(root, "infra", "install-relay.sh"));
@@ -34,9 +40,9 @@ interface Release {
 
 /** Serves `anywh-relay-<version>-<target>.tar.gz` and its SHA256SUMS, with
  * the sum optionally wrong. */
-async function serveRelease(dir: string, version: string, options: { corruptSum?: boolean } = {}): Promise<Release> {
+async function serveRelease(dir: string, version: string, options: { corruptSum?: boolean; broken?: boolean } = {}): Promise<Release> {
   const stage = join(dir, `stage-${version}`);
-  writeTree(stage, version);
+  writeTree(stage, version, { broken: options.broken });
   const asset = `anywh-relay-${version}-${TARGET}.tar.gz`;
   const assetPath = join(dir, asset);
   execFileSync("tar", ["czf", assetPath, "-C", stage, "relay", "infra"]);
@@ -147,6 +153,26 @@ test("a tarball that fails its checksum is refused and the running tree is left 
     assert.equal(status.state === "failed" && status.code, "checksum_mismatch");
     assert.deepEqual(installed, []);
     assert.equal(versionIn(relayDir), "0.2.40");
+  } finally {
+    release.server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a release that cannot start on this machine is never swapped in: the running tree stays", async () => {
+  const { dir, relayDir } = setup("0.2.40");
+  const release = await serveRelease(dir, "0.2.41", { broken: true });
+  writeFileSync(join(relayDir, ".env"), "AGENT_BIN=/opt/claude\n");
+  try {
+    const installed: string[] = [];
+    const updater = updaterFor(relayDir, "0.2.40", release.baseUrl, installed);
+    assert.equal(updater.start("0.2.41").ok, true);
+    const status = await settled(updater);
+    assert.equal(status.state === "failed" && status.code, "preflight_failed");
+    assert.match(status.state === "failed" ? status.message : "", /GLIBC_2\.42/, "the reason names what failed");
+    assert.deepEqual(installed, []);
+    assert.equal(versionIn(relayDir), "0.2.40");
+    assert.equal(readFileSync(join(relayDir, ".env"), "utf8"), "AGENT_BIN=/opt/claude\n");
   } finally {
     release.server.close();
     rmSync(dir, { recursive: true, force: true });
