@@ -454,7 +454,7 @@ preflight_start_relay() {
         RELAY_HOST=127.0.0.1 RELAY_PORT="$preflight_port" RELAY_PUSH_DISABLED=1 \
         RELAY_SESSIONS_FILE="$preflight/work/sessions.json" RELAY_BACKGROUND_JOBS_FILE="$preflight/work/bg.json" \
         RELAY_WAKEUPS_FILE="$preflight/work/wakeups.json" RELAY_PUSH_DEVICES_FILE="$preflight/work/push.json" \
-        RELAY_UPLOAD_DIR="$preflight/work/uploads" ANYWH_AGENT_HOST_SOCKET="$preflight/work/host.sock" \
+        RELAY_UPLOAD_DIR="$preflight/work/uploads" ANYWH_AGENT_HOST_SOCKET="$preflight/sock/host.sock" \
         ANYWH_SESSIONS_ROOT="$preflight/work/sessions" \
         "$node_bin" dist/server.js
   ) > "$preflight/relay.log" 2>&1 &
@@ -537,19 +537,44 @@ else
   # start on this machine (a native module built for a newer libc, a Node
   # too old for it) must never take the place of one that works — the relay
   # updates itself unattended, and nobody would be there to notice it down.
-  # It runs from the staging tree, on the node the units run, on a free
-  # loopback port with throwaway HOME/env/state, and has to answer
-  # /host-info with its own version.
+  # Both services the tree runs are booted from staging, on the node the
+  # units run, with throwaway HOME/env/state: the relay on a free loopback
+  # port has to answer /host-info with its own version, and the agent host
+  # (when the release ships one) has to listen on its socket. The host gets
+  # a host id of its own and an empty registry, so it starts no agent and
+  # sweeps no process of the real hosts on this machine.
   begin_step preflight
   expected_version="$("$node_bin" -p 'require(process.argv[1]).version' "$staging/relay/package.json" 2>/dev/null || true)"
   preflight="$(mktemp -d)"
   mkdir -p "$preflight/home" "$preflight/env" "$preflight/work"
+  # The agent host refuses a socket directory other users can open.
+  mkdir -m 700 "$preflight/sock"
+  preflight_host_up=1
+  if [ -f "$staging/relay/dist/agentHost/main.js" ]; then
+    preflight_host_up=0
+    (
+      cd "$staging/relay" &&
+        exec $preflight_setsid env -i PATH="$PATH" HOME="$preflight/home" \
+          "$node_bin" dist/agentHost/main.js --profile preflight --host-id "preflight-$$" \
+          --socket "$preflight/sock/host.sock" --data-dir "$preflight/work/agent-host"
+    ) > "$preflight/agent-host.log" 2>&1 &
+    preflight_host_pid=$!
+    preflight_pids="$preflight_pids $preflight_host_pid"
+  fi
   preflight_start_relay
   preflight_port_retried=0
   booted=""
   outcome=""
   deadline=$(($(date +%s) + PREFLIGHT_TIMEOUT))
   while :; do
+    if [ "$preflight_host_up" -eq 0 ]; then
+      if [ -S "$preflight/sock/host.sock" ]; then
+        preflight_host_up=1
+      elif ! kill -0 "$preflight_host_pid" 2>/dev/null; then
+        outcome=host_exited
+        break
+      fi
+    fi
     if [ -z "$booted" ]; then
       # Parsed only once something answered: no node cold start per poll.
       body="$(curl -fsS --max-time 1 "http://127.0.0.1:$preflight_port/host-info" 2>/dev/null || true)"
@@ -571,7 +596,7 @@ else
         break
       fi
     fi
-    if [ -n "$booted" ]; then
+    if [ -n "$booted" ] && [ "$preflight_host_up" -eq 1 ]; then
       outcome=ok
       break
     fi
@@ -588,12 +613,22 @@ else
     relay_exited)
       err preflight_failed "the new relay ${expected_version:-?} exited on this machine before it answered, $left: $(preflight_reason "$preflight/relay.log")"
       ;;
+    host_exited)
+      err preflight_failed "the new agent host ${expected_version:-?} exited on this machine before it listened, $left: $(preflight_reason "$preflight/agent-host.log")"
+      ;;
     wrong_version)
       err preflight_failed "the new relay answered as version ${booted:-unknown} instead of ${expected_version:-?}, $left"
       ;;
     timeout)
-      last_error="$(preflight_error_line "$preflight/relay.log")"
-      err preflight_failed "the new relay ${expected_version:-?} didn't answer within ${PREFLIGHT_TIMEOUT}s on this machine, $left${last_error:+ (last error: $last_error)}"
+      if [ -z "$booted" ]; then
+        what="the new relay ${expected_version:-?} didn't answer"
+        log="$preflight/relay.log"
+      else
+        what="the new agent host ${expected_version:-?} didn't listen"
+        log="$preflight/agent-host.log"
+      fi
+      last_error="$(preflight_error_line "$log")"
+      err preflight_failed "$what within ${PREFLIGHT_TIMEOUT}s on this machine, $left${last_error:+ (last error: $last_error)}"
       ;;
   esac
   rm -rf "$preflight"
