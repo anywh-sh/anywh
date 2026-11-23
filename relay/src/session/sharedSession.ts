@@ -82,8 +82,9 @@ export interface SharedSessionOptions {
   /** Called when something happened that a person who has walked away would
    * want to hear about (a turn ended or failed, a prompt is waiting).
    * `watched` is whether a client currently claims to be looking at this
-   * session — the receiver decides what that means for delivery. */
-  onNotifiable?: (draft: PushNotificationDraft, watched: boolean) => void;
+   * session — the receiver decides what that means for delivery. `turn` is
+   * the kind of turn the relay started itself, when one ended. */
+  onNotifiable?: (draft: PushNotificationDraft, watched: boolean, turn?: SyntheticTurnKind) => void;
 
   /** session_id already persisted for this session, if any. */
   initialSessionId?: string;
@@ -1234,8 +1235,8 @@ export class SharedSession implements SessionDriverHost {
     else this.presenceExpiry.set(socket, expiry);
   }
 
-  private notify(draft: PushNotificationDraft): void {
-    this.options.onNotifiable?.(draft, this.isAnyoneLooking());
+  private notify(draft: PushNotificationDraft, turn?: SyntheticTurnKind): void {
+    this.options.onNotifiable?.(draft, this.isAnyoneLooking(), turn);
   }
 
   /** Whether any connected client currently claims to be looking. */
@@ -1932,7 +1933,9 @@ export class SharedSession implements SessionDriverHost {
       } else {
         release();
         this.broadcast({ type: "agent_event", event: turnEnded });
-        this.notify(turnEndedDraft({ title: this.title, stopped, lastAssistantText, userText: synthetic ? undefined : text }));
+        // A bot's scheduled run says which of its schedules it was.
+        const title = synthetic?.kind === "bot_schedule" && synthetic.label && this.title ? `${this.title} · ${synthetic.label}` : this.title;
+        this.notify(turnEndedDraft({ title, stopped, lastAssistantText, userText: synthetic ? undefined : text }), synthetic?.kind);
       }
       // Only suggests a follow-up for a turn that genuinely finished (not
       // interrupted) — fire-and-forget, doesn't delay `turn_ended`
