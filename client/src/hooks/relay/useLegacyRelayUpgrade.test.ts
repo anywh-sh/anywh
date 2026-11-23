@@ -247,7 +247,7 @@ describe("a Homebrew relay on this Mac", () => {
     );
   });
 
-  it("a Mac relay reached over the network still goes through its own terminal", async () => {
+  it("a Mac relay reached over the network still goes through its own terminal", () => {
     const remote: Profile = { ...local, host: "100.64.0.7" };
     expect(runsHomebrewRelayHere(remote, "darwin")).toBe(false);
     expect(runsHomebrewRelayHere(local, "darwin")).toBe(true);
