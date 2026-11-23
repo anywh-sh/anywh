@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { needsRestart, supervisedForRestart, watchForNewRelease, type ReleaseWatchOptions } from "./releaseWatch.js";
+import { needsRestart, relayRestartAllowed, supervisedForRestart, watchForNewRelease, type ReleaseWatchOptions } from "./releaseWatch.js";
 
 /** A watch whose timer never fires within a test: every check is explicit. */
 function watch(options: Omit<ReleaseWatchOptions, "intervalMs" | "log">) {
@@ -84,4 +84,11 @@ test("restarting is only allowed under a service manager that starts the process
   assert.equal(supervisedForRestart({ INVOCATION_ID: "" }), false);
   assert.equal(supervisedForRestart({ ANYWH_RESTART_ON_UPDATE: "0", INVOCATION_ID: "abc" }), false);
   assert.equal(supervisedForRestart({ ANYWH_RESTART_ON_UPDATE: "1" }), true);
+});
+
+test("the relay never restarts with a turn in flight, nor while its own installer runs", () => {
+  assert.equal(relayRestartAllowed(false, { state: "installed" }), true);
+  assert.equal(relayRestartAllowed(false, { state: "idle" }), true);
+  assert.equal(relayRestartAllowed(true, { state: "installed" }), false);
+  assert.equal(relayRestartAllowed(false, { state: "installing" }), false);
 });

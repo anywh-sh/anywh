@@ -76,6 +76,14 @@ export function watchForNewRelease(options: ReleaseWatchOptions): ReleaseWatch {
   };
 }
 
+/** Whether the relay may exit to pick up a new release: no conversation it
+ * runs has a turn in flight, and its own installer is not running (the
+ * swapped tree is what made the release visible, and exiting would take the
+ * installer, a child in the same unit, down before it finished). */
+export function relayRestartAllowed(turnInFlight: boolean, updater: { readonly state: string }): boolean {
+  return !turnInFlight && updater.state !== "installing";
+}
+
 /** The `version` of a package.json, or null when it is missing or unreadable
  * (mid-swap, or a broken install). */
 export function readPackageVersion(packageJsonPath: string): string | null {

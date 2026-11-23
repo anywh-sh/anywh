@@ -23,7 +23,7 @@ import { dirname } from "node:path";
 import { RELEASE_VERSION } from "./agentHost/release.js";
 import { resolveShipped } from "./host/paths.js";
 import { RelayUpdater } from "./update/relayUpdater.js";
-import { readPackageVersion, supervisedForRestart, watchForNewRelease } from "./update/releaseWatch.js";
+import { readPackageVersion, relayRestartAllowed, supervisedForRestart, watchForNewRelease } from "./update/releaseWatch.js";
 import { handleUpdateRoutes } from "./routes/update.js";
 import { handleAgentCatalogRoutes } from "./routes/agentCatalog.js";
 import { handleAgentRoutes } from "./routes/agents.js";
@@ -395,10 +395,7 @@ const releaseWatch = restartOnRelease
   ? watchForNewRelease({
       running: RELEASE_VERSION,
       readOnDisk: () => readPackageVersion(PACKAGE_JSON_PATH),
-      // Never while this relay's own installer runs: the tree it swaps is
-      // what makes the new release visible here, and exiting would take
-      // the installer (a child in this unit) down before it finished.
-      safeToRestart: () => !sessionManager.relayTurnInFlight() && relayUpdater.status().state !== "installing",
+      safeToRestart: () => relayRestartAllowed(sessionManager.relayTurnInFlight(), relayUpdater.status()),
       restart: () => {
         planUsage.stop();
         void gracefulShutdown("release update", { httpServer, sessionManager });

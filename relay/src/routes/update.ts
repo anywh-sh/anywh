@@ -1,7 +1,7 @@
 import { readJsonBody } from "../protocol/httpBody.js";
 import type { RouteHandler } from "./context.js";
 
-const STATUS_BY_CODE = { unsupported: 409, bad_version: 400, not_newer: 409, busy: 409 } as const;
+const STATUS_BY_CODE = { unsupported: 409, bad_version: 400, not_newer: 409, busy: 409, start_failed: 500 } as const;
 
 /**
  * The relay's self-update (update/relayUpdater.ts):

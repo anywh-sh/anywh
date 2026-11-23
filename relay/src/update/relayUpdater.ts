@@ -27,7 +27,7 @@ export type RelayUpdateStatus =
 
 export type StartUpdateResult =
   | { readonly ok: true; readonly status: RelayUpdateStatus }
-  | { readonly ok: false; readonly code: "unsupported" | "bad_version" | "not_newer" | "busy"; readonly status: RelayUpdateStatus };
+  | { readonly ok: false; readonly code: "unsupported" | "bad_version" | "not_newer" | "busy" | "start_failed"; readonly status: RelayUpdateStatus };
 
 export interface RelayUpdaterOptions {
   /** The release this relay runs. */
@@ -99,8 +99,9 @@ export class RelayUpdater {
       this.run(this.support.installer, version);
     } catch (error) {
       // Before the installer even started (no room in the temp dir, say):
-      // reported as a failed install, never left "installing".
+      // a failed install, never left "installing".
       this.current = { state: "failed", version, code: "unexpected", message: error instanceof Error ? error.message : String(error) };
+      return { ok: false, code: "start_failed", status: this.current };
     }
     return { ok: true, status: this.current };
   }
@@ -110,7 +111,12 @@ export class RelayUpdater {
     // directory the script lives in.
     const scratch = mkdtempSync(join(tmpdir(), "anywh-relay-update-"));
     const script = join(scratch, "install-relay.sh");
-    copyFileSync(installer, script);
+    try {
+      copyFileSync(installer, script);
+    } catch (error) {
+      rmSync(scratch, { recursive: true, force: true });
+      throw error;
+    }
     const env = { ...(this.options.env ?? process.env) };
     env.ANYWH_INSTALL_DIR = dirname(this.options.relayDir);
     // A user unit's PATH is the service manager's default, which often lacks
