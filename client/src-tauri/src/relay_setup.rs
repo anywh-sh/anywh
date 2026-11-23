@@ -402,12 +402,20 @@ async fn active_relay_units() -> Vec<String> {
 const BREW_UPGRADE_COMMAND: &str =
     "PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; brew update >/dev/null && brew upgrade anywh-relay && brew services restart anywh-relay";
 
-/// The last few non-empty lines of a command's output: why it failed, short
-/// enough to show.
+/// Why a Homebrew run failed, short enough to show: its last `Error:` line
+/// (Homebrew's own words for it, on stderr), else the last few lines of
+/// stderr, else of stdout. Never stdout after stderr: Homebrew's progress
+/// lines go to stdout and would push the reason out of the tail.
 pub fn failure_tail(stdout: &str, stderr: &str) -> String {
-    let lines: Vec<&str> = stderr.lines().chain(stdout.lines()).map(str::trim).filter(|l| !l.is_empty()).collect();
-    let start = lines.len().saturating_sub(3);
-    lines[start..].join(" ")
+    let lines = |text: &str| text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect::<Vec<_>>();
+    let (err, out) = (lines(stderr), lines(stdout));
+    let last_error = |lines: &[String]| lines.iter().rev().find(|line| line.starts_with("Error:")).cloned();
+    if let Some(error) = last_error(&err).or_else(|| last_error(&out)) {
+        return error;
+    }
+    let source = if err.is_empty() { out } else { err };
+    let start = source.len().saturating_sub(3);
+    source[start..].join(" ")
 }
 
 /// Upgrades the Homebrew relay on this Mac and restarts its service — the
@@ -1128,10 +1136,16 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_brew_run_is_told_by_its_last_lines() {
-        let stderr = "==> Fetching anywh-relay\n\nError: anywh-relay: SHA256 mismatch\n";
-        let stdout = "Updated 1 tap\n";
-        assert_eq!(failure_tail(stdout, stderr), "==> Fetching anywh-relay Error: anywh-relay: SHA256 mismatch Updated 1 tap");
+    fn a_failed_brew_run_is_told_by_its_error_line_not_its_progress() {
+        // Homebrew's progress goes to stdout, several lines of it after the
+        // failure; its reason goes to stderr.
+        let stderr = "Warning: something unrelated\nError: anywh-relay: SHA256 mismatch\nExpected: abc\n";
+        let stdout = "==> Fetching anywh-relay\n==> Downloading https://example/a.tar.gz\n######## 100.0%\n==> Cleaning up\n";
+        assert_eq!(failure_tail(stdout, stderr), "Error: anywh-relay: SHA256 mismatch");
+        // No Error: line: the end of stderr, still never stdout's progress.
+        assert_eq!(failure_tail(stdout, "a\nb\nc\nd\n"), "b c d");
+        // Nothing on stderr at all: the end of stdout.
+        assert_eq!(failure_tail("one\ntwo\n\nthree\nfour\n", ""), "two three four");
         assert_eq!(failure_tail("", ""), "");
     }
 
