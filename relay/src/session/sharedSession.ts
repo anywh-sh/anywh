@@ -1239,6 +1239,13 @@ export class SharedSession implements SessionDriverHost {
     this.options.onNotifiable?.(draft, this.isAnyoneLooking(), turn);
   }
 
+  /** A notification's title: a bot's scheduled run also says which of its
+   * schedules it was, and keeps that much even in a room with no title. */
+  private pushTitle(synthetic?: { kind: SyntheticTurnKind; label?: string }): string | null {
+    if (synthetic?.kind !== "bot_schedule" || !synthetic.label) return this.title;
+    return this.title ? `${this.title} · ${synthetic.label}` : synthetic.label;
+  }
+
   /** Whether any connected client currently claims to be looking. */
   isAnyoneLooking(): boolean {
     return isAnyoneLooking(this.presenceExpiry.values(), Date.now());
@@ -1933,9 +1940,7 @@ export class SharedSession implements SessionDriverHost {
       } else {
         release();
         this.broadcast({ type: "agent_event", event: turnEnded });
-        // A bot's scheduled run says which of its schedules it was.
-        const title = synthetic?.kind === "bot_schedule" && synthetic.label && this.title ? `${this.title} · ${synthetic.label}` : this.title;
-        this.notify(turnEndedDraft({ title, stopped, lastAssistantText, userText: synthetic ? undefined : text }), synthetic?.kind);
+        this.notify(turnEndedDraft({ title: this.pushTitle(synthetic), stopped, lastAssistantText, userText: synthetic ? undefined : text }), synthetic?.kind);
       }
       // Only suggests a follow-up for a turn that genuinely finished (not
       // interrupted) — fire-and-forget, doesn't delay `turn_ended`
@@ -1964,7 +1969,7 @@ export class SharedSession implements SessionDriverHost {
       const failureClass = this.def.classifyFailure?.({ text: message, ...(typeof code === "number" ? { code } : {}) });
       turnFailureClass = failureClass;
       this.broadcast({ type: "agent_event", event: failureClass ? { type: "error", message, failureClass } : { type: "error", message } });
-      this.notify(turnFailedDraft(this.title));
+      this.notify(turnFailedDraft(this.pushTitle(synthetic)));
     } finally {
       this.turnGrants = [];
       this.nativeGrants = [];
