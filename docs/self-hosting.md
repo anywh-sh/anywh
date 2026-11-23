@@ -125,6 +125,18 @@ not ship, such as `relay/.env`, are carried over to the new tree. If it cannot r
 tmux on that machine, say), the notice shows the one command to paste on the
 relay's machine instead.
 
+Several profiles on one machine share one install, and each relay is
+restarted only after its own conversations are checked. Updating one profile
+installs the release and restarts that profile's relay. Each other profile on
+the machine keeps its own notice: its update finds the release already
+installed (the installer takes one lock per install directory, so two
+updates never run at once), and only restarts it, once its conversations
+are idle. A relay started by hand without `RELAY_SESSIONS_FILE` and the
+other `RELAY_*_FILE` paths keeps those files beside its code: they are
+carried into the new tree, but anything it writes between the install and
+its restart is lost. Profiles created by the installer always set those
+paths.
+
 On macOS the script installs the tree and stops there: it has no launchd
 unit to offer, so the service comes from the Homebrew formula instead
 (`brew install anywh-sh/tap/anywh-relay`), and a profile requested on macOS
