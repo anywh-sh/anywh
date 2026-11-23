@@ -129,7 +129,7 @@ EXISTING_CLAUDE_DIR=""
 # dir would have turned it into the real $HOME's account.
 EXTRA_LINES=""
 MANAGED_KEYS=" RELAY_PORT RELAY_HOST RELAY_HOME_OVERRIDE RELAY_UPLOAD_DIR RELAY_SESSIONS_FILE RELAY_BACKGROUND_JOBS_FILE RELAY_WAKEUPS_FILE RELAY_PUSH_DEVICES_FILE ANYWH_EDITOR_LOCAL "
-CONFIG_ROOT_KEYS=" CLAUDE_CONFIG_DIR CODEX_HOME KIMI_CODE_HOME RELAY_ROOM_CONTEXT_DIR "
+CONFIG_ROOT_KEYS=" CLAUDE_CONFIG_DIR CODEX_HOME KIMI_CODE_HOME RELAY_ROOM_CONTEXT_DIR RELAY_BOT_DIR "
 if [[ -e "$ENV_FILE" ]]; then
   if [[ "$RESUME" -eq 0 ]]; then
     fail exists "profile '$ID' already exists ($ENV_FILE)"
@@ -243,7 +243,7 @@ if [[ -n "$CONFIG_ROOT" ]]; then
   CONFIG_ROOT="${CONFIG_ROOT/#\~/$HOME}"
   mkdir -p "$CONFIG_ROOT"
   CONFIG_ROOT="$(cd "$CONFIG_ROOT" && pwd)"
-  for sub in claude codex kimi rooms; do mkdir -p "$CONFIG_ROOT/$sub"; done
+  for sub in claude codex kimi rooms bots; do mkdir -p "$CONFIG_ROOT/$sub"; done
   chmod 700 "$CONFIG_ROOT"
 fi
 
@@ -313,6 +313,9 @@ trap 'rm -f "$ENV_TMP"' EXIT
     # otherwise share ~/.anywh/rooms, and each relay prunes the folders of
     # rooms it doesn't know — the other profiles' included.
     echo "RELAY_ROOM_CONTEXT_DIR=$CONFIG_ROOT/rooms"
+    # And its own bots folder: the default, ~/.anywh/bots, would keep the
+    # souls and memories of every profile on the real $HOME in one folder.
+    echo "RELAY_BOT_DIR=$CONFIG_ROOT/bots"
   fi
   printf '%s' "$EXTRA_LINES"
   for pair in "${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}"; do echo "$pair"; done

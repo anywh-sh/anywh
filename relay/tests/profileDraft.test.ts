@@ -32,7 +32,7 @@ test("a draft reserves an id and a private config root; a second draft of the sa
   assert.equal(first.id, "side-work");
   assert.equal(second.id, "side-work-2");
   const root = join(server.profilesDir, first.id);
-  for (const sub of ["claude", "codex", "kimi", "rooms"]) assert.ok(statSync(join(root, sub)).isDirectory(), sub);
+  for (const sub of ["claude", "codex", "kimi", "rooms", "bots"]) assert.ok(statSync(join(root, sub)).isDirectory(), sub);
   assert.equal(statSync(root).mode & 0o777, 0o700);
   assert.equal((await post("/control/profiles/draft", { label: "  " })).status, 400);
 
@@ -59,6 +59,7 @@ test("validating and creating from a draft use its config folders, and the profi
   const root = join(server.profilesDir, draft.id);
   assert.match(env, new RegExp(`^CLAUDE_CONFIG_DIR=${root}/claude$`, "m"));
   assert.match(env, new RegExp(`^RELAY_ROOM_CONTEXT_DIR=${root}/rooms$`, "m"));
+  assert.match(env, new RegExp(`^RELAY_BOT_DIR=${root}/bots$`, "m"));
   assert.doesNotMatch(env, /^RELAY_HOME_OVERRIDE=/m);
 
   // It is a profile now, not a draft: the draft routes leave it alone, and

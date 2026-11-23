@@ -457,7 +457,7 @@ export function deleteProfileFiles(id: string, envDir: string = ENV_DIR): void {
 
 /** The folders inside a profile's config root that `add-profile.sh
  * --config-root` also creates. */
-const CONFIG_ROOT_SUBDIRS = ["claude", "codex", "kimi", "rooms"] as const;
+const CONFIG_ROOT_SUBDIRS = ["claude", "codex", "kimi", "rooms", "bots"] as const;
 
 function listDraftIds(profilesDir: string): string[] {
   try {

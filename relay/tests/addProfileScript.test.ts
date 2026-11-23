@@ -36,7 +36,7 @@ function readEnv(envDir: string, id: string): Record<string, string> {
   return out;
 }
 
-test("--config-root gives each agent CLI its own folder and the profile its own rooms, keeping the real $HOME", () => {
+test("--config-root gives each agent CLI its own folder and the profile its own rooms and bots, keeping the real $HOME", () => {
   withHome((home, envDir) => {
     addProfile(home, envDir, ["work", "--config-root", "~/.anywh/profiles/work"]);
     const env = readEnv(envDir, "work");
@@ -45,8 +45,9 @@ test("--config-root gives each agent CLI its own folder and the profile its own 
     assert.equal(env.CODEX_HOME, join(root, "codex"));
     assert.equal(env.KIMI_CODE_HOME, join(root, "kimi"));
     assert.equal(env.RELAY_ROOM_CONTEXT_DIR, join(root, "rooms"));
+    assert.equal(env.RELAY_BOT_DIR, join(root, "bots"));
     assert.equal(env.RELAY_HOME_OVERRIDE, undefined);
-    for (const sub of ["claude", "codex", "kimi", "rooms"]) assert.ok(statSync(join(root, sub)).isDirectory(), sub);
+    for (const sub of ["claude", "codex", "kimi", "rooms", "bots"]) assert.ok(statSync(join(root, sub)).isDirectory(), sub);
     // It holds the profile's agent credentials.
     assert.equal(statSync(root).mode & 0o777, 0o700);
   });
@@ -60,6 +61,7 @@ test("--resume keeps the keys it doesn't write, config dirs included — the app
     const env = readEnv(envDir, "work");
     assert.equal(env.CLAUDE_CONFIG_DIR, join(home, "cfg/claude"));
     assert.equal(env.RELAY_ROOM_CONTEXT_DIR, join(home, "cfg/rooms"));
+    assert.equal(env.RELAY_BOT_DIR, join(home, "cfg/bots"));
     assert.equal(env.ANYWH_EDITOR_SSH, "me@host");
     // Written once each, not appended again on every resume.
     const text = readFileSync(join(envDir, "work.env"), "utf8");
