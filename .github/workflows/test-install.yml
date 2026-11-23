@@ -54,7 +54,7 @@ jobs:
       # This runner is newer than many servers: a release that only starts on
       # a recent glibc would pass every step above and still be down there.
       - name: Check the published relay's glibc floor
-        run: scripts/check-glibc-floor.sh "$HOME/.local/share/anywh/relay" 2.35
+        run: scripts/check-glibc-floor.sh "$HOME/.local/share/anywh/relay"
       - name: Confirm the relay is running and listening
         run: |
           port="$(grep '^RELAY_PORT=' "$HOME/.config/anywh/env/default.env" | cut -d= -f2)"
@@ -108,7 +108,7 @@ jobs:
           mkdir -p stage/relay serve
           cp -a relay/dist relay/node_modules relay/package.json stage/relay/
           cp -a infra stage/infra
-          scripts/check-glibc-floor.sh stage 2.35
+          scripts/check-glibc-floor.sh stage
           tar czf serve/anywh-relay-linux-x64.tar.gz -C stage relay infra
           # An archive that is valid gzip/tar but has no relay in it — what a
           # truncated or wrong-asset download looks like once it passes the

@@ -574,7 +574,7 @@ jobs:
       # start on those servers, and the installer would refuse it there.
       - name: Check the glibc floor (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
-        run: scripts/check-glibc-floor.sh stage 2.35
+        run: scripts/check-glibc-floor.sh stage
 
       # macOS ships a Node Single Executable Application instead of dist/ +
       # node_modules + a shared Node — see relay/sea-build/build.mjs's own
