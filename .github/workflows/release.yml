@@ -497,8 +497,9 @@ jobs:
           # against the runner's glibc, and a relay built on a newer one does
           # not start on servers with an older one (built on ubuntu-latest,
           # it once needed GLIBC_2.42 and failed on Debian 13). 22.04 ships
-          # glibc 2.35; the floor check below holds the line. When this
-          # runner image retires, move to the next oldest, never to -latest.
+          # glibc 2.35 and libstdc++ from GCC 12; the floor check below holds
+          # the line. When this runner image retires, move to the next
+          # oldest, never to -latest.
           - platform: ubuntu-22.04
             target: linux-x64
           # Hosted arm64 Ubuntu runner, free for public repos same as the
@@ -569,12 +570,25 @@ jobs:
           # this same installer to put a newer release over itself.
           cp install-relay.sh stage/infra/install-relay.sh
 
-      # Every native module must load on glibc 2.35 (Ubuntu 22.04, Debian 12
-      # and anything newer): a newer requirement means the relay would not
-      # start on those servers, and the installer would refuse it there.
+      # Every native module must load on glibc 2.35 and GCC 12's libstdc++
+      # (Ubuntu 22.04, Debian 12 and anything newer): a newer requirement
+      # means the relay would not start on those servers, and the installer
+      # would refuse it there.
+      #
+      # The checker comes from this workflow's own commit, not from the tag
+      # being built: re-dispatching a tag cut before the checker existed
+      # would otherwise fail on a missing script, or skip the check.
+      - name: Fetch the glibc floor checker (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tooling
+          sparse-checkout: scripts/check-glibc-floor.sh
+          sparse-checkout-cone-mode: false
       - name: Check the glibc floor (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
-        run: scripts/check-glibc-floor.sh stage
+        run: sh .release-tooling/scripts/check-glibc-floor.sh stage
 
       # macOS ships a Node Single Executable Application instead of dist/ +
       # node_modules + a shared Node — see relay/sea-build/build.mjs's own
