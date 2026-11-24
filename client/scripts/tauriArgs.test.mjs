@@ -14,6 +14,17 @@ describe("withEnvConfig", () => {
     ]);
     expect(withEnvConfig(["build", "-c", "x.json"], identifier).at(-1)).toBe(identifier);
     expect(withEnvConfig(["build", "--config=x.json"], identifier).at(-1)).toBe(identifier);
+    // What follows `--` is the runner's, not the CLI's.
+    expect(withEnvConfig(["build", "--config", "x.json", "--", "--features", "foo"], identifier)).toEqual([
+      "build",
+      "--config",
+      "x.json",
+      "--config",
+      identifier,
+      "--",
+      "--features",
+      "foo",
+    ]);
   });
 
   it("leaves the args alone otherwise: the CLI reads TAURI_CONFIG itself", () => {
