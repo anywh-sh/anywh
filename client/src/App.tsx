@@ -778,7 +778,7 @@ function AppShell() {
     bots: activeBots,
     section: drawerSection,
     onSelectBot: botActions.onSelectBot,
-    onNewBot: botActions.onNewBot,
+    onNewBot: () => botActions.onNewBot(undefined, "ios"),
     onSection: changeDrawerSection,
   });
 

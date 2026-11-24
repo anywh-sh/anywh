@@ -28,6 +28,7 @@ import type { Tab } from "@/hooks/tabs/useTabs";
 import type { Profile } from "@/lib/profiles/profiles";
 import { isIOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
+import { trackBotAction } from "@/lib/telemetry/instrument";
 
 /**
  * Everything a tab's panel needs to call back into `App`, as one object
@@ -113,6 +114,7 @@ const TabChat = memo(function TabChat({
   const isBot = tab.bot === true;
   const openTask = useCallback(
     (n: number) => {
+      trackBotAction("open_task");
       askPanelTask(tab.id, n);
       if (!noPanes) actions.onOpenPane(tab.id, "bot");
     },
@@ -230,6 +232,7 @@ function BotPanelToggle({ groupId, dock, actions, tabId }: { groupId: string | n
       onToggle={() => {
         // Opened by hand: the list, not a task an earlier click left pending.
         dropPanelTask(tabId);
+        if (!dock.panes.includes("bot")) trackBotAction("open_pane");
         actions.onTogglePane(tabId, "bot");
       }}
     />,
@@ -300,7 +303,7 @@ export const TabPanel = memo(function TabPanel({
   // The bot templates: the whole tab, with no conversation or dock. A card
   // opens "New bot", and the bot made from it takes this tab's place.
   if (isBotTemplatesTab(tab.id)) {
-    return <BotTemplatesView onPick={(templateId) => openNewBot({ profileId: profile.id, templateId, fromTabId: tab.id })} />;
+    return <BotTemplatesView onPick={(templateId) => openNewBot({ profileId: profile.id, templateId, fromTabId: tab.id, source: "templates" })} />;
   }
 
   if (tab.room) {

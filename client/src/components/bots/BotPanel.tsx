@@ -18,6 +18,8 @@ import { TASK_GROUPS, taskGroup, type BotSchedule, type BotTask, type BotTaskSta
 import { mascotStateOf } from "@/lib/bots/mascot";
 import type { Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
+import type { BotAction } from "@/lib/telemetry/events";
+import { trackBotAction, trackError } from "@/lib/telemetry/instrument";
 
 interface BotPanelProps {
   profile: Profile;
@@ -105,7 +107,13 @@ export function BotPanelView({
     <BotTaskDetail profile={profile} bot={bot} task={task} onBack={() => setOpenTask(null)} onOpenSession={onOpenSession} />
   ) : (
     <ScrollArea className="min-h-0 flex-1">
-      <TaskList bot={bot} onOpen={setOpenTask} />
+      <TaskList
+        bot={bot}
+        onOpen={(n) => {
+          trackBotAction("open_task");
+          setOpenTask(n);
+        }}
+      />
     </ScrollArea>
   );
   return (
@@ -216,9 +224,13 @@ function Automations({ profile, bot }: { profile: Profile; bot: BotView }) {
   const dict = useDict();
   const { locale } = useLocale();
   const [error, setError] = useState(false);
-  const act = (work: Promise<void>): void => {
+  const act = (action: BotAction, work: () => Promise<void>): void => {
+    trackBotAction(action);
     setError(false);
-    work.catch(() => setError(true));
+    work().catch(() => {
+      trackError("bot_action_failed");
+      setError(true);
+    });
   };
   return (
     <div className="shrink-0 border-t border-border px-2 py-2">
@@ -233,9 +245,9 @@ function Automations({ profile, bot }: { profile: Profile; bot: BotView }) {
           key={schedule.id}
           schedule={schedule}
           when={(at) => shortWhen(at, locale)}
-          onToggle={(on) => act(setSchedulePaused(profile, bot.id, schedule.id, !on))}
-          onRun={() => act(runScheduleNow(profile, bot.id, schedule.id))}
-          onRemove={() => act(removeSchedule(profile, bot.id, schedule.id))}
+          onToggle={(on) => act("pause_schedule", () => setSchedulePaused(profile, bot.id, schedule.id, !on))}
+          onRun={() => act("run_now", () => runScheduleNow(profile, bot.id, schedule.id))}
+          onRemove={() => act("remove_schedule", () => removeSchedule(profile, bot.id, schedule.id))}
         />
       ))}
       {error && <p className="px-2 pt-1 text-xs text-destructive">{dict.bots.panel.actionFailed}</p>}

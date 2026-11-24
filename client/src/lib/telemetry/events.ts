@@ -66,6 +66,8 @@ export const ERROR_KINDS = [
   "agent_signin_failed",
   "update_failed",
   "relay_update_failed",
+  "bot_create_failed",
+  "bot_action_failed",
 ] as const;
 export type ErrorKind = (typeof ERROR_KINDS)[number];
 
@@ -140,6 +142,31 @@ export const INSTALLER_CODES = [
 export const INSTALLER_STEPS = ["setup", "flags", "target", "prereqs", "preflight", "download", "install", "relay_host", "profile", "service", "check", "other"] as const;
 export const UPGRADE_PROMPT_SOURCES = ["banner", "bots_gate", "settings"] as const;
 export type UpgradePromptSource = (typeof UPGRADE_PROMPT_SOURCES)[number];
+
+/** Where the "New bot" dialog was opened from. */
+export const BOT_CREATE_SOURCES = ["sidebar", "first_card", "templates", "ios", "other"] as const;
+export type BotCreateSource = (typeof BOT_CREATE_SOURCES)[number];
+/** The bot templates this build ships, or `blank` for one from scratch. */
+export const BOT_TEMPLATE_KINDS = ["ci-check", "pr-review", "issue-triage", "daily-summary", "backlog-cleanup", "blank", "other"] as const;
+export const BOT_CREATE_FAILURES = ["no_host", "invalid", "network", "other"] as const;
+export type BotCreateFailure = (typeof BOT_CREATE_FAILURES)[number];
+/** What a person does with a bot, each counted once a day. */
+export const BOT_ACTIONS = [
+  "open_conversation",
+  "open_pane",
+  "open_task",
+  "answer_question",
+  "answer_worker_choice",
+  "cancel_task",
+  "run_now",
+  "pause_schedule",
+  "remove_schedule",
+  "pause_bot",
+  "edit_settings",
+  "edit_memory",
+  "delete_bot",
+] as const;
+export type BotAction = (typeof BOT_ACTIONS)[number];
 
 /** The failed stages of the profile-setup pipeline. */
 export const CONNECT_FAILED_STAGES = ["claim", "connect", "verify"] as const;
@@ -236,6 +263,40 @@ export const EVENTS = {
   }, 10),
   error_shown: def({ kind: oneOf(ERROR_KINDS) }, 10),
   update_installed: def({ from_version: version, to_version: version, update_mode: oneOf(UPDATE_MODES) }, 3),
+  bot_create_opened: def({ source: oneOf(BOT_CREATE_SOURCES), template: oneOf(BOT_TEMPLATE_KINDS) }, 10),
+  /** The "New bot" dialog closed: with a bot, or without one (and why it
+   * might have stopped: the relay too old for bots, a failed attempt). */
+  bot_create_ended: def({
+    outcome: oneOf(["created", "abandoned"]),
+    template: oneOf(BOT_TEMPLATE_KINDS),
+    runtime: optionalOneOf(RUNTIMES),
+    schedule_on: bool,
+    gated: bool,
+    failed_attempts: count(10),
+    last_failure: optionalOneOf(BOT_CREATE_FAILURES),
+    duration_s: count(24 * 3600),
+  }, 10),
+  bot_action: def({ action: oneOf(BOT_ACTIONS) }, 20),
+  /** Once a day per profile: what its relay's bots look like now. The
+   * schedule, run and peer counts come only from a relay that sends them. */
+  bots_snapshot: def({
+    bot_count: count(100),
+    from_template: count(100),
+    paused: count(100),
+    first_run: count(100),
+    scheduled: count(100),
+    last_run_failed: count(100),
+    limited: count(100),
+    needs_you: count(1000),
+    schedules: { ...count(2000), optional: true },
+    runs_24h_replied: { ...count(5000), optional: true },
+    runs_24h_silent: { ...count(5000), optional: true },
+    runs_24h_failed: { ...count(5000), optional: true },
+    runs_24h_missed: { ...count(5000), optional: true },
+    runs_24h_limited: { ...count(5000), optional: true },
+    peer_asks_24h: { ...count(5000), optional: true },
+    peer_handoffs_24h: { ...count(5000), optional: true },
+  }, 20),
   /** Once a day per profile: which release its relay runs and how it can
    * be brought up to the app's. */
   relay_seen: def({

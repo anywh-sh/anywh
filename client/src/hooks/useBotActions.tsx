@@ -8,6 +8,7 @@ import { botByRoom, subscribeBotRemovals, subscribeBots } from "@/lib/bots/botsS
 import { botTemplatesTabId } from "@/lib/bots/botTabs";
 import { openNewBot } from "@/lib/bots/newBotRequest";
 import type { Profile } from "@/lib/profiles/profiles";
+import { trackBotAction, trackError } from "@/lib/telemetry/instrument";
 
 interface UseBotActionsArgs {
   activeProfile: Profile;
@@ -55,6 +56,7 @@ export function useBotActions({ activeProfile, tabsState, onNavigated, openPane 
     const profile = (): Profile => latest.current.activeProfile;
     return {
       onSelectBot: (bot) => {
+        trackBotAction("open_conversation");
         latest.current.tabsState.openTab(profile().id, bot.roomId, bot.name, false, false, true);
         latest.current.onNavigated();
       },
@@ -62,22 +64,30 @@ export function useBotActions({ activeProfile, tabsState, onNavigated, openPane 
         latest.current.tabsState.openTab(profile().id, agentId, title);
         latest.current.onNavigated();
       },
-      onNewBot: (start) => {
+      onNewBot: (start, source) => {
         if (start === "templates") {
           latest.current.tabsState.openTab(profile().id, botTemplatesTabId(profile().id), null, true);
           latest.current.onNavigated();
           return;
         }
-        openNewBot({ profileId: profile().id });
+        openNewBot({ profileId: profile().id, ...(source ? { source } : {}) });
       },
       onBotSettings: (bot) => openBotSettings({ profileId: profile().id, botId: bot.id, roomId: bot.roomId, name: bot.name }),
       onTogglePaused: (bot) => {
-        patchBot(profile(), bot.id, { paused: !bot.paused }).catch((error: unknown) => console.error("[anywh] failed to pause the bot", error));
+        trackBotAction("pause_bot");
+        patchBot(profile(), bot.id, { paused: !bot.paused }).catch((error: unknown) => {
+          trackError("bot_action_failed");
+          console.error("[anywh] failed to pause the bot", error);
+        });
       },
       onDeleteBot: (bot) => {
+        trackBotAction("delete_bot");
         deleteBot(profile(), bot.id).then(
           () => closeBotTabs(bot),
-          (error: unknown) => console.error("[anywh] failed to delete the bot", error),
+          (error: unknown) => {
+            trackError("bot_action_failed");
+            console.error("[anywh] failed to delete the bot", error);
+          },
         );
       },
     };

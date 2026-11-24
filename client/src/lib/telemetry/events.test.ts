@@ -67,6 +67,10 @@ describe("validateEvent", () => {
       [
         "app_active",
         "app_opened",
+        "bot_action",
+        "bot_create_ended",
+        "bot_create_opened",
+        "bots_snapshot",
         "error_shown",
         "feature_used",
         "first_prompt_sent",
@@ -85,7 +89,7 @@ describe("validateEvent", () => {
       ].sort(),
     );
     expect(FEATURES).toHaveLength(16);
-    expect(ERROR_KINDS).toHaveLength(9);
+    expect(ERROR_KINDS).toHaveLength(11);
   });
 });
 

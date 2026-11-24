@@ -15,6 +15,8 @@ import { deleteBot, editMemoryLine, fetchBot, patchBot } from "@/lib/bots/botCli
 import type { BotView, MemoryLine } from "@/lib/bots/botTypes";
 import { mascotChoiceOf } from "@/lib/bots/mascot";
 import type { Profile } from "@/lib/profiles/profiles";
+import type { BotAction } from "@/lib/telemetry/events";
+import { trackBotAction, trackError } from "@/lib/telemetry/instrument";
 
 type SaveStatus = "idle" | "saving" | "saved" | "failed";
 
@@ -65,11 +67,15 @@ export function BotSettings({ profile, bot, onBack, initial }: BotSettingsProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, bot.id]);
 
-  const save = (work: Promise<unknown>): void => {
+  const save = (work: Promise<unknown>, action: BotAction = "edit_settings"): void => {
+    trackBotAction(action);
     setStatus("saving");
     work.then(
       () => setStatus("saved"),
-      () => setStatus("failed"),
+      () => {
+        trackError("bot_action_failed");
+        setStatus("failed");
+      },
     );
   };
 
@@ -131,7 +137,7 @@ export function BotSettings({ profile, bot, onBack, initial }: BotSettingsProps)
 
         <Section title={copy.pauseOrDelete} last>
           <label className="flex cursor-pointer items-start gap-3">
-            <Switch checked={bot.paused} onCheckedChange={(paused) => save(patchBot(profile, bot.id, { paused }))} aria-label={bot.paused ? copy.resume : copy.pause} />
+            <Switch checked={bot.paused} onCheckedChange={(paused) => save(patchBot(profile, bot.id, { paused }), "pause_bot")} aria-label={bot.paused ? copy.resume : copy.pause} />
             <span className="flex flex-col gap-0.5">
               <span className="text-[13px] text-foreground">{bot.paused ? copy.resume : copy.pause}</span>
               <span className="text-xs leading-snug text-text-faint">{copy.pauseHint}</span>
@@ -149,7 +155,12 @@ export function BotSettings({ profile, bot, onBack, initial }: BotSettingsProps)
                 cancelLabel: dict.common.cancel,
               }).then((confirmed) => {
                 // The bot leaving the list closes its tabs, this panel with them.
-                if (confirmed) deleteBot(profile, bot.id).catch(() => setStatus("failed"));
+                if (!confirmed) return;
+                trackBotAction("delete_bot");
+                deleteBot(profile, bot.id).catch(() => {
+                  trackError("bot_action_failed");
+                  setStatus("failed");
+                });
               });
             }}
           >
@@ -192,13 +203,17 @@ function MemoryList({ profile, botId, lines, onChange }: { profile: Profile; bot
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const [failed, setFailed] = useState(false);
   const run = (index: number, text: string | null): void => {
+    trackBotAction("edit_memory");
     setFailed(false);
     editMemoryLine(profile, botId, index, text).then(
       (memory) => {
         setEditing(null);
         onChange(memory);
       },
-      () => setFailed(true),
+      () => {
+        trackError("bot_action_failed");
+        setFailed(true);
+      },
     );
   };
   if (lines.length === 0) return <p className="text-xs text-text-faint">{dict.bots.settings.memoryEmpty}</p>;

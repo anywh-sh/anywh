@@ -18,6 +18,9 @@ import {
   type Feature,
   type PromptTarget,
   type UpgradePromptSource,
+  type BotAction,
+  type BotCreateFailure,
+  type BotCreateSource,
   type EventProps,
 } from "@/lib/telemetry/events";
 import { APP_VERSION } from "@/lib/install/appVersion";
@@ -25,6 +28,8 @@ import { getInstallOrigin, resolveUpdateMode } from "@/lib/install/updateMode";
 import type { Profile } from "@/lib/profiles/profiles";
 import { LOOPBACK_HOSTS } from "@/lib/profiles/loopback";
 import type { HostInfo } from "@/lib/relay/filesClient";
+import type { BotSummary } from "@/lib/bots/botTypes";
+import { botsSnapshot, templateKind } from "@/lib/telemetry/bots";
 import { relayPlatform, relayUpdatePath, relayVsApp, updateRequestResult, installerCode, installerStep, secondsSince, updateReason, versionOrNone } from "@/lib/telemetry/relay";
 
 /**
@@ -184,6 +189,42 @@ export function trackRelayUpgradePrompt(
   const props = { action, kind, source };
   if (action === "shown") telemetry.trackDaily(`upgrade_prompt:${profileId}:${source}`, "relay_upgrade_prompt", props);
   else telemetry.track("relay_upgrade_prompt", props);
+}
+
+export function trackBotCreateOpened(source: BotCreateSource, templateId: string | undefined): void {
+  telemetry.track("bot_create_opened", { source, template: templateKind(templateId) });
+}
+
+export interface BotCreateAttempt {
+  templateId: string | undefined;
+  openedAt: number;
+  gated: boolean;
+  failedAttempts: number;
+  lastFailure?: BotCreateFailure;
+  created?: { agentId: string; scheduleOn: boolean };
+}
+
+export function trackBotCreateEnded(attempt: BotCreateAttempt): void {
+  telemetry.track("bot_create_ended", {
+    outcome: attempt.created ? "created" : "abandoned",
+    template: templateKind(attempt.templateId),
+    ...(attempt.created ? { runtime: runtimeOf(attempt.created.agentId) } : {}),
+    schedule_on: attempt.created?.scheduleOn === true,
+    gated: attempt.gated,
+    failed_attempts: Math.min(10, attempt.failedAttempts),
+    ...(attempt.lastFailure ? { last_failure: attempt.lastFailure } : {}),
+    duration_s: secondsSince(attempt.openedAt, Date.now()),
+  });
+}
+
+/** What a person did with a bot, once a day per kind of action. */
+export function trackBotAction(action: BotAction): void {
+  telemetry.trackDaily(`bot_action:${action}`, "bot_action", { action });
+}
+
+/** Once a day per profile, the first time its relay's bots are known. */
+export function trackBotsSnapshot(profileId: string, bots: readonly BotSummary[]): void {
+  telemetry.trackDaily(`bots_snapshot:${profileId}`, "bots_snapshot", botsSnapshot(bots));
 }
 
 /** `custom` only for an imported theme: any built-in, the default or not, and
