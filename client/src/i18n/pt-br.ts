@@ -1469,7 +1469,6 @@ export const ptBr: Dictionary = {
       scheduleOn: "{when} · ligado",
       fromTemplate: "Começar de um modelo",
       create: "Criar",
-      creating: "Criando…",
       failed: "Não foi possível criar o bot.",
       noHost: "O host de agentes desta máquina não está rodando, então um bot não pode começar agora.",
     },

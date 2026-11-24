@@ -60,4 +60,18 @@ describe("New bot dialog stories", () => {
     await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
     expect(createBot).toHaveBeenCalledTimes(1);
   });
+
+  it("while creating, the button keeps its label and the whole form is locked", async () => {
+    render(<FromTemplate />);
+    const create = screen.getByRole("button", { name: new RegExp(`^${copy.create.create}`) });
+    await userEvent.click(create);
+    expect(create).toHaveAttribute("aria-busy", "true");
+    expect(create).toBeDisabled();
+    expect(create).toHaveTextContent(copy.create.create);
+    expect(screen.getByDisplayValue(copy.templates["ci-check"].name)).toBeDisabled();
+    expect(screen.getByRole("switch", { name: copy.templates["ci-check"].scheduleName })).toBeDisabled();
+    expect(screen.getByRole("button", { name: en.common.cancel })).toBeDisabled();
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    expect(createBot).toHaveBeenCalledTimes(1);
+  });
 });

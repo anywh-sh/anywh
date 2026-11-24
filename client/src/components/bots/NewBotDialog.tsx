@@ -156,7 +156,10 @@ export function NewBotForm({
   }, []);
 
   return (
-    <div className="flex flex-col">
+    // While the bot is being created nothing in the form can change under it:
+    // a disabled fieldset disables every control inside, the header's close
+    // and the footer's buttons included (Escape still closes the dialog).
+    <fieldset disabled={busy} className="m-0 flex min-w-0 flex-col border-0 p-0">
       <DialogHeader className="h-[52px] border-b-0 bg-transparent py-0 pl-5">
         <DialogTitle className="font-display text-[17px] font-semibold tracking-[-0.01em]">{copy.title}</DialogTitle>
       </DialogHeader>
@@ -256,11 +259,13 @@ export function NewBotForm({
         <Button variant="ghost" onClick={closeNewBot}>
           {dict.common.cancel}
         </Button>
-        <Button loading={busy} disabled={!ready} onClick={() => void create()}>
-          {busy ? copy.creating : copy.create}
+        {/* The label stays the same while it loads, so the button keeps its
+            width; faded while busy, since nothing in the form can be used then. */}
+        <Button loading={busy} disabled={!ready} onClick={() => void create()} className="data-loading:disabled:opacity-50">
+          {copy.create}
           <KbdShortcut keys={shortcutKeys("↵")} size="sm" className="[&_kbd]:border-background/25 [&_kbd]:bg-transparent [&_kbd]:text-background/75" />
         </Button>
       </div>
-    </div>
+    </fieldset>
   );
 }
