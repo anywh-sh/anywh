@@ -44,8 +44,10 @@ test("--config-root gives each agent CLI its own folder and the profile its own 
     assert.equal(env.CLAUDE_CONFIG_DIR, join(root, "claude"));
     assert.equal(env.CODEX_HOME, join(root, "codex"));
     assert.equal(env.KIMI_CODE_HOME, join(root, "kimi"));
-    assert.equal(env.RELAY_ROOM_CONTEXT_DIR, join(root, "rooms"));
-    assert.equal(env.RELAY_BOT_DIR, join(root, "bots"));
+    assert.equal(env.RELAY_DATA_DIR, root);
+    // One root, not a line per feature: the relay derives rooms/ and bots/.
+    assert.equal(env.RELAY_ROOM_CONTEXT_DIR, undefined);
+    assert.equal(env.RELAY_BOT_DIR, undefined);
     assert.equal(env.RELAY_HOME_OVERRIDE, undefined);
     for (const sub of ["claude", "codex", "kimi", "rooms", "bots"]) assert.ok(statSync(join(root, sub)).isDirectory(), sub);
     // It holds the profile's agent credentials.
@@ -60,12 +62,12 @@ test("--resume keeps the keys it doesn't write, config dirs included — the app
     addProfile(home, envDir, ["work", "--resume"]);
     const env = readEnv(envDir, "work");
     assert.equal(env.CLAUDE_CONFIG_DIR, join(home, "cfg/claude"));
-    assert.equal(env.RELAY_ROOM_CONTEXT_DIR, join(home, "cfg/rooms"));
-    assert.equal(env.RELAY_BOT_DIR, join(home, "cfg/bots"));
+    assert.equal(env.RELAY_DATA_DIR, join(home, "cfg"));
     assert.equal(env.ANYWH_EDITOR_SSH, "me@host");
     // Written once each, not appended again on every resume.
     const text = readFileSync(join(envDir, "work.env"), "utf8");
     assert.equal(text.match(/^CLAUDE_CONFIG_DIR=/gm)?.length, 1);
+    assert.equal(text.match(/^RELAY_DATA_DIR=/gm)?.length, 1);
     assert.equal(text.match(/^RELAY_PORT=/gm)?.length, 1);
   });
 });

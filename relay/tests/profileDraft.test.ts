@@ -58,8 +58,8 @@ test("validating and creating from a draft use its config folders, and the profi
   const env = readFileSync(join(server.envDir, `${draft.id}.env`), "utf8");
   const root = join(server.profilesDir, draft.id);
   assert.match(env, new RegExp(`^CLAUDE_CONFIG_DIR=${root}/claude$`, "m"));
-  assert.match(env, new RegExp(`^RELAY_ROOM_CONTEXT_DIR=${root}/rooms$`, "m"));
-  assert.match(env, new RegExp(`^RELAY_BOT_DIR=${root}/bots$`, "m"));
+  assert.match(env, new RegExp(`^RELAY_DATA_DIR=${root}$`, "m"));
+  assert.doesNotMatch(env, /^RELAY_(ROOM_CONTEXT|BOT)_DIR=/m);
   assert.doesNotMatch(env, /^RELAY_HOME_OVERRIDE=/m);
 
   // It is a profile now, not a draft: the draft routes leave it alone, and
