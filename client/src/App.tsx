@@ -126,6 +126,9 @@ export default function App() {
   // there is no profile yet — the pairing flow's whole point — and a
   // listener inside the shell would be unmounted at that exact moment.
   useProfileImport();
+  // Above the gate too: the first run is where a Mac's local relay is
+  // created and started, and the app menu must offer to stop it from then on.
+  useQuitCompletelyMenu();
   const profiles = useProfiles();
   const firstRun = useFirstRun();
   const soleUnverified = profiles.length === 1 && profiles[0].unverified === true;
@@ -172,7 +175,6 @@ function AppShell() {
   const fileTabs = useFileTabs();
   const windowFocused = useWindowFocus();
   useContextMenuGuard();
-  useQuitCompletelyMenu();
   // Both registry mirrors live here, at the one place that is mounted for
   // the whole life of the app in both layouts. The profile sync used to sit
   // inside ProfileSwitcher, which the collapsible sidebar unmounts and iOS
