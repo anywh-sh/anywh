@@ -81,6 +81,18 @@ export function peerPurpose(soul: string): string | null {
   return line.length > BOT_PEER_PURPOSE_MAX ? `${line.slice(0, BOT_PEER_PURPOSE_MAX - 1).trimEnd()}…` : line;
 }
 
+/** Most peers the turn note names; `bot_list` has them all. */
+export const BOT_PEER_ROSTER_MAX = 20;
+
+/** The other bots, named in the note of every turn so the bot knows whom it
+ * could involve; `undefined` when it is alone. */
+export function peerRosterNote(peers: readonly { name: string; purpose: string | null }[]): string | undefined {
+  if (peers.length === 0) return undefined;
+  const lines = peers.slice(0, BOT_PEER_ROSTER_MAX).map((peer) => `- ${peer.name}: ${peer.purpose ?? "(purpose not written yet)"}`);
+  const more = peers.length > BOT_PEER_ROSTER_MAX ? `\n- …and ${peers.length - BOT_PEER_ROSTER_MAX} more (bot_list)` : "";
+  return `Other bots on this computer (bot_ask, bot_handoff):\n${lines.join("\n")}${more}`;
+}
+
 /** The peer `to` names, by id or by name in any case; never the asker. */
 export function resolvePeer(bots: readonly BotRecord[], selfId: string, to: string): Parsed<BotRecord> {
   const byId = bots.find((bot) => bot.id === to);

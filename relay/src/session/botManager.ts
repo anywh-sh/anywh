@@ -34,6 +34,7 @@ import {
   peerHandoffText,
   peerNoAnswerText,
   peerPurpose,
+  peerRosterNote,
   resolvePeer,
   sendWindow,
   BOT_PEER_SENDS_PER_HOUR,
@@ -484,9 +485,19 @@ export class BotManager implements RoomBots {
     const bot = this.store.byRoom(roomId);
     if (!bot) return undefined;
     const clock = botClockNote(this.now(), this.timeZone());
+    // Who the other bots are, on every turn: a bot that has to call bot_list
+    // to learn its peers exist never thinks of involving one on its own.
+    const peers = peerRosterNote(
+      this.store
+        .list()
+        .filter((each) => each.id !== bot.id)
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((each) => ({ name: each.name, purpose: peerPurpose(this.options.files.readSoul(each.id)) })),
+    );
+    const note = [bot.firstRun ? BOT_FIRST_RUN_NOTE : undefined, clock, peers].filter((part) => part !== undefined).join("\n\n");
     // One note behind a prefix of its own, so a transcript read back can
     // drop all of it (see `stripRelayNote`).
-    return `${BOT_TURN_NOTE_PREFIX} ${bot.firstRun ? `${BOT_FIRST_RUN_NOTE}\n\n${clock}` : clock}`;
+    return `${BOT_TURN_NOTE_PREFIX} ${note}`;
   }
 
   taskRefusal(roomId: string, taskN: number): string | undefined {

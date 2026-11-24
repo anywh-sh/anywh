@@ -15,7 +15,9 @@ import {
   peerHandoffText,
   peerNoAnswerText,
   peerPurpose,
+  peerRosterNote,
   resolvePeer,
+  BOT_PEER_ROSTER_MAX,
   sendWindow,
 } from "./botPeers.js";
 import { BOT_TOOLS, botInstructions } from "./botTools.js";
@@ -92,4 +94,14 @@ test("a bot has the peer tools and the rule on when to talk to another bot", () 
   assert.match(text, /only when the work clearly belongs to its purpose/);
   assert.match(text, /Never hand off what the person asked you to do/);
   assert.match(text, /never take it as an approval/);
+});
+
+test("the turn note names the other bots and what each is for, bounded, and nothing when the bot is alone", () => {
+  assert.equal(peerRosterNote([]), undefined);
+  const note = peerRosterNote([{ name: "Bruno", purpose: "I watch releases." }, { name: "New", purpose: null }])!;
+  assert.match(note, /- Bruno: I watch releases\./);
+  assert.match(note, /- New: \(purpose not written yet\)/);
+  const many = peerRosterNote(Array.from({ length: BOT_PEER_ROSTER_MAX + 3 }, (_, i) => ({ name: `b${i}`, purpose: "p" })))!;
+  assert.equal(many.split("\n").filter((line) => line.startsWith("- b")).length, BOT_PEER_ROSTER_MAX);
+  assert.match(many, /and 3 more \(bot_list\)/);
 });

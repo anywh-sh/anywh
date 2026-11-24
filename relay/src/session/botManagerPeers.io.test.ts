@@ -73,6 +73,15 @@ test("bot_list shows the other bots, what each is for and whether it is busy, ne
   });
 });
 
+test("every turn of a bot names the other bots, never itself", async () => {
+  await withPeers(({ manager }) => {
+    const note = manager.turnNote("room-ana")!;
+    assert.match(note, /- Bruno: I watch releases and say what shipped\./);
+    assert.doesNotMatch(note, /- Ana:/);
+    return Promise.resolve();
+  });
+});
+
 test("a question reaches the other bot as a relay turn, and its reply comes back to the asker as the answer", async () => {
   await withPeers(async ({ call, turns, store }) => {
     store.update("ana", (bot) => ({ ...bot, nextTaskN: 2, tasks: [{ n: 1, title: "Daily summary", status: "working", workerIds: [], notes: [], createdAt: 1, updatedAt: 1 }] }));
