@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, wr
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { readUserMcpServers, sweepStaleAgentWorkerMcpFiles, writeAgentWorkerMcpFile } from "./agentWorker.js";
+import { readSharedMcpServers, readUserMcpServers, SHARED_MCP_ENV, sweepStaleAgentWorkerMcpFiles, writeAgentWorkerMcpFile, writePersistentMcpConfig } from "./agentWorker.js";
 
 async function withHome(run: (home: string) => Promise<void>): Promise<void> {
   const home = mkdtempSync(join(tmpdir(), "anywh-agent-worker-test-"));
@@ -97,5 +97,41 @@ test("sweepStaleAgentWorkerMcpFiles: removes a dir whose owner is gone, keeps li
     await mine.remove();
     rmSync(deadDir, { recursive: true, force: true });
     rmSync(parentDir, { recursive: true, force: true });
+  }
+});
+
+test("a profile sharing the machine's MCP servers gets them in its --mcp-config, its own winning a clash, bridges winning over both", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-shared-mcp-"));
+  const machine = join(dir, "machine.claude.json");
+  const profileHome = join(dir, "profile");
+  writeFileSync(machine, JSON.stringify({ mcpServers: { sentry: { command: "machine-sentry" }, linear: { command: "machine-linear" }, "anywh-choice": { command: "spoof" } } }));
+  const saved = process.env[SHARED_MCP_ENV];
+  try {
+    assert.deepEqual(await readSharedMcpServers(undefined, {}), {}, "no variable, nothing shared");
+    process.env[SHARED_MCP_ENV] = machine;
+    const bridge = JSON.stringify({ mcpServers: { "anywh-choice": { command: "bridge" } } });
+    // An ordinary (non-worker) session: only the shared servers are added;
+    // the profile's own come from its own .claude.json, natively.
+    const file = await writePersistentMcpConfig(bridge, false, profileHome, dir);
+    assert.ok(file);
+    try {
+      const config = JSON.parse(readFileSync(file.path, "utf8")) as { mcpServers: Record<string, { command: string }> };
+      assert.equal(config.mcpServers.sentry.command, "machine-sentry");
+      assert.equal(config.mcpServers["anywh-choice"].command, "bridge");
+    } finally {
+      await file.remove();
+    }
+    // A strict session takes none of them.
+    const strict = await writePersistentMcpConfig(bridge, false, profileHome, dir, false);
+    assert.ok(strict);
+    try {
+      assert.deepEqual(Object.keys((JSON.parse(readFileSync(strict.path, "utf8")) as { mcpServers: object }).mcpServers), ["anywh-choice"]);
+    } finally {
+      await strict.remove();
+    }
+  } finally {
+    if (saved === undefined) delete process.env[SHARED_MCP_ENV];
+    else process.env[SHARED_MCP_ENV] = saved;
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -1227,7 +1227,34 @@ export interface Dictionary {
         namePlaceholder: string;
         homeLabel: string;
         homePlaceholder: string;
-        verify: string;
+        /** Under the custom folder: what typing one means (the older,
+         * whole-`$HOME` isolation) and that the default needs none. */
+        homeHint: string;
+        /** Toggles the custom folder field. */
+        advanced: string;
+        /** Under the agent picker: it is the agent signed in now, not the
+         * only one the profile can use. */
+        runtimeHint: string;
+        /** What a new profile keeps from this machine's own agent
+         * configuration. The account is never part of it. */
+        sharing: {
+          title: string;
+          description: string;
+          categories: { instructions: string; preferences: string; mcp: string };
+          separate: string;
+          shared: string;
+          copy: string;
+          /** The per-agent exceptions (Codex's single config file, Kimi's
+           * config holding its account). */
+          /** Shown when Preferences isn't separate: Claude's settings.json can
+           * carry an API key, which then outranks the profile's own sign-in. */
+          preferencesKeyWarning: string;
+          agentNotes: string;
+        };
+        continue: string;
+        back: string;
+        /** The sign-in step. `{agent}` — the agent picked. */
+        accountDescription: string;
         verifying: string;
         creating: string;
         /** `{agent}` — the agent picked above, whose login was checked. */
@@ -1316,6 +1343,17 @@ export interface Dictionary {
         willPair: string;
         format: string;
         submit: string;
+        /** The two ways in: a pairing code, or a relay's address typed
+         * directly (a machine on the same network or tailnet). */
+        modeCode: string;
+        modeAddress: string;
+        hostLabel: string;
+        hostPlaceholder: string;
+        portLabel: string;
+        /** Shown for a host that can't be an address. */
+        hostInvalid: string;
+        /** The address mode's submit. */
+        connect: string;
       };
       /** The blocking dialog that runs while a paired machine is turned
        * into a working profile. */

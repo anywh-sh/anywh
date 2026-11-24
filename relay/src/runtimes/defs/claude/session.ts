@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../../executables.js";
 import { buildChildEnv } from "../../../host/childEnv.js";
-import { AGENT_WORKER_SETTING_SOURCES, mergeAgentWorkerMcpConfig, readUserMcpServers, sweepStaleAgentWorkerMcpFiles, writeAgentWorkerMcpFile } from "./agentWorker.js";
+import { AGENT_WORKER_SETTING_SOURCES, mergeAgentWorkerMcpConfig, readSharedMcpServers, readUserMcpServers, sweepStaleAgentWorkerMcpFiles, writeAgentWorkerMcpFile } from "./agentWorker.js";
 import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "../../../bridges/planChoiceMarker.js";
 // Known reverse-direction dependency, surfaced by turning on the boundary
 // lint (not by this file changing): a def reaching into session/ for two
@@ -428,9 +428,13 @@ export class ClaudeSession {
     const worker = this.options.agentWorker === true;
     let remove = async (): Promise<void> => {};
     let configArg = mcp?.configJson;
-    if (worker) {
+    // The machine's servers a profile shares travel the same way as a
+    // worker's own: a private file, since they carry secrets.
+    const shared = await readSharedMcpServers(cwd);
+    if (worker || Object.keys(shared).length > 0) {
       await sweepStaleAgentWorkerMcpFiles();
-      const merged = mergeAgentWorkerMcpConfig(mcp?.configJson, await readUserMcpServers(this.options.homeOverride ?? homedir(), cwd));
+      const own = worker ? await readUserMcpServers(this.options.homeOverride ?? homedir(), cwd) : {};
+      const merged = mergeAgentWorkerMcpConfig(mcp?.configJson, { ...shared, ...own });
       if (merged) {
         const file = await writeAgentWorkerMcpFile(merged);
         configArg = file.path;

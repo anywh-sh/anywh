@@ -11,6 +11,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The relay's tests point this at a fake (SYSTEMCTL_BIN, as for the relay's
+# own spawns): a real `systemctl --user` reaches the operator's live units.
+SYSTEMCTL="${SYSTEMCTL_BIN:-systemctl}"
 source "$SCRIPT_DIR/../lib.sh"
 
 usage() {
@@ -20,6 +23,13 @@ Usage: $(basename "$0") <id> [options]
   --label <text>       Display label (default: <id>)
   --home <path>        Overridden \$HOME for this profile's claude account
                         (default: the real \$HOME, i.e. no isolation)
+  --config-root <path> Keep the real \$HOME and give each agent CLI its own
+                        config folder under <path> (claude/, codex/, kimi/,
+                        plus rooms/) — its own account for each. Excludes
+                        --home
+  --env KEY=VALUE      One more line for the profile's .env (repeatable),
+                        kept across --resume like any key this script
+                        doesn't otherwise write
   --port <port>        Relay port (default: first free port found)
   --relay-host <ip>    Host this profile's relay binds/advertises on
                         (default: read from an existing profile's .env)
@@ -44,6 +54,8 @@ shift
 
 LABEL=""
 PROFILE_HOME=""
+CONFIG_ROOT=""
+EXTRA_ENV=()
 PORT=""
 RELAY_HOST_ARG=""
 MODE="prod"
@@ -54,6 +66,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --label) LABEL="$2"; shift 2 ;;
     --home) PROFILE_HOME="$2"; shift 2 ;;
+    --config-root) CONFIG_ROOT="$2"; shift 2 ;;
+    --env)
+      if [[ ! "$2" =~ ^[A-Z_][A-Z0-9_]*=.*$ ]]; then echo "error: --env takes KEY=VALUE, got '$2'" >&2; exit 1; fi
+      EXTRA_ENV+=("$2"); shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
     --relay-host) RELAY_HOST_ARG="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
@@ -84,6 +100,10 @@ if [[ ! "$ID" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
   echo "error: invalid profile id '$ID' (expected ^[a-z0-9][a-z0-9-]*\$)" >&2
   exit 1
 fi
+if [[ -n "$PROFILE_HOME" && -n "$CONFIG_ROOT" ]]; then
+  echo "error: --home and --config-root are two ways to isolate an account; pass one" >&2
+  exit 1
+fi
 if [[ "$MODE" != "dev" && "$MODE" != "prod" ]]; then
   echo "error: --mode must be 'dev' or 'prod'" >&2
   exit 1
@@ -102,6 +122,14 @@ EXISTING_FILE=0
 EXISTING_PORT=""
 EXISTING_HOST=""
 EXISTING_HOME=""
+EXISTING_CLAUDE_DIR=""
+# Lines of keys this script doesn't write (an operator's own
+# ANYWH_EDITOR_SSH, say). Kept as they are on --resume: the file is rewritten
+# whole, and dropping them silently changed the profile — losing a config
+# dir would have turned it into the real $HOME's account.
+EXTRA_LINES=""
+MANAGED_KEYS=" RELAY_PORT RELAY_HOST RELAY_HOME_OVERRIDE RELAY_UPLOAD_DIR RELAY_SESSIONS_FILE RELAY_BACKGROUND_JOBS_FILE RELAY_WAKEUPS_FILE RELAY_PUSH_DEVICES_FILE ANYWH_EDITOR_LOCAL "
+CONFIG_ROOT_KEYS=" CLAUDE_CONFIG_DIR CODEX_HOME KIMI_CODE_HOME RELAY_DATA_DIR "
 if [[ -e "$ENV_FILE" ]]; then
   if [[ "$RESUME" -eq 0 ]]; then
     fail exists "profile '$ID' already exists ($ENV_FILE)"
@@ -114,7 +142,19 @@ if [[ -e "$ENV_FILE" ]]; then
       RELAY_PORT) EXISTING_PORT="${line#*=}" ;;
       RELAY_HOST) EXISTING_HOST="${line#*=}" ;;
       RELAY_HOME_OVERRIDE) EXISTING_HOME="${line#*=}" ;;
+      CLAUDE_CONFIG_DIR) EXISTING_CLAUDE_DIR="${line#*=}" ;;
     esac
+    key="${line%%=*}"
+    # A key given again with --env takes the new value, written below.
+    for pair in "${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}"; do
+      if [[ "${pair%%=*}" == "$key" ]]; then continue 2; fi
+    done
+    if [[ "$MANAGED_KEYS" != *" $key "* ]]; then
+      # A config-root key is only this script's while --config-root says
+      # so; otherwise it is the operator's and kept like any other.
+      if [[ -n "$CONFIG_ROOT" && "$CONFIG_ROOT_KEYS" == *" $key "* ]]; then continue; fi
+      EXTRA_LINES+="$line"$'\n'
+    fi
   done < "$ENV_FILE"
 fi
 
@@ -196,6 +236,15 @@ if [[ -n "$PROFILE_HOME" ]]; then
   PROFILE_HOME="$(cd "$PROFILE_HOME" && pwd)"
 fi
 
+if [[ -n "$CONFIG_ROOT" ]]; then
+  # Same rules as --home: absolute, `~` expanded. Resolved here but only
+  # created after the --resume check below: a refused run must not leave a
+  # folder behind that the relay would then take for a draft.
+  CONFIG_ROOT="${CONFIG_ROOT/#\~/$HOME}"
+  [[ "$CONFIG_ROOT" == /* ]] || CONFIG_ROOT="$PWD/$CONFIG_ROOT"
+  if [[ -d "$CONFIG_ROOT" ]]; then CONFIG_ROOT="$(cd "$CONFIG_ROOT" && pwd)"; fi
+fi
+
 # The comparison --resume promises. Only keys that are present in the file
 # and differ count as divergence — an absent key is a write that died
 # before reaching it, which is what resuming is for. Listed all at once so
@@ -207,6 +256,9 @@ if [[ "$EXISTING_FILE" -eq 1 ]]; then
   [[ -z "$EXISTING_PORT" || "$EXISTING_PORT" == "$PORT" ]] || mismatches+=("RELAY_PORT: have $EXISTING_PORT, want $PORT")
   [[ -z "$EXISTING_HOST" || "$EXISTING_HOST" == "$RELAY_HOST" ]] || mismatches+=("RELAY_HOST: have $EXISTING_HOST, want $RELAY_HOST")
   [[ -z "$EXISTING_HOME" || "$EXISTING_HOME" == "$want_home" ]] || mismatches+=("RELAY_HOME_OVERRIDE: have $EXISTING_HOME, want ${want_home:-<none>}")
+  if [[ -n "$CONFIG_ROOT" ]]; then
+    [[ -z "$EXISTING_CLAUDE_DIR" || "$EXISTING_CLAUDE_DIR" == "$CONFIG_ROOT/claude" ]] || mismatches+=("CLAUDE_CONFIG_DIR: have $EXISTING_CLAUDE_DIR, want $CONFIG_ROOT/claude")
+  fi
   if [[ "${#mismatches[@]}" -gt 0 ]]; then
     printf 'error: %s differs from what this run would write:\n' "$ENV_FILE" >&2
     printf '  %s\n' "${mismatches[@]}" >&2
@@ -214,6 +266,16 @@ if [[ "$EXISTING_FILE" -eq 1 ]]; then
     exit 1
   fi
   echo "Resuming $ENV_FILE"
+fi
+
+if [[ -n "$CONFIG_ROOT" ]]; then
+  # Created now when the relay didn't already (a draft): the agent login
+  # that has to pass before this profile is created writes into it. 0700:
+  # it holds the profile's agent credentials.
+  mkdir -p "$CONFIG_ROOT"
+  CONFIG_ROOT="$(cd "$CONFIG_ROOT" && pwd)"
+  for sub in claude codex kimi rooms bots; do mkdir -p "$CONFIG_ROOT/$sub"; done
+  chmod 700 "$CONFIG_ROOT"
 fi
 
 mkdir -p "$ANYWH_ENV_DIR"
@@ -250,6 +312,19 @@ trap 'rm -f "$ENV_TMP"' EXIT
   # completely separate mechanism, so this default has no
   # effect on that path.
   echo "ANYWH_EDITOR_LOCAL=1"
+  if [[ -n "$CONFIG_ROOT" ]]; then
+    # Absolute paths: EnvironmentFile expands neither `~` nor $HOME.
+    echo "CLAUDE_CONFIG_DIR=$CONFIG_ROOT/claude"
+    echo "CODEX_HOME=$CONFIG_ROOT/codex"
+    echo "KIMI_CODE_HOME=$CONFIG_ROOT/kimi"
+    # Its own data root, where the relay keeps its rooms' and bots' folders
+    # (relay/src/host/paths.ts): every profile on the real $HOME would
+    # otherwise share ~/.anywh, and each relay prunes the room folders it
+    # doesn't know — the other profiles' included.
+    echo "RELAY_DATA_DIR=$CONFIG_ROOT"
+  fi
+  printf '%s' "$EXTRA_LINES"
+  for pair in "${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}"; do echo "$pair"; done
 } > "$ENV_TMP"
 mv "$ENV_TMP" "$ENV_FILE"
 
@@ -311,9 +386,9 @@ enable_agent_host() {
     echo "note: the anywh-agent-host@ unit isn't installed (re-run infra/systemd/install.sh); skipping anywh-agent-host@$ID"
     return 0
   fi
-  if systemctl --user is-active --quiet "anywh-agent-host@$ID"; then
+  if "$SYSTEMCTL" --user is-active --quiet "anywh-agent-host@$ID"; then
     echo "anywh-agent-host@$ID is already running; left as is"
-  elif systemctl --user enable --now "anywh-agent-host@$ID"; then
+  elif "$SYSTEMCTL" --user enable --now "anywh-agent-host@$ID"; then
     echo "Enabled anywh-agent-host@$ID (check: systemctl --user status anywh-agent-host@$ID)"
   else
     # Not fatal (`set -e` must not stop here): the relay works without its
@@ -334,7 +409,7 @@ EOF
 elif [[ "$MODE" == "dev" ]]; then
   : # macOS: brew services start anywh-relay is the actual next step,
     # already covered by the formula's own caveats.
-elif systemctl --user is-active --quiet "anywh-relay@$ID"; then
+elif "$SYSTEMCTL" --user is-active --quiet "anywh-relay@$ID"; then
   # Already up from an earlier run — `enable --now` on a running instance is
   # harmless to systemd but a re-run of the installer must not be the thing
   # that restarts a relay with a conversation in flight.
@@ -342,7 +417,7 @@ elif systemctl --user is-active --quiet "anywh-relay@$ID"; then
   enable_agent_host
 else
   enable_agent_host
-  systemctl --user enable --now "anywh-relay@$ID"
+  "$SYSTEMCTL" --user enable --now "anywh-relay@$ID"
   echo "Enabled anywh-relay@$ID (check: systemctl --user status anywh-relay@$ID)"
   # `enable --now` returns once systemd has forked the unit, not once the
   # relay has bound its port — see wait_for_relay (infra/lib.sh) for why

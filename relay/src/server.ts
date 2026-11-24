@@ -5,7 +5,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { McpChoiceBridge } from "./bridges/mcpBridge.js";
 import { McpPermissionBridge } from "./bridges/permissionBridge.js";
 import { ROOM_BRIDGE_PATH, RoomBridge, roomKeyPathFor } from "./bridges/roomBridge.js";
-import { defaultCwd } from "./host/paths.js";
+import { defaultCwd, profileDataDirs } from "./host/paths.js";
 import { extractPdfText } from "./host/pdfText.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
@@ -95,19 +95,22 @@ const pushStore = PUSH_DISABLED ? null : new PushStore(PUSH_DEVICES_FILE);
 const pushDispatcher = pushStore ? new PushDispatcher({ store: pushStore }) : null;
 
 const sessionStore = new SessionStore(SESSIONS_FILE, defaultCwd(HOME_OVERRIDE));
+// The folders this relay writes for its profile (rooms' files, bots' souls
+// and memories): host/paths.ts says where, and where a new one goes.
+const dataDirs = profileDataDirs(process.env, HOME_OVERRIDE);
 // Each room's canvas layout, beside the sessions file (`<profile>-rooms.json`
 // for a profile whose sessions file is `<profile>.json`).
 const roomCanvas = new RoomCanvasStore(process.env.RELAY_ROOMS_FILE ?? roomCanvasPathFor(SESSIONS_FILE));
 // Each room's shared files and their index: a folder per room under the
 // profile's home, where the agents (on this machine) can read them.
 const roomContext = new RoomContextStore({
-  root: process.env.RELAY_ROOM_CONTEXT_DIR ?? join(defaultCwd(HOME_OVERRIDE), ".anywh", "rooms"),
+  root: dataDirs.rooms,
   extractPdf: (path) => extractPdfText(path),
 });
 // The profile's bots (session/bot.ts), beside the sessions file, and their
 // soul and memory files under the profile's home.
 const botStore = new BotStore(process.env.RELAY_BOTS_FILE ?? botsPathFor(SESSIONS_FILE));
-const botFiles = new BotFiles(process.env.RELAY_BOT_DIR ?? join(defaultCwd(HOME_OVERRIDE), ".anywh", "bots"));
+const botFiles = new BotFiles(dataDirs.bots);
 /** Whether a session is a bot (its room's principal). Read from the stores,
  * not the room manager, which is built after the sessions are. */
 function isBotSession(id: string): boolean {
@@ -238,6 +241,9 @@ const sessionManager = new SessionManager(
 let roomRuntimes: readonly string[] = registry.defs.map((def) => def.identity.id).filter((id) => HOST_RUNTIMES.includes(id));
 // The worktrees agents create live under the profile's home, outside every
 // repository; what the relay created is listed beside the sessions file.
+// Not under the profile's data root (host/paths.ts) on purpose: profiles on
+// the real $HOME share this folder safely, since each relay only touches the
+// worktrees its own registry lists.
 const roomWorktrees = new RoomWorktrees({
   registry: new WorktreeRegistry(process.env.RELAY_WORKTREES_FILE ?? worktreeRegistryPathFor(SESSIONS_FILE)),
   root: process.env.RELAY_WORKTREES_ROOT ?? join(HOME_OVERRIDE ?? homedir(), ".anywh", "worktrees"),
@@ -358,7 +364,7 @@ setInterval(sweepWorktrees, 24 * 60 * 60 * 1000).unref();
 // Not for a store with no session at all unless the folder was named by the
 // operator: a relay started by hand with default paths would otherwise see
 // every room of the profile it shares the folder with as gone.
-if (sessionStore.loadedOk && !sessionStore.recoveredFromCorrupt && (sessionStore.listIds().length > 0 || process.env.RELAY_ROOM_CONTEXT_DIR)) {
+if (sessionStore.loadedOk && !sessionStore.recoveredFromCorrupt && (sessionStore.listIds().length > 0 || dataDirs.ownRoot || process.env.RELAY_ROOM_CONTEXT_DIR)) {
   const liveRooms = new Set(sessionStore.listIds().filter((id) => sessionStore.getRoom(id)?.role === "principal"));
   const pruned = roomContext.pruneOrphans(liveRooms);
   if (pruned.length > 0) console.log(`[relay] removed the context folders of ${pruned.length} room(s) that no longer exist`);

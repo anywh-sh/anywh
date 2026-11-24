@@ -41,6 +41,8 @@ export interface TestServer {
    * can plant a second profile's `.env` file directly, the same shape
    * `add-profile.sh` would have written, without needing systemd. */
   envDir: string;
+  /** Where profile drafts and config roots go (`ANYWH_PROFILES_DIR`). */
+  profilesDir: string;
   close: () => Promise<void>;
 }
 
@@ -73,6 +75,9 @@ export async function startTestServer(): Promise<TestServer> {
   process.env.RELAY_HOME_OVERRIDE = homeDir;
   const envDir = join(workDir, "env");
   process.env.ANYWH_ENV_DIR = envDir;
+  // Profile drafts and config roots: never the real ~/.anywh/profiles.
+  const profilesDir = join(workDir, "profiles");
+  process.env.ANYWH_PROFILES_DIR = profilesDir;
   process.env.RELAY_SESSIONS_FILE = join(workDir, "sessions.json");
   process.env.RELAY_BACKGROUND_JOBS_FILE = join(workDir, "background-jobs.json");
   process.env.RELAY_WAKEUPS_FILE = join(workDir, "wakeups.json");
@@ -97,6 +102,7 @@ export async function startTestServer(): Promise<TestServer> {
     port,
     homeDir,
     envDir,
+    profilesDir,
     close: async () => {
       // Tears the live connections down explicitly, instead of asking the
       // servers to close and waiting: a test that fails mid-flight never

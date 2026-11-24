@@ -242,3 +242,25 @@ test("computeContextBreakdown, for a def whose setup can't be observed, names th
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("computeContextBreakdown reads the home's subagents from CLAUDE_CONFIG_DIR, and the project's from the cwd", async () => {
+  const project = makeWorkDir();
+  const home = makeWorkDir();
+  const configDir = makeWorkDir();
+  try {
+    writeFileSync(join(project, "note.txt"), "keeps the cwd non-empty");
+    mkdirSync(join(project, ".claude", "agents"), { recursive: true });
+    writeFileSync(join(project, ".claude", "agents", "reviewer.md"), "---\ndescription: reviews pull requests\n---\n");
+    // The real ~/.claude/agents belongs to another account and must not count.
+    mkdirSync(join(home, ".claude", "agents"), { recursive: true });
+    writeFileSync(join(home, ".claude", "agents", "personal.md"), "---\ndescription: personal\n---\n");
+    mkdirSync(join(configDir, "agents"), { recursive: true });
+    writeFileSync(join(configDir, "agents", "planner.md"), "---\ndescription: plans work\n---\n");
+
+    const accounting: ContextAccounting = { ...CLAUDE_ACCOUNTING, subagents: CLAUDE_SUBAGENTS_ACCOUNTING };
+    const breakdown = await computeContextBreakdown({ cwd: project, home, ruleFileName: "CLAUDE.md", accounting, env: { CLAUDE_CONFIG_DIR: configDir } });
+    assert.equal(breakdown.subagents?.count, 2);
+  } finally {
+    for (const dir of [project, home, configDir]) rmSync(dir, { recursive: true, force: true });
+  }
+});

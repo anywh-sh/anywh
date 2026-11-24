@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { resolveAgentPath } from "../../../host/agentConfigDirs.js";
 import { isToolResultOnly, type ClaudeEvent } from "./session.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
@@ -101,7 +102,7 @@ function resolveRealCwd(cwd: string): string {
  * working directory feature, so it can no longer be assumed to equal
  * `home`/`process.cwd()` in here. */
 export function transcriptPath(home: string, cwd: string, sessionId: string): string {
-  return join(home, ".claude", "projects", sanitizeCwd(resolveRealCwd(cwd)), `${sessionId}.jsonl`);
+  return resolveAgentPath(home, join(".claude", "projects", sanitizeCwd(resolveRealCwd(cwd)), `${sessionId}.jsonl`));
 }
 
 /**

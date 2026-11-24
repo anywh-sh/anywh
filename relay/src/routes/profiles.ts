@@ -6,15 +6,25 @@ import { applyEnvFileContent } from "../host/envFile.js";
 import { isCreateProfileBody, isPatchProfileBody } from "../protocol/guards.js";
 import { readJsonBody, readOptionalJsonBody } from "../protocol/httpBody.js";
 import { resolveShipped } from "../host/paths.js";
+import { homedir } from "node:os";
+import { effectiveConfigDirs, type ProfileTarget } from "../host/agentConfigDirs.js";
+import { applyProfileSharing, SEPARATE_EVERYTHING } from "../host/profileSharing.js";
 import {
+  createProfileDraft,
   deleteProfileFiles,
+  discardProfileDraft,
   envFileFor,
-  findHomeOverrideCollision,
+  findProfileCollision,
+  finishProfileDraft,
+  isHalfCreatedDraft,
+  isProfileDraft,
+  profileConfigRoot,
   isValidProfileId,
-  listProfileIds,
   listProfiles,
   profileSessionsFile,
+  resolveProfileTarget,
   slugify,
+  takenProfileIds,
   updateProfileMeta,
   type HostProfile,
 } from "../host/profileRegistry.js";
@@ -23,6 +33,7 @@ import type { AgentRuntimeDef, AuthStatus } from "../runtimes/types.js";
 import type { Registry } from "../runtimes/registry.js";
 import { lastUsedAgentIdInFile, type SessionStore } from "../session/sessionStore.js";
 import type { RouteHandler } from "./context.js";
+import { endProfileLogins } from "../ws/agentLogin.js";
 
 // Resolved relative to this file (not hardcoded), same reasoning as
 // SCRIPTS_DIR in runtimes/executables.ts — works running from `src/` (tsx),
@@ -151,6 +162,11 @@ function withLastUsedAgent(profile: HostProfile, ownPort: number, ownStore: Sess
   return lastUsed ? { ...profile, lastUsedAgentId: lastUsed } : profile;
 }
 
+/** Drafts a `POST /control/profiles` is turning into profiles right now.
+ * Dropping one then would delete its signed-in folders under the running
+ * `add-profile.sh`, which recreates them empty: a profile signed out. */
+const draftsBeingCreated = new Set<string>();
+
 export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
   if (req.method === "GET" && req.url?.startsWith("/control/profiles")) {
     res.setHeader("Content-Type", "application/json");
@@ -176,6 +192,32 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
           return;
         }
         const homeOverride = body.home && body.home.length > 0 ? body.home : undefined;
+        const draftId = body.draftId && body.draftId.length > 0 ? body.draftId : undefined;
+        if (draftId !== undefined && !isProfileDraft(draftId)) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: "draft not found" }));
+          return;
+        }
+        if (draftId !== undefined && draftsBeingCreated.has(draftId)) {
+          res.writeHead(409);
+          res.end(JSON.stringify({ error: "draft is being created" }));
+          return;
+        }
+        if (draftId !== undefined) draftsBeingCreated.add(draftId);
+        // Released when the script exits, or with the response for the
+        // refusals before it runs — not when a caller hangs up mid-create,
+        // which leaves the script running.
+        let scriptStarted = false;
+        const releaseDraft = (): void => {
+          if (draftId !== undefined) draftsBeingCreated.delete(draftId);
+        };
+        res.once("close", () => {
+          if (!scriptStarted) releaseDraft();
+        });
+        // Spelled out, never inherited: probed from this relay, a profile
+        // that names no home must still read the real $HOME's accounts, not
+        // this relay's own config dirs.
+        const target: ProfileTarget = draftId !== undefined ? resolveProfileTarget(draftId)! : { home: homeOverride };
         const runtime = resolveRuntime(ctx.registry, body.runtimeId);
         if (!runtime.def) {
           res.writeHead(400);
@@ -190,7 +232,7 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
         // anyway.
         let status: AuthStatus;
         try {
-          status = await probeRuntimeAuth(runtime.def, homeOverride);
+          status = await probeRuntimeAuth(runtime.def, target);
         } catch (error) {
           console.error(`[relay] ${runtime.def.identity.id} auth check failed:`, error);
           res.writeHead(502);
@@ -202,34 +244,57 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
           res.end(JSON.stringify({ error: "not logged in" }));
           return;
         }
-        const collidesWith = await findHomeOverrideCollision(homeOverride);
+        const collidesWith = await findProfileCollision(target, undefined, draftId);
         if (collidesWith) {
           res.writeHead(409);
           res.end(JSON.stringify({ error: "home already registered", collidesWith }));
           return;
         }
 
-        const existingIds = listProfileIds();
-        const id = slugify(body.label, existingIds);
+        // A draft already reserved its id (its config root is named after
+        // it); otherwise the id comes from the label, as it always did —
+        // never a draft's, whose folder would outlive the profile taking it.
+        const id = draftId ?? slugify(body.label, takenProfileIds());
 
         const args = [id, "--label", body.label, "--mode", "prod"];
+        // A retry of a create that died after writing the .env: without
+        // --resume the script refuses because the file exists.
+        if (draftId !== undefined && isHalfCreatedDraft(draftId)) args.push("--resume");
         if (homeOverride) args.push("--home", homeOverride);
+        if (draftId !== undefined) {
+          args.push("--config-root", profileConfigRoot(draftId));
+          // What the profile keeps from this machine's own configuration:
+          // links and copies go into the draft's folders now, and whatever
+          // can't be a file (Claude's MCP servers) into its .env.
+          const realHome = homedir();
+          const runtimeEnv = applyProfileSharing(
+            body.sharing ?? SEPARATE_EVERYTHING,
+            effectiveConfigDirs(realHome, target.configDirs ?? {}),
+            effectiveConfigDirs(realHome, {}),
+            join(realHome, ".claude.json"),
+          );
+          for (const [key, value] of Object.entries(runtimeEnv)) args.push("--env", `${key}=${String(value)}`);
+        }
 
         // Argv array, no shell: `id` is derived from user-supplied `label`
         // text and becomes a filename and a systemd instance name — a
         // shell would let a stray space or `/` in that text break out of
         // the intended single argument.
+        scriptStarted = true;
         const child = spawn(ADD_PROFILE_SCRIPT, args, { stdio: ["ignore", "pipe", "pipe"] });
         let stdout = "";
         let stderr = "";
         child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
         child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
         child.on("error", (error) => {
+          releaseDraft();
           console.error("[relay] failed to run add-profile.sh:", error);
           res.writeHead(500);
           res.end(JSON.stringify({ error: "failed to provision profile" }));
         });
         child.on("close", (code) => {
+          if (draftId !== undefined && code === 0) finishProfileDraft(draftId);
+          releaseDraft();
           if (code !== 0) {
             console.error("[relay] add-profile.sh exited with code", code, stderr || stdout);
             res.writeHead(500);
@@ -268,11 +333,64 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
     return true;
   }
 
+  // A profile being created gets its id and config root first, so its
+  // agents can be signed in before it exists: the login writes the account
+  // straight into the folder the profile will use.
+  if (req.method === "POST" && req.url === "/control/profiles/draft") {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    await readOptionalJsonBody(req).then((body) => {
+      const label = typeof body.label === "string" ? body.label.trim() : "";
+      if (label.length === 0) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: "label is required" }));
+        return;
+      }
+      try {
+        const draft = createProfileDraft(label);
+        res.end(JSON.stringify({ id: draft.id }));
+      } catch (error) {
+        console.error("[relay] failed to create a profile draft:", error);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: "failed to create draft" }));
+      }
+    });
+    return true;
+  }
+
+  if (req.method === "DELETE" && req.url?.startsWith("/control/profiles/draft/")) {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    const id = decodeURIComponent(req.url.slice("/control/profiles/draft/".length).split("?")[0]);
+    if (draftsBeingCreated.has(id)) {
+      res.writeHead(409);
+      res.end(JSON.stringify({ error: "draft is being created" }));
+      return true;
+    }
+    // A sign-in still running into the draft would write its config file
+    // back after the folder is gone.
+    if (isProfileDraft(id)) await endProfileLogins(id);
+    if (!discardProfileDraft(id)) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: "draft not found" }));
+      return true;
+    }
+    res.end(JSON.stringify({ ok: true }));
+    return true;
+  }
+
   if (req.method === "POST" && req.url?.startsWith("/control/profiles/validate")) {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Access-Control-Allow-Origin", "*");
     await readOptionalJsonBody(req).then(async (body) => {
       const homeOverride = typeof body.homeOverride === "string" && body.homeOverride.length > 0 ? body.homeOverride : undefined;
+      const draftId = typeof body.draftId === "string" && body.draftId.length > 0 ? body.draftId : undefined;
+      const target = draftId !== undefined ? (isProfileDraft(draftId) ? resolveProfileTarget(draftId) : undefined) : { home: homeOverride };
+      if (!target) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: "draft not found" }));
+        return;
+      }
       const runtime = resolveRuntime(ctx.registry, body.runtimeId);
       if (!runtime.def) {
         res.writeHead(400);
@@ -281,14 +399,14 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
       }
       let status: AuthStatus;
       try {
-        status = await probeRuntimeAuth(runtime.def, homeOverride);
+        status = await probeRuntimeAuth(runtime.def, target);
       } catch (error) {
         console.error(`[relay] ${runtime.def.identity.id} auth check failed:`, error);
         res.writeHead(502);
         res.end(JSON.stringify({ error: `failed to check ${runtime.def.identity.id} auth status` }));
         return;
       }
-      const collidesWith = await findHomeOverrideCollision(homeOverride);
+      const collidesWith = await findProfileCollision(target, undefined, draftId);
       res.end(JSON.stringify(collidesWith ? { ...status, collidesWith } : status));
     });
     return true;
@@ -346,6 +464,9 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
     // stop this very process mid-request. Best-effort: a profile created
     // with `add-profile.sh --mode dev` was never a systemd instance, so a
     // failure here doesn't block cleaning up the registry below.
+    // A sign-in still running into the profile's folders would keep
+    // writing an account there after it is gone from the list.
+    void endProfileLogins(id);
     const finishDelete = () => {
       try {
         deleteProfileFiles(id);

@@ -98,6 +98,7 @@ async function spawnRelayOnce(extraEnv: Record<string, string>): Promise<{ serve
       RELAY_HOST: "127.0.0.1",
       RELAY_HOME_OVERRIDE: homeDir,
       ANYWH_ENV_DIR: join(workDir, "env"),
+      ANYWH_PROFILES_DIR: join(workDir, "profiles"),
       RELAY_SESSIONS_FILE: join(workDir, "sessions.json"),
       RELAY_BACKGROUND_JOBS_FILE: join(workDir, "background-jobs.json"),
       // Never the registry next to the code (`./push-devices.local.json`,

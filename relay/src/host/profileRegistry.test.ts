@@ -10,6 +10,7 @@ import {
   ensureSelfRegistered,
   envFileFor,
   findHomeOverrideCollision,
+  findProfileCollision,
   isValidProfileId,
   listProfileIds,
   isAgentPreference,
@@ -122,6 +123,27 @@ test("findHomeOverrideCollision: absence of RELAY_HOME_OVERRIDE means the real $
   await withTempDir(async (envDir) => {
     writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
     assert.equal(await findHomeOverrideCollision(undefined, envDir), "pessoal");
+  });
+});
+
+test("findProfileCollision: a profile with its own config dirs shares no account with the real $HOME", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
+    const dirs = { claude: "/p/work/claude", codex: "/p/work/codex", kimi: "/p/work/kimi" };
+    assert.equal(await findProfileCollision({ configDirs: dirs }, envDir), undefined);
+    writeEnv(envDir, "work", { RELAY_PORT: "9002", CLAUDE_CONFIG_DIR: "/p/work/claude", CODEX_HOME: "/p/work/codex", KIMI_CODE_HOME: "/p/work/kimi" });
+    // The same folders again are the same accounts.
+    assert.equal(await findProfileCollision({ configDirs: { ...dirs, claude: "/p/work/claude/" } }, envDir), "work");
+    // The real $HOME still belongs to the profile without either.
+    assert.equal(await findHomeOverrideCollision(undefined, envDir), "pessoal");
+  });
+});
+
+test("findProfileCollision: one agent in common is enough — a folder left unset falls back to the home's", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
+    // Only Claude moved: Codex would still be the real ~/.codex, pessoal's.
+    assert.equal(await findProfileCollision({ configDirs: { claude: "/p/x/claude" } }, envDir), "pessoal");
   });
 });
 

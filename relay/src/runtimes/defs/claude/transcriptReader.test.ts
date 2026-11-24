@@ -461,3 +461,18 @@ test("a scheduled run that edited a file, or wrote findings before its NO_REPLY,
     assert.ok(events.some((e) => e.type === "text" && !isSilentEvent(e) && e.text.includes("failed twice")), "the findings are shown");
   });
 });
+
+test("a profile with CLAUDE_CONFIG_DIR keeps its transcripts there, not under $HOME/.claude", () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const cwd = mkdtempSync(join(tmpdir(), "anywh-transcript-cwd-"));
+  try {
+    process.env.CLAUDE_CONFIG_DIR = "/profiles/work/claude";
+    const file = transcriptPath("/home/u", cwd, "s-1");
+    assert.ok(file.startsWith("/profiles/work/claude/projects/"), file);
+    assert.ok(file.endsWith("/s-1.jsonl"));
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
