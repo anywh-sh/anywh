@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- V8 needs JIT: under the hardened runtime the SEA dies with SIGTRAP without it. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<!-- node-pty's pty.node is a separate Mach-O the binary loads at runtime;
+	     with library validation on, it is refused. The official Node binary
+	     carries this too. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>
