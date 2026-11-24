@@ -14,6 +14,7 @@
 // kept and the identifier is merged over it.
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { withEnvConfig } from "./tauriArgs.mjs";
 
 const identifier = process.env.ANYWH_APP_IDENTIFIER?.trim();
 if (identifier) {
@@ -37,5 +38,5 @@ if (identifier) {
 
 const require = createRequire(import.meta.url);
 const cli = require.resolve("@tauri-apps/cli/tauri.js");
-const result = spawnSync(process.execPath, [cli, ...process.argv.slice(2)], { stdio: "inherit", env: process.env });
+const result = spawnSync(process.execPath, [cli, ...withEnvConfig(process.argv.slice(2), process.env.TAURI_CONFIG)], { stdio: "inherit", env: process.env });
 process.exit(result.status ?? 1);
