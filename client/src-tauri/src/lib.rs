@@ -155,6 +155,7 @@ pub fn run_with(
     let builder = builder
         .manage(voice::VoiceState::default())
         .manage(tailnet_sidecar::TailnetSidecars::default())
+        .manage(tailnet_sidecar::SignClock::default())
         .manage(relay_setup::RelaySetup::default())
         .invoke_handler(tauri::generate_handler![
             greet,

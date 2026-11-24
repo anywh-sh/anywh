@@ -34,6 +34,36 @@ struct Running {
     addr: String,
 }
 
+/// The last timestamp `tailnet_sidecar_sign` handed out, so the next one is
+/// strictly greater. A signature covers method/path/ts/body and nothing else,
+/// and a broker request's body is empty: two signs of the same request in the
+/// same millisecond (pairing verify and the relay client both asking for a
+/// grant at once) would be byte-identical, and the control plane keys its
+/// replay check on the signature, so the second one came back 401 `replayed`.
+/// Per process rather than per identity file: there is one identity per
+/// install, and a process-wide sequence is strictly stronger anyway.
+#[derive(Default)]
+pub struct SignClock(std::sync::Mutex<i64>);
+
+impl SignClock {
+    /// `max(now, last + 1)`, reserved under the lock so concurrent callers
+    /// never get the same value. Running ahead of the wall clock by a few ms
+    /// under a burst is harmless: the broker's freshness window is minutes.
+    fn next(&self, now_ms: i64) -> i64 {
+        let mut last = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let ts = now_ms.max(*last + 1);
+        *last = ts;
+        ts
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// Where a profile's tailnet node keeps the identity it earned when its
 /// pre-auth key was spent. That key is single use and expires in 15 minutes,
 /// so this directory surviving is the only thing that lets the profile rejoin the
@@ -133,14 +163,19 @@ pub struct TailnetUpResult {
 /// Generic on purpose: this command has no idea what the path means
 /// or what will be done with the signature — whoever calls it from JS is
 /// the one that knows it's building a request against a specific broker.
+///
+/// The timestamp is chosen here, not by the sidecar (`SignClock`), so every
+/// signature this process produces is unique even for identical requests.
 #[tauri::command]
 pub async fn tailnet_sidecar_sign(
     app: tauri::AppHandle,
+    clock: tauri::State<'_, SignClock>,
     method: String,
     path: String,
     body: String,
 ) -> Result<SignResult, String> {
     let identity = identity_path(&app)?;
+    let ts = clock.next(now_ms()).to_string();
     let sidecar = app
         .shell()
         .sidecar("tailnet-sidecar")
@@ -155,6 +190,8 @@ pub async fn tailnet_sidecar_sign(
             &path,
             "-body",
             &body,
+            "-ts",
+            &ts,
         ]);
     let output = sidecar.output().await.map_err(|e| e.to_string())?;
     if !output.status.success() {
@@ -419,6 +456,39 @@ mod tests {
     #[test]
     fn hostname_survives_a_profile_id_that_is_not_a_uuid() {
         assert_eq!(tailnet_hostname("Trabalho Pessoal!"), "trabalho-pessoal-");
+    }
+
+    #[test]
+    fn concurrent_signs_get_distinct_timestamps() {
+        // The ENG-96 failure: two signs in the same millisecond. Every thread
+        // reads the same wall clock, so only the reservation keeps them apart.
+        let clock = std::sync::Arc::new(SignClock::default());
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let handles: Vec<_> = (0..16)
+            .map(|_| {
+                let clock = clock.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    clock.next(1_700_000_000_000)
+                })
+            })
+            .collect();
+        let mut stamps: Vec<i64> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        stamps.sort();
+        stamps.dedup();
+        assert_eq!(stamps.len(), 16);
+        assert_eq!(stamps[0], 1_700_000_000_000);
+    }
+
+    #[test]
+    fn sign_clock_follows_the_wall_clock_when_it_moves_ahead() {
+        let clock = SignClock::default();
+        assert_eq!(clock.next(100), 100);
+        assert_eq!(clock.next(100), 101);
+        assert_eq!(clock.next(500), 500);
+        // A wall clock stepping back never repeats a stamp either.
+        assert_eq!(clock.next(50), 501);
     }
 
     #[test]
