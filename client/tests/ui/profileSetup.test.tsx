@@ -49,10 +49,10 @@ vi.mock("@/lib/profiles/tailnetSidecar", () => ({
   peekTailnetSidecar: peekTailnetSidecarMock,
   retargetTailnetSidecar: () => undefined,
 }));
-vi.mock("@/lib/profiles/tailnetBroker", () => ({
+vi.mock("@/lib/profiles/tailnetBroker", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/profiles/tailnetBroker")>()),
   resolveTailnetTarget: resolveTailnetTargetMock,
   fetchConnectGrant: fetchConnectGrantMock,
-  grantTarget: (grant: { endpoint: { host: string; port: number } }) => `${grant.endpoint.host}:${String(grant.endpoint.port)}`,
 }));
 
 const SIDECAR_ENDPOINT = { host: "127.0.0.1", port: 9999 };

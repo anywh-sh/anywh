@@ -156,6 +156,7 @@ export const ptBr: Dictionary = {
     },
     connection: {
       reconnecting: "Reconectando…",
+      wakeBudgetExhausted: "Muitas tentativas de acordar a máquina. Tente de novo às {time}.",
       sendBlocked: "Aguardando a conexão para enviar",
       waitingForOlder: "Aguardando a conexão…",
     },
@@ -422,6 +423,7 @@ export const ptBr: Dictionary = {
       changesOne: "1 alteração",
       clean: "limpo",
       detachedHead: "Nenhum branch ativo — mostrando o commit atual",
+      wakePaused: "despertar pausado até {time}",
       relayConnected: "relay conectado",
       appVersion: "anywh {version}",
       updateAvailable: "Atualizar para {version}",

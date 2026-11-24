@@ -674,6 +674,10 @@ export interface Dictionary {
     connection: {
       /** The status line above the composer. */
       reconnecting: string;
+      /** Same line, instead of `reconnecting`, while the broker refuses to
+       * wake this account's machine again until `{time}` (a local clock
+       * time) — nothing is retried before then. */
+      wakeBudgetExhausted: string;
       /** On whatever would send: the send button, an inline edit, a choice. */
       sendBlocked: string;
       /** At the top of the log, once the person scrolled up for older turns
@@ -1087,6 +1091,10 @@ export interface Dictionary {
        * number but not for what the number belongs to. */
       appVersion: string;
       relayConnected: string;
+      /** `{time}` — a local clock time. Replaces "reconnecting" while the
+       * broker refuses to wake this profile's machine until then (the
+       * chat's own line says the same thing in full). */
+      wakePaused: string;
       /** `{version}` — replaces the version slot itself once a newer
        * release exists, so there is one thing there rather than a number
        * plus a separate badge competing for the same sliver of width. */

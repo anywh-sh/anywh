@@ -45,7 +45,9 @@ import { effortChoicesFor, modelAcceptsEffort } from "@/lib/composer/effortCatal
 import type { Profile } from "@/lib/profiles/profiles";
 import { Spinner } from "@/components/ui/spinner";
 import type { HistoryPageMessage } from "@/lib/relay/relay-types";
-import { useDict } from "@/i18n";
+import { useDict, useLocale } from "@/i18n";
+import { formatClockTime } from "@/lib/format/relativeTime";
+import { useWakeHold } from "@/hooks/profiles/useWakeHold";
 import { createRoom } from "@/lib/relay/roomClient";
 import { SessionTypeSelector, type SessionType } from "@/components/sala/SessionTypeSelector";
 
@@ -615,6 +617,14 @@ export function ChatPanel({
   // received, and no resync swapping the log. The gate for everything that
   // goes to the relay; typing stays allowed.
   const live = connected && caughtUp && !resyncing;
+  const { locale } = useLocale();
+  // A resume-budget 429 says when the machine can be woken again, and
+  // nothing is attempted before then, so "reconnecting" would be a promise
+  // the app isn't keeping. Read from the broker's own hold, which ends on
+  // the clock: once that time passes the line goes back to "reconnecting",
+  // whatever the next attempt runs into (the machine asleep, say).
+  const wakeHold = useWakeHold(profile.id);
+  const wakeBlockedUntil = connected ? null : wakeHold;
   // Stopping is something the relay has to hear, same as sending.
   const stopTurnWhenLive = useCallback(() => {
     if (live) stopTurn();
@@ -1169,11 +1179,18 @@ export function ChatPanel({
          * cap anyway) is untouched. */}
         <div className={cn(isIOS() ? "contents" : "w-full px-4")}>
           <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-[728px] flex-col")}>
-            {hydrated && !live && (
-              <div role="status" data-connection-status className="mb-2 flex items-center gap-2 px-1 text-xs text-muted-foreground">
-                <Spinner size="xs" />
-                {dict.chat.connection.reconnecting}
+            {wakeBlockedUntil ? (
+              <div role="status" data-connection-status="throttled" className="mb-2 flex items-center gap-2 px-1 text-xs text-muted-foreground">
+                {dict.chat.connection.wakeBudgetExhausted.split("{time}").join(formatClockTime(wakeBlockedUntil.getTime(), locale))}
               </div>
+            ) : (
+              hydrated &&
+              !live && (
+                <div role="status" data-connection-status className="mb-2 flex items-center gap-2 px-1 text-xs text-muted-foreground">
+                  <Spinner size="xs" />
+                  {dict.chat.connection.reconnecting}
+                </div>
+              )
             )}
 
             {agentSignedOut && (

@@ -671,7 +671,12 @@ export class RelayClient {
         }
         if (err instanceof BrokerThrottledError) {
           console.error("connection token refused, backing off:", err);
-          this.scheduleReconnect(Math.max(err.retryAfterMs ?? 0, THROTTLED_RECONNECT_DELAY_MS));
+          // The broker's own hint when it gave one — it said when the
+          // refusal clears, and both waiting less and waiting a minute past
+          // the time the UI shows are wrong. The floor only applies to a
+          // bare 429. An attempt before then (a focus) never reaches the
+          // network: `fetchConnectGrant` holds it and lands back here.
+          this.scheduleReconnect(err.retryAfterMs !== undefined ? Math.max(err.retryAfterMs, 1_000) : THROTTLED_RECONNECT_DELAY_MS);
           return;
         }
         if (err instanceof BrokerAsleepError) {

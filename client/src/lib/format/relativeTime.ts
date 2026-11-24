@@ -45,6 +45,13 @@ export function formatAbsoluteTime(epochMs: number, locale: Locale): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(epochMs));
 }
 
+/** Just the clock time ("3:45 PM", "15:45") — for a moment later today,
+ * like when a refusal clears. */
+export function formatClockTime(epochMs: number, locale: Locale): string {
+  if (!Number.isFinite(epochMs)) return UNKNOWN_TIME;
+  return new Intl.DateTimeFormat(locale, { timeStyle: "short" }).format(new Date(epochMs));
+}
+
 /**
  * The same moment as `formatRelativeTime`, as short as it can be said —
  * "now", "4m", "2h", "5d", and a bare "Sep 21" after a week — for a column
