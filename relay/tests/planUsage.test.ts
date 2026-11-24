@@ -44,7 +44,8 @@ before(async () => {
 after(async () => {
   watcher?.close();
   await server.close();
-  rmSync(work, { recursive: true, force: true });
+  // A usage probe the relay started may still be writing its invocation here.
+  rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 type State = { type: string; runtimes: { runtime: string; status: string; windows: { durationMins: number; usedPercent: number; resetsAt: number | null }[]; source?: string; plan?: { label: string }; accountKey?: string; everSignedIn?: boolean }[] };

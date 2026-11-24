@@ -30,8 +30,9 @@ before(async () => {
 after(async () => {
   relay?.cleanup();
   await host?.stop();
-  if (host) rmSync(host.dir, { recursive: true, force: true });
-  rmSync(contextRoot, { recursive: true, force: true });
+  // The relay is killed without waiting for it to exit: retried while its last writes land.
+  if (host) rmSync(host.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  rmSync(contextRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 /** `describe` says what the wait looked at when it gave up (a timeout that
