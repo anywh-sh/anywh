@@ -237,14 +237,12 @@ if [[ -n "$PROFILE_HOME" ]]; then
 fi
 
 if [[ -n "$CONFIG_ROOT" ]]; then
-  # Same rules as --home: absolute, `~` expanded, created now — the agent
-  # login that has to pass before this profile is created writes into it.
-  # 0700: it holds the profile's agent credentials.
+  # Same rules as --home: absolute, `~` expanded. Resolved here but only
+  # created after the --resume check below: a refused run must not leave a
+  # folder behind that the relay would then take for a draft.
   CONFIG_ROOT="${CONFIG_ROOT/#\~/$HOME}"
-  mkdir -p "$CONFIG_ROOT"
-  CONFIG_ROOT="$(cd "$CONFIG_ROOT" && pwd)"
-  for sub in claude codex kimi rooms bots; do mkdir -p "$CONFIG_ROOT/$sub"; done
-  chmod 700 "$CONFIG_ROOT"
+  [[ "$CONFIG_ROOT" == /* ]] || CONFIG_ROOT="$PWD/$CONFIG_ROOT"
+  if [[ -d "$CONFIG_ROOT" ]]; then CONFIG_ROOT="$(cd "$CONFIG_ROOT" && pwd)"; fi
 fi
 
 # The comparison --resume promises. Only keys that are present in the file
@@ -268,6 +266,16 @@ if [[ "$EXISTING_FILE" -eq 1 ]]; then
     exit 1
   fi
   echo "Resuming $ENV_FILE"
+fi
+
+if [[ -n "$CONFIG_ROOT" ]]; then
+  # Created now when the relay didn't already (a draft): the agent login
+  # that has to pass before this profile is created writes into it. 0700:
+  # it holds the profile's agent credentials.
+  mkdir -p "$CONFIG_ROOT"
+  CONFIG_ROOT="$(cd "$CONFIG_ROOT" && pwd)"
+  for sub in claude codex kimi rooms bots; do mkdir -p "$CONFIG_ROOT/$sub"; done
+  chmod 700 "$CONFIG_ROOT"
 fi
 
 mkdir -p "$ANYWH_ENV_DIR"

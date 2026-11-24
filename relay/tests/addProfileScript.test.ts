@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,6 +67,15 @@ test("--resume keeps the keys it doesn't write, config dirs included — the app
     const text = readFileSync(join(envDir, "work.env"), "utf8");
     assert.equal(text.match(/^CLAUDE_CONFIG_DIR=/gm)?.length, 1);
     assert.equal(text.match(/^RELAY_PORT=/gm)?.length, 1);
+  });
+});
+
+test("a --resume refused for naming another config root leaves no folder behind", () => {
+  withHome((home, envDir) => {
+    addProfile(home, envDir, ["work", "--config-root", join(home, "cfg")]);
+    assert.throws(() => addProfile(home, envDir, ["work", "--resume", "--config-root", join(home, "other")]), /differs/);
+    // The relay would otherwise take an empty "other" folder for a draft.
+    assert.equal(existsSync(join(home, "other")), false);
   });
 });
 
