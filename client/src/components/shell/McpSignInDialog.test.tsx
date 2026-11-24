@@ -117,7 +117,8 @@ describe("McpSignInDialog", () => {
 
     FakeSocket.opened[0].emit({ type: "exit", code: 0 });
     await screen.findByText(copy.signedIn);
-    expect(trackFeature).toHaveBeenCalledWith("integration_jira");
+    // Counted from an effect that runs after the commit that shows the text.
+    await waitFor(() => expect(trackFeature).toHaveBeenCalledWith("integration_jira"));
   });
 
   it("does not count another server's sign-in as Jira", async () => {
@@ -127,7 +128,7 @@ describe("McpSignInDialog", () => {
 
     FakeSocket.opened[0].emit({ type: "exit", code: 0 });
     await screen.findByText(copy.signedIn);
-    expect(trackFeature).toHaveBeenCalledWith("mcp_signin");
+    await waitFor(() => expect(trackFeature).toHaveBeenCalledWith("mcp_signin"));
     expect(trackFeature).not.toHaveBeenCalledWith("integration_jira");
   });
 
