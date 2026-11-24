@@ -574,6 +574,12 @@ export const PRESENCE_HEARTBEAT_MS = 20_000;
  * notification on their phone. */
 export const PRESENCE_IDLE_MS = 120_000;
 
+/** What a connect-token resolver hands back: the token alone, or the token
+ * plus where to dial it, for a relay reached through something that can move
+ * between attempts — a tailnet sidecar restarted at a new endpoint listens on
+ * a new local port. */
+export type ResolvedConnectToken = string | { token?: string; host: string; port: number };
+
 export class RelayClient {
   private socket?: WebSocket;
   /** Whether this session is currently on screen — see `setPresence`. */
@@ -607,8 +613,8 @@ export class RelayClient {
   private connectGeneration = 0;
 
   constructor(
-    private readonly host: string,
-    private readonly port: number,
+    private host: string,
+    private port: number,
     private readonly sessionId: string,
     private readonly callbacks: RelayClientCallbacks,
     /** See `Profile.connectToken` — sent as a query param because the
@@ -617,7 +623,7 @@ export class RelayClient {
      * resolver for a brokered profile, whose token authorizes exactly one
      * handshake and so has to be re-fetched for every
      * attempt, reconnections included. */
-    private readonly connectToken?: string | ((options: { wake: boolean }) => Promise<string>),
+    private readonly connectToken?: string | ((options: { wake: boolean }) => Promise<ResolvedConnectToken>),
   ) {}
 
   /** Whether the *next* `connect()` may wake a sleeping machine. True for
@@ -640,11 +646,17 @@ export class RelayClient {
     const wake = this.nextConnectWakes;
     this.nextConnectWakes = true;
     void this.connectToken({ wake }).then(
-      (token) => {
+      (resolved) => {
         // A newer attempt started (or `disconnect` ran) while this token was
         // being fetched — the token is simply dropped, unspent.
         if (generation !== this.connectGeneration || !this.shouldReconnect) return;
-        this.openSocket(token);
+        if (typeof resolved === "string") {
+          this.openSocket(resolved);
+          return;
+        }
+        this.host = resolved.host;
+        this.port = resolved.port;
+        this.openSocket(resolved.token);
       },
       (err: unknown) => {
         if (generation !== this.connectGeneration) return;

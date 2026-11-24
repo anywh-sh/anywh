@@ -48,6 +48,7 @@ vi.mock("@/lib/profiles/tailnetSidecar", () => ({
   acquireTailnetSidecar: vi.fn(async () => ({ host: "127.0.0.1", port: 9001 })),
   releaseTailnetSidecar: vi.fn(),
   peekTailnetSidecar: vi.fn(() => Promise.resolve({ host: "127.0.0.1", port: 9001 })),
+  retargetTailnetSidecar: vi.fn(() => Promise.resolve({ host: "127.0.0.1", port: 9001 })),
 }));
 
 const tailnetProfile: Profile = {

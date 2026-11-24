@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Profile } from "@/lib/profiles/profiles";
 
-const { peekMock, acquireMock, releaseMock, fetchConnectGrantMock, resolveTailnetTargetMock } = vi.hoisted(() => ({
+const { peekMock, acquireMock, releaseMock, retargetMock, fetchConnectGrantMock, resolveTailnetTargetMock } = vi.hoisted(() => ({
   peekMock: vi.fn(),
+  retargetMock: vi.fn(),
   acquireMock: vi.fn(),
   releaseMock: vi.fn(),
   fetchConnectGrantMock: vi.fn(),
@@ -12,10 +13,12 @@ vi.mock("@/lib/profiles/tailnetSidecar", () => ({
   peekTailnetSidecar: peekMock,
   acquireTailnetSidecar: acquireMock,
   releaseTailnetSidecar: releaseMock,
+  retargetTailnetSidecar: retargetMock,
 }));
 vi.mock("@/lib/profiles/tailnetBroker", () => ({
   fetchConnectGrant: fetchConnectGrantMock,
   resolveTailnetTarget: resolveTailnetTargetMock,
+  grantTarget: (grant: { endpoint: { host: string; port: number } }) => `${grant.endpoint.host}:${String(grant.endpoint.port)}`,
 }));
 
 import { resolveConnection, authHeaders } from "@/lib/profiles/connectionResolver";
@@ -43,6 +46,7 @@ beforeEach(() => {
   peekMock.mockReset();
   acquireMock.mockReset();
   releaseMock.mockReset();
+  retargetMock.mockReset();
   fetchConnectGrantMock.mockReset();
   resolveTailnetTargetMock.mockReset();
 });
@@ -69,6 +73,19 @@ describe("resolveConnection", () => {
     expect(peekMock).toHaveBeenCalledWith("brokered");
     expect(acquireMock).not.toHaveBeenCalled();
     expect(releaseMock).not.toHaveBeenCalled();
+  });
+
+  it("points the running sidecar at the endpoint the fresh grant names, and dials where it listens now", async () => {
+    // The sandbox was recreated: the grant names a new tailnet address, and
+    // the restarted sidecar listens on a new local port.
+    peekMock.mockReturnValue(Promise.resolve({ host: "127.0.0.1", port: 54321 }));
+    fetchConnectGrantMock.mockResolvedValue({ endpoint: { host: "100.64.0.3", port: 8443 }, token: "fresh-token" });
+    retargetMock.mockReturnValue(Promise.resolve({ host: "127.0.0.1", port: 60001 }));
+
+    const resolved = await resolveConnection(brokeredProfile);
+
+    expect(retargetMock).toHaveBeenCalledWith(brokeredProfile, "100.64.0.3:8443");
+    expect(resolved).toEqual({ host: "127.0.0.1", port: 60001, token: "fresh-token" });
   });
 
   it("acquires-and-releases just for this call when nobody already owns the sidecar", async () => {

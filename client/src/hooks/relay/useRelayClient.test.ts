@@ -20,6 +20,8 @@ vi.mock("@/lib/platform/tauri", () => ({ inTauri: () => true }));
 // only its resolved target matters here.
 vi.mock("@/lib/profiles/tailnetBroker", () => ({
   fetchConnectGrant: vi.fn(async () => ({ endpoint: { host: "100.64.0.1", port: 8765 }, token: "grant-token" })),
+  grantTarget: (grant: { endpoint: { host: string; port: number } }) => `${grant.endpoint.host}:${String(grant.endpoint.port)}`,
+  BrokerRevokedError: class extends Error {},
   // tailnetSidecar.ts's own cold-start report call — not what this file is
   // about (covered by tailnetSidecar.test.ts/tailnetBroker.test.ts).
   reportTailnetKey: vi.fn(async () => {}),
@@ -120,6 +122,40 @@ describe("useRelayClient tailnet mode", () => {
     await resolve({ wake: false });
 
     expect(vi.mocked(fetchConnectGrant)).toHaveBeenLastCalledWith(tailnetProfile, { wake: false });
+  });
+
+  it("restarts the sidecar at a new endpoint a reconnect grant names, and dials the restarted one", async () => {
+    // ENG-98: the sandbox was recreated under an open app, so it joined the
+    // tailnet as a new node. The sidecar started from the first grant dials
+    // the old address; the reconnect's grant is the only news of the new one.
+    renderHook(() => useRelayClient(tailnetProfile, "session-a"));
+    await vi.runAllTimersAsync();
+
+    const [, , , , token] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, unknown];
+    const resolve = token as (options: { wake: boolean }) => Promise<unknown>;
+    await resolve({ wake: true }); // spends the opening grant
+
+    vi.mocked(fetchConnectGrant).mockResolvedValueOnce({ endpoint: { host: "100.64.0.3", port: 8765 }, token: "moved-token" });
+    invokeMock.mockImplementationOnce(() => Promise.resolve({ addr: "127.0.0.1:23456", nodeKey: "nodekey:moved" }));
+    const resolved = await resolve({ wake: false });
+
+    expect(invokeMock).toHaveBeenLastCalledWith("tailnet_sidecar_start", expect.objectContaining({ target: "100.64.0.3:8765" }));
+    expect(resolved).toEqual({ token: "moved-token", host: "127.0.0.1", port: 23456 });
+    expect(invokeMock).not.toHaveBeenCalledWith("tailnet_sidecar_stop", expect.anything());
+  });
+
+  it("keeps the running sidecar when a reconnect grant names the same endpoint", async () => {
+    renderHook(() => useRelayClient(tailnetProfile, "session-a"));
+    await vi.runAllTimersAsync();
+    const [, , , , token] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, unknown];
+    const resolve = token as (options: { wake: boolean }) => Promise<unknown>;
+    await resolve({ wake: true });
+    invokeMock.mockClear();
+
+    const resolved = await resolve({ wake: false });
+
+    expect(invokeMock).not.toHaveBeenCalledWith("tailnet_sidecar_start", expect.anything());
+    expect(resolved).toEqual({ token: "grant-token", host: "127.0.0.1", port: 12345 });
   });
 });
 
