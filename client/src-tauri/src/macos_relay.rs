@@ -39,7 +39,9 @@ pub fn bundled_tree(app: &tauri::AppHandle) -> Option<PathBuf> {
 }
 
 /// `~/Library/Application Support/<identifier>`: one per build identifier,
-/// so a dev build and the official one keep their own trees and jobs.
+/// so two builds never swap each other's tree. The launchd labels are per
+/// profile, not per build: profiles (`~/.config/anywh/env`) are the
+/// machine's, whichever build created them.
 pub fn support_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path().app_data_dir().ok()
 }
@@ -73,11 +75,22 @@ pub fn sync_tree(bundled: &Path, support: &Path) -> io::Result<PathBuf> {
     // binary outside the app would ask Gatekeeper again, with no app in
     // front of the user. The bundle already passed it as part of the app.
     let _ = Command::new("/usr/bin/xattr").args(["-dr", "com.apple.quarantine"]).arg(&staged).status();
-    if current.exists() {
+    let had_current = current.exists();
+    if had_current {
         std::fs::rename(&current, &old)?;
     }
-    std::fs::rename(&staged, &current)?;
-    remove_dir_if_present(&old)?;
+    if let Err(error) = std::fs::rename(&staged, &current) {
+        // Never leave the jobs' binary missing: put the old tree back.
+        if had_current {
+            let _ = std::fs::rename(&old, &current);
+        }
+        return Err(error);
+    }
+    // The swap is done; a leftover `relay.old` only costs disk until the
+    // next sync removes it, so it is not this call's failure.
+    if let Err(error) = remove_dir_if_present(&old) {
+        eprintln!("[macos-relay] couldn't remove the previous relay tree: {error}");
+    }
     Ok(current)
 }
 
@@ -154,9 +167,14 @@ pub fn start_profiles(launchd: &Path) {
 }
 
 /// What the app does when it opens, off the UI thread: bring the running
-/// copy up to the bundled tree, then start the local profiles.
+/// copy up to the bundled tree, then start the local profiles. With no local
+/// profile there is nothing to run, and the tree is not copied either (a
+/// remote-only user never needs it); creating the first one copies it.
 pub fn on_app_open(app: &tauri::AppHandle) {
     let (Some(bundled), Some(support)) = (bundled_tree(app), support_dir(app)) else { return };
+    if profile_plists(&launchd_dir(&support)).is_empty() {
+        return;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         if let Err(error) = sync_tree(&bundled, &support) {
             // Still start what is there: an older relay beats none, and the

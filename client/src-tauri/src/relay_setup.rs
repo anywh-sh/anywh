@@ -1145,8 +1145,16 @@ const UNRELEASED_VERSION: &str = "0.0.0";
 
 /// The relay tree this macOS app ships and where its running copy lives,
 /// when it ships one (the Apple Silicon release; never a dev or Intel build).
+///
+/// A Mac that already has the Homebrew relay keeps it (it is left as is, not
+/// migrated): its `default` profile is served by `brew services`, and a
+/// launchd job for the same profile would fight it for the port. Such a Mac
+/// takes the Homebrew path, as before.
 #[cfg(target_os = "macos")]
 fn bundled_relay(app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
+    if ["/opt/homebrew/opt/anywh-relay", "/usr/local/opt/anywh-relay"].iter().any(|path| Path::new(path).exists()) {
+        return None;
+    }
     Some((crate::macos_relay::bundled_tree(app)?, crate::macos_relay::support_dir(app)?))
 }
 
@@ -1192,11 +1200,17 @@ pub async fn relay_setup_start(
     let is_macos = cfg!(target_os = "macos");
     // The running copy of the relay this app ships, brought up to date first
     // (the app may have been updated since it was opened).
+    // A recursive copy of the whole tree: off the async runtime's threads.
     let bundled = match bundled_relay(&app) {
-        Some((tree, support)) => Some((
-            crate::macos_relay::sync_tree(&tree, &support).map_err(|e| format!("couldn't set up the relay that came with the app: {e}"))?,
-            support,
-        )),
+        Some((tree, support)) => {
+            let synced = {
+                let support = support.clone();
+                tauri::async_runtime::spawn_blocking(move || crate::macos_relay::sync_tree(&tree, &support))
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
+            Some((synced.map_err(|e| format!("couldn't set up the relay that came with the app: {e}"))?, support))
+        }
         None => None,
     };
     let script_path = if bundled.is_some() {
