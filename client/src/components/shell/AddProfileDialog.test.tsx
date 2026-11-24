@@ -168,6 +168,19 @@ describe("AddProfileDialog", () => {
     expect(discarded).toEqual([]);
   });
 
+  it("warns that a shared or copied Claude settings file brings its API key along", async () => {
+    const user = userEvent.setup();
+    render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);
+    const preferences = within(body().getByRole("radiogroup", { name: copy.sharing.categories.preferences }));
+    expect(body().queryByText(copy.sharing.preferencesKeyWarning)).not.toBeInTheDocument();
+    await user.click(preferences.getByRole("radio", { name: copy.sharing.shared }));
+    expect(body().getByText(copy.sharing.preferencesKeyWarning)).toBeInTheDocument();
+    await user.click(preferences.getByRole("radio", { name: copy.sharing.copy }));
+    expect(body().getByText(copy.sharing.preferencesKeyWarning)).toBeInTheDocument();
+    await user.click(preferences.getByRole("radio", { name: copy.sharing.separate }));
+    expect(body().queryByText(copy.sharing.preferencesKeyWarning)).not.toBeInTheDocument();
+  });
+
   it("defaults every category to separate", async () => {
     const user = userEvent.setup();
     render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);

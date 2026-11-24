@@ -521,6 +521,7 @@ export const en: Dictionary = {
           separate: "Separate",
           shared: "Shared",
           copy: "Copy",
+          preferencesKeyWarning: "If your Claude settings hold an API key, this profile will use it instead of its own account.",
           agentNotes: "Codex keeps preferences and MCP servers in one file, which follows the MCP choice. Kimi's preferences hold its account, so they stay separate.",
         },
         continue: "Continue",

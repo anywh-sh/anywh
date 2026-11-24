@@ -1246,6 +1246,9 @@ export interface Dictionary {
           copy: string;
           /** The per-agent exceptions (Codex's single config file, Kimi's
            * config holding its account). */
+          /** Shown when Preferences isn't separate: Claude's settings.json can
+           * carry an API key, which then outranks the profile's own sign-in. */
+          preferencesKeyWarning: string;
           agentNotes: string;
         };
         continue: string;

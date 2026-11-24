@@ -358,6 +358,7 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
                     />
                   </div>
                 ))}
+                {sharing.preferences !== "separate" && <p className="text-xs text-warn">{copy.sharing.preferencesKeyWarning}</p>}
                 <p className="text-xs text-text-faint">{copy.sharing.agentNotes}</p>
               </div>
             )}

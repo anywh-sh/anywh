@@ -521,6 +521,7 @@ export const ptBr: Dictionary = {
           separate: "Separado",
           shared: "Compartilhado",
           copy: "Copiar",
+          preferencesKeyWarning: "Se as suas configurações do Claude tiverem uma API key, este perfil vai usá-la em vez da conta dele.",
           agentNotes: "O Codex guarda preferências e servidores MCP no mesmo arquivo, que segue a escolha de MCP. As preferências do Kimi guardam a conta dele, então ficam separadas.",
         },
         continue: "Continuar",
