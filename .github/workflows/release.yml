@@ -507,8 +507,14 @@ jobs:
           security import "$RUNNER_TEMP/relay-signing.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           rm -f "$RUNNER_TEMP/relay-signing.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          search_list="$(security list-keychains -d user | tr -d '"')"
+          security list-keychains -d user -s "$keychain" $search_list
           bash relay/sea-build/sign-tree.sh "$tree" "$APPLE_SIGNING_IDENTITY"
+          # Gone before Tauri imports the same certificate into its own
+          # keychain: one identity in two keychains on the search list makes
+          # a codesign by name ambiguous.
+          security list-keychains -d user -s $search_list
+          security delete-keychain "$keychain"
 
       - uses: tauri-apps/tauri-action@v0
         env:
