@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "icons/128x128.png": "icons/128x128.png",
+      "../../relay/sea-build/dist/darwin-arm64/": "relay/"
+    }
+  }
+}

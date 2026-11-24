@@ -8,14 +8,16 @@
 // Supported only where a release tarball was installed with that installer:
 // a `<install dir>/relay` + `<install dir>/infra` tree carrying a real
 // release version. A source checkout (unreleased version) and the macOS
-// Homebrew build (a Node SEA binary, owned by Homebrew) are refused.
+// builds (a Node SEA binary, owned by Homebrew or by the app) are refused.
 import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
 import { isNewerRelease, parseInstallerLine, parseRelease, type InstallerOutcome } from "./release.js";
 
-export type UpdateUnsupportedReason = "source_checkout" | "not_installer_layout" | "managed_elsewhere";
+/** `managed_elsewhere` is the Homebrew build, `managed_by_app` the relay
+ * the macOS app ships and replaces on every app update. */
+export type UpdateUnsupportedReason = "source_checkout" | "not_installer_layout" | "managed_elsewhere" | "managed_by_app";
 
 export type RelayUpdateStatus =
   | { readonly state: "unsupported"; readonly reason: UpdateUnsupportedReason }
@@ -37,8 +39,11 @@ export interface RelayUpdaterOptions {
   readonly runningVersion: string;
   /** The relay package directory (where package.json sits). */
   readonly relayDir: string;
-  /** Running as a single executable (the Homebrew build). */
+  /** Running as a single executable (the Homebrew build or the app's). */
   readonly sea: boolean;
+  /** Run by the macOS app (`ANYWH_RELAY_MANAGED_BY_APP=1`): the app's
+   * update is the relay's. */
+  readonly managedByApp?: boolean;
   /** Register the systemd units as part of the install (`--mode prod`).
    * False under no service manager, where the installer touches no systemd. */
   readonly withService: boolean;
@@ -58,8 +63,8 @@ export function findInstaller(relayDir: string): string | null {
   return null;
 }
 
-export function updateSupport(options: Pick<RelayUpdaterOptions, "runningVersion" | "relayDir" | "sea">): { readonly supported: true; readonly installer: string } | { readonly supported: false; readonly reason: UpdateUnsupportedReason } {
-  if (options.sea) return { supported: false, reason: "managed_elsewhere" };
+export function updateSupport(options: Pick<RelayUpdaterOptions, "runningVersion" | "relayDir" | "sea" | "managedByApp">): { readonly supported: true; readonly installer: string } | { readonly supported: false; readonly reason: UpdateUnsupportedReason } {
+  if (options.sea) return { supported: false, reason: options.managedByApp ? "managed_by_app" : "managed_elsewhere" };
   if (parseRelease(options.runningVersion) === null) return { supported: false, reason: "source_checkout" };
   const root = dirname(options.relayDir);
   const installer = findInstaller(options.relayDir);

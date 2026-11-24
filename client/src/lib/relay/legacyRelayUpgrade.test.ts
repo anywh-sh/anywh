@@ -15,6 +15,8 @@ describe("needsLegacyUpgrade", () => {
     expect(needsLegacyUpgrade({ ...old, platform: "linux", updateSupport: "not_installer_layout" }, "0.2.50")).toBe(false);
     expect(needsLegacyUpgrade({ ...old, platform: "darwin", updateSupport: "not_installer_layout" }, "0.2.50")).toBe(false);
     expect(needsLegacyUpgrade({ ...old, platform: "linux", updateSupport: "managed_elsewhere" }, "0.2.50")).toBe(false);
+    // The macOS app's own relay: the app's update is its update.
+    expect(needsLegacyUpgrade({ ...old, platform: "darwin", updateSupport: "managed_by_app" }, "0.2.50")).toBe(false);
     // A relay older than the field: by its platform, as before.
     expect(needsLegacyUpgrade({ ...old, platform: "linux" }, "0.2.50")).toBe(true);
     expect(legacyUpgradeKind({ platform: "linux" })).toBe("installer");

@@ -395,6 +395,7 @@ export const en: Dictionary = {
     },
   },
   shell: {
+    quitCompletely: "Quit Completely",
     titleBar: {
       model: "Model",
       mode: "Mode",
@@ -1041,6 +1042,7 @@ export const en: Dictionary = {
       sub: {
         waitingAt: "waiting for anywh at {address}",
         brew: "Homebrew · installing the anywh package",
+        bundled: "setting up the anywh that came with the app",
         download: "downloading anywh",
         profilesOne: "1 profile: {names}",
         profilesMany: "{count} profiles: {names}",

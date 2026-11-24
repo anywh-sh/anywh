@@ -8,6 +8,7 @@ import { ROOM_BRIDGE_PATH, RoomBridge, roomKeyPathFor } from "./bridges/roomBrid
 import { defaultCwd, profileDataDirs } from "./host/paths.js";
 import { extractPdfText } from "./host/pdfText.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
+import { managedByApp } from "./host/profileServices.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
 import { kimiRuntimeDef } from "./runtimes/defs/kimi.js";
@@ -422,6 +423,7 @@ const relayUpdater = new RelayUpdater({
   runningVersion: RELEASE_VERSION,
   relayDir: dirname(PACKAGE_JSON_PATH),
   sea: isSea(),
+  managedByApp: managedByApp(),
   // The units are systemd's; under any other supervisor the installer
   // only swaps the tree.
   withService: Boolean(process.env.INVOCATION_ID),

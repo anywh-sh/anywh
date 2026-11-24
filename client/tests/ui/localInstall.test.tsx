@@ -96,6 +96,8 @@ const HEALTHY: Prerequisites = {
   nodePath: "/usr/bin/node",
   nodeVersion: "22.4.0",
   nodeOk: true,
+  brewPath: null,
+  bundledRelay: false,
   systemdUser: true,
   xdgRuntimeDir: true,
   activeUnits: [],

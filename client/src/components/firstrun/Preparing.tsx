@@ -119,7 +119,7 @@ export function Preparing({
         // Our own words outside Details: the installer's lines (and a failure's
         // raw detail, when the code has a sentence of its own) stay in it.
         if (status === "failed" && failure) sub = dict.firstRun.preparing.fail.codes[failure.code].line ?? (failure.detail || null);
-        else if (status === "running" && key === "install") sub = currentPlatform() === "macos" ? copy.sub.brew : copy.sub.download;
+        else if (status === "running" && key === "install") sub = install.prereqs.result?.bundledRelay ? copy.sub.bundled : currentPlatform() === "macos" ? copy.sub.brew : copy.sub.download;
         else if (status === "running" && key === "start" && install.install.profile)
           sub = copy.sub.waitingAt.replace(
             "{address}",

@@ -342,6 +342,7 @@ test("only a tree the installer laid out, running a release, can update itself",
     assert.deepEqual(updateSupport({ runningVersion: "0.0.0", relayDir, sea: false }), { supported: false, reason: "source_checkout" });
     // The Homebrew build is Homebrew's to update.
     assert.deepEqual(updateSupport({ runningVersion: "0.2.40", relayDir, sea: true }), { supported: false, reason: "managed_elsewhere" });
+    assert.deepEqual(updateSupport({ runningVersion: "0.2.40", relayDir, sea: true, managedByApp: true }), { supported: false, reason: "managed_by_app" });
     rmSync(join(dir, "install", "infra"), { recursive: true });
     assert.deepEqual(updateSupport({ runningVersion: "0.2.40", relayDir, sea: false }), { supported: false, reason: "not_installer_layout" });
     const updater = updaterFor(relayDir, "0.2.40", "http://127.0.0.1:9");

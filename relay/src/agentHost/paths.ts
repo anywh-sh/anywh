@@ -24,11 +24,22 @@ export function relayAgentHostSocket(env: NodeJS.ProcessEnv = process.env): stri
 }
 
 /** The socket's directory must be private to the user (the socket server
- * enforces 0700), so it is never a shared directory itself. */
-export function defaultAgentHostSocketPath(profile: string, env: NodeJS.ProcessEnv = process.env): string {
+ * enforces 0700), so it is never a shared directory itself.
+ *
+ * macOS caps a socket path at 104 bytes and its per-user tmpdir alone is
+ * ~49 (`/var/folders/<hash>/T/`), so `agent-host-<profile>.sock` would not
+ * fit a 32-character profile id (the longest the registry allows) and the
+ * host could not bind. The file there is `h-<profile>.sock`: 100 bytes at
+ * worst. Linux keeps the descriptive name. */
+export function defaultAgentHostSocketPath(
+  profile: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  tempDir: string = tmpdir(),
+): string {
   const runtimeDir = env.XDG_RUNTIME_DIR;
-  const base = runtimeDir ? join(runtimeDir, "anywh") : join(tmpdir(), `anywh-${process.getuid?.() ?? "user"}`);
-  return join(base, `agent-host-${profile}.sock`);
+  const base = runtimeDir ? join(runtimeDir, "anywh") : join(tempDir, `anywh-${process.getuid?.() ?? "user"}`);
+  return join(base, platform === "darwin" ? `h-${profile}.sock` : `agent-host-${profile}.sock`);
 }
 
 export function agentHostSocketPath(profile: string, env: NodeJS.ProcessEnv = process.env): string {

@@ -9,7 +9,8 @@
 // socket and agents. `--profile-from-env` opts in to reading ANYWH_PROFILE
 // explicitly — what `npm run start:agent-host` does, so the ANYWH_PROFILE in
 // relay/.env (loaded by --env-file) names the profile, as for `npm start`. Paths default from the profile, unless the profile's env file sets:
-//   ANYWH_AGENT_HOST_SOCKET    socket path (default $XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock)
+//   ANYWH_AGENT_HOST_SOCKET    socket path (default $XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock;
+//                              h-<profile>.sock under the tmpdir on macOS)
 //   ANYWH_AGENT_HOST_DIR       registry and logs (default ~/.anywh-sessions/<profile>-agent-host)
 //   RELAY_HOME_OVERRIDE        $HOME for the agents, as for the relay's own turns
 //   AGENT_BIN, EXTRA_PATH_DIRS as for the relay
@@ -79,65 +80,74 @@ for (const name of ["ANYWH_PROFILE", "ANYWH_AGENT_HOST_SOCKET", "ANYWH_AGENT_HOS
   delete process.env[name];
 }
 
-const host = await AgentHost.start({
-  hostId,
-  dataDir,
-  socketPath,
-  homeOverride: process.env.RELAY_HOME_OVERRIDE || undefined,
-  stopGraceMs: numberEnv("ANYWH_AGENT_HOST_STOP_GRACE_MS"),
-  drainGraceMs: numberEnv("ANYWH_AGENT_HOST_DRAIN_GRACE_MS"),
-  maxAlivePerRoom: numberEnv("ANYWH_AGENT_HOST_MAX_ALIVE_PER_ROOM"),
-  hibernation: {
-    policy: hibernationPolicy(),
-    idleMs: numberEnv("ANYWH_AGENT_HOST_IDLE_MS"),
-    memoryBytes: numberEnv("ANYWH_AGENT_HOST_MEMORY_BYTES") ?? totalmem(),
-    memoryFraction: numberEnv("ANYWH_AGENT_HOST_MEMORY_FRACTION"),
-  },
-});
-console.log(`[agent-host] profile ${profile} listening on ${host.socketPath} (pid ${process.pid})`);
-
-let stopping = false;
-const shutdown = (signalName: string, exitCode = 0): void => {
-  if (stopping) return;
-  stopping = true;
-  console.log(`[agent-host] ${signalName}, stopping agents...`);
-  void host.close().then(
-    () => {
-      console.log("[agent-host] exiting.");
-      process.exit(exitCode);
+// No top-level await: the macOS build bundles this file as CommonJS into a
+// Node SEA binary, and esbuild cannot emit top-level await in that format.
+async function run(): Promise<void> {
+  const host = await AgentHost.start({
+    hostId,
+    dataDir,
+    socketPath,
+    homeOverride: process.env.RELAY_HOME_OVERRIDE || undefined,
+    stopGraceMs: numberEnv("ANYWH_AGENT_HOST_STOP_GRACE_MS"),
+    drainGraceMs: numberEnv("ANYWH_AGENT_HOST_DRAIN_GRACE_MS"),
+    maxAlivePerRoom: numberEnv("ANYWH_AGENT_HOST_MAX_ALIVE_PER_ROOM"),
+    hibernation: {
+      policy: hibernationPolicy(),
+      idleMs: numberEnv("ANYWH_AGENT_HOST_IDLE_MS"),
+      memoryBytes: numberEnv("ANYWH_AGENT_HOST_MEMORY_BYTES") ?? totalmem(),
+      memoryFraction: numberEnv("ANYWH_AGENT_HOST_MEMORY_FRACTION"),
     },
-    (error: unknown) => {
-      console.error("[agent-host] shutdown failed:", (error as Error).message);
-      process.exit(1);
-    },
-  );
-};
-// A bug that escapes every handler must not kill the host silently and
-// leave its agents running unsupervised: log it and drain like a SIGTERM
-// (agents are hibernated or stopped, the registry saved), then exit
-// non-zero so the service manager restarts it.
-process.on("uncaughtException", (error) => {
-  console.error("[agent-host] uncaught exception:", error);
-  shutdown("uncaughtException", 1);
-});
-process.on("unhandledRejection", (reason) => {
-  console.error("[agent-host] unhandled rejection:", reason);
-  shutdown("unhandledRejection", 1);
-});
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-// A newer release installed over this one (the relay's self-update, or by
-// hand) is picked up by restarting once every agent is idle — idle agents
-// are hibernated and resume on their next message, so nothing is lost. Only
-// under a service manager that starts the host again.
-if (supervisedForRestart()) {
-  const packageJsonPath = resolveShipped(import.meta.url, "../../package.json", "package.json");
-  watchForNewRelease({
-    running: RELEASE_VERSION,
-    readOnDisk: () => readPackageVersion(packageJsonPath),
-    safeToRestart: () => host.readyForRestart(),
-    restart: () => shutdown("release update"),
-    log: (line) => console.log(`[agent-host] ${line}`),
   });
+  console.log(`[agent-host] profile ${profile} listening on ${host.socketPath} (pid ${process.pid})`);
+
+  let stopping = false;
+  const shutdown = (signalName: string, exitCode = 0): void => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`[agent-host] ${signalName}, stopping agents...`);
+    void host.close().then(
+      () => {
+        console.log("[agent-host] exiting.");
+        process.exit(exitCode);
+      },
+      (error: unknown) => {
+        console.error("[agent-host] shutdown failed:", (error as Error).message);
+        process.exit(1);
+      },
+    );
+  };
+  // A bug that escapes every handler must not kill the host silently and
+  // leave its agents running unsupervised: log it and drain like a SIGTERM
+  // (agents are hibernated or stopped, the registry saved), then exit
+  // non-zero so the service manager restarts it.
+  process.on("uncaughtException", (error) => {
+    console.error("[agent-host] uncaught exception:", error);
+    shutdown("uncaughtException", 1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("[agent-host] unhandled rejection:", reason);
+    shutdown("unhandledRejection", 1);
+  });
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+  // A newer release installed over this one (the relay's self-update, or by
+  // hand) is picked up by restarting once every agent is idle — idle agents
+  // are hibernated and resume on their next message, so nothing is lost. Only
+  // under a service manager that starts the host again.
+  if (supervisedForRestart()) {
+    const packageJsonPath = resolveShipped(import.meta.url, "../../package.json", "package.json");
+    watchForNewRelease({
+      running: RELEASE_VERSION,
+      readOnDisk: () => readPackageVersion(packageJsonPath),
+      safeToRestart: () => host.readyForRestart(),
+      restart: () => shutdown("release update"),
+      log: (line) => console.log(`[agent-host] ${line}`),
+    });
+  }
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
-process.on("SIGINT", () => shutdown("SIGINT"));
+
+run().catch((error: unknown) => {
+  console.error("[agent-host] failed to start:", error);
+  process.exit(1);
+});

@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeId, sessionNamePrefix, tmuxSessionName, tmuxSocketName } from "./terminalSession.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveTmuxBin, sanitizeId, sessionNamePrefix, tmuxSessionName, tmuxSocketName } from "./terminalSession.js";
 
 test("sanitizeId replaces tmux's target-syntax separators, leaves everything else alone", () => {
   assert.equal(sanitizeId("a:b.c"), "a_b_c");
@@ -28,4 +31,18 @@ test("sessionNamePrefix matches exactly the prefix tmuxSessionName produces for 
   const prefix = sessionNamePrefix(chatSessionId);
   assert.ok(tmuxSessionName(chatSessionId, "any-terminal").startsWith(prefix));
   assert.ok(!tmuxSessionName("chat:2", "any-terminal").startsWith(prefix), "a different chat session's name must not share the prefix");
+});
+
+test("resolveTmuxBin: env wins, then the tmux shipped beside the binary if present, then the system's", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-tmux-"));
+  try {
+    const shipped = join(dir, "tmux");
+    assert.equal(resolveTmuxBin({}, shipped), "/usr/bin/tmux", "a SEA without tmux beside it (Homebrew) uses the system's");
+    writeFileSync(shipped, "");
+    assert.equal(resolveTmuxBin({}, shipped), shipped);
+    assert.equal(resolveTmuxBin({ TMUX_BIN: "/opt/tmux" }, shipped), "/opt/tmux");
+    assert.equal(resolveTmuxBin({}, undefined), "/usr/bin/tmux", "not a SEA");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

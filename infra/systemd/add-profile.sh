@@ -14,6 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The relay's tests point this at a fake (SYSTEMCTL_BIN, as for the relay's
 # own spawns): a real `systemctl --user` reaches the operator's live units.
 SYSTEMCTL="${SYSTEMCTL_BIN:-systemctl}"
+# Same for `launchctl`, which reaches the user's real launchd session.
+LAUNCHCTL="${LAUNCHCTL_BIN:-launchctl}"
 source "$SCRIPT_DIR/../lib.sh"
 
 usage() {
@@ -34,7 +36,9 @@ Usage: $(basename "$0") <id> [options]
   --relay-host <ip>    Host this profile's relay binds/advertises on
                         (default: read from an existing profile's .env)
   --mode dev|prod      dev prints the run command; prod enables the
-                        systemd instance (default: prod)
+                        systemd instance, or for the macOS app's relay
+                        (ANYWH_RELAY_MANAGED_BY_APP=1) starts its launchd
+                        jobs (default: prod)
   --resume             Accept an existing <id>.env if it matches what this
                         invocation would write (or is incomplete), and
                         finish whatever was left undone — instead of
@@ -328,11 +332,18 @@ trap 'rm -f "$ENV_TMP"' EXIT
 } > "$ENV_TMP"
 mv "$ENV_TMP" "$ENV_FILE"
 
-# `profiles.json` read-modify-write done in Node (already a hard
-# requirement for the relay itself) rather than hand-rolled in bash —
-# allocates the smallest colorIndex not already taken, same rule as
-# `profileColorClass` uses for profiles that predate the field.
+# `profiles.json` read-modify-write done in Node rather than hand-rolled in
+# bash — allocates the smallest colorIndex not already taken, same rule as
+# `profileColorClass` uses for profiles that predate the field. Inside the
+# macOS SEA tree (the binary two levels up) there may be no `node` to run:
+# the binary does the same write itself (relay/src/host/recordProfile.ts,
+# which must stay in sync with the snippet below). Everywhere else Node is
+# already a hard requirement of the relay.
 PROFILES_JSON="$(dirname "$ANYWH_ENV_DIR")/profiles.json"
+SEA_BIN="$SCRIPT_DIR/../../anywh-relay"
+if [[ -x "$SEA_BIN" ]]; then
+  "$SEA_BIN" record-profile "$PROFILES_JSON" "$ID" "$LABEL"
+else
 node -e '
 const fs = require("fs");
 // `-e` doesn'\''t consume an argv slot for a script filename the way a real
@@ -365,6 +376,7 @@ const entry = {
 data.profiles = [...data.profiles.filter((p) => p.id !== id), entry];
 fs.writeFileSync(path, JSON.stringify(data, null, 2));
 ' "$PROFILES_JSON" "$ID" "$LABEL"
+fi
 
 echo "Provisioned $ENV_FILE"
 
@@ -397,7 +409,111 @@ enable_agent_host() {
   fi
 }
 
-if [[ "$MODE" == "dev" && -d "$SCRIPT_DIR/../../relay" ]]; then
+# The macOS app's relay (ANYWH_RELAY_MANAGED_BY_APP, set by the app and by
+# the relay's own launchd jobs): this script sits in the relay tree the app
+# copied to Application Support, and each local profile is two launchd jobs,
+# the counterparts of anywh-relay@ and anywh-agent-host@. Their plists live
+# beside the tree, not in ~/Library/LaunchAgents: launchd knows them only
+# until logout, so nothing starts at login (the app bootstraps them again
+# when it is opened) and macOS adds no login item for them.
+xml_escape() {
+  local value="$1"
+  value="${value//&/&amp;}"
+  value="${value//</&lt;}"
+  value="${value//>/&gt;}"
+  printf '%s' "$value"
+}
+
+# write_plist <path> <label> <log file> <exit timeout> <program args...>
+write_plist() {
+  local path="$1" label="$2" log="$3" exit_timeout="$4"
+  shift 4
+  local arg
+  {
+    cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$(xml_escape "$label")</string>
+  <key>ProgramArguments</key>
+  <array>
+EOF
+    for arg in "$@"; do echo "    <string>$(xml_escape "$arg")</string>"; done
+    cat <<EOF
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>RELAY_ENV_FILE</key>
+    <string>$(xml_escape "$ENV_FILE")</string>
+    <key>ANYWH_ENV_DIR</key>
+    <string>$(xml_escape "$ANYWH_ENV_DIR")</string>
+    <key>ANYWH_PROFILE</key>
+    <string>$ID</string>
+    <key>ANYWH_RESTART_ON_UPDATE</key>
+    <string>1</string>
+    <key>ANYWH_RELAY_MANAGED_BY_APP</key>
+    <string>1</string>
+    <key>ANYWH_LAUNCHD_DIR</key>
+    <string>$(xml_escape "$LAUNCHD_DIR")</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>$(xml_escape "$HOME/.anywh-sessions")</string>
+  <key>StandardOutPath</key>
+  <string>$(xml_escape "$log")</string>
+  <key>StandardErrorPath</key>
+  <string>$(xml_escape "$log")</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ExitTimeOut</key>
+  <integer>$exit_timeout</integer>
+</dict>
+</plist>
+EOF
+  } > "$path.tmp.$$"
+  mv "$path.tmp.$$" "$path"
+}
+
+# bootstrap_job <label> <plist>: loads it unless it already is. Like the
+# systemd branch's "already running; left as is", a re-run must not be what
+# restarts a relay with a conversation in flight.
+bootstrap_job() {
+  local label="$1" plist="$2"
+  if "$LAUNCHCTL" print "gui/$(id -u)/$label" >/dev/null 2>&1; then
+    echo "$label is already running; left as is"
+  elif "$LAUNCHCTL" bootstrap "gui/$(id -u)" "$plist"; then
+    echo "Started $label"
+  else
+    fail launchd "couldn't start $label (launchctl bootstrap gui/$(id -u) $plist)"
+  fi
+}
+
+if [[ "$MODE" == "prod" && "${ANYWH_RELAY_MANAGED_BY_APP:-}" == "1" ]]; then
+  TREE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  LAUNCHD_DIR="${ANYWH_LAUNCHD_DIR:-$(dirname "$TREE_DIR")/launchd}"
+  mkdir -p "$LAUNCHD_DIR"
+  LAUNCHD_DIR="$(cd "$LAUNCHD_DIR" && pwd)"
+  RELAY_LABEL="sh.anywh.relay.$ID"
+  HOST_LABEL="sh.anywh.agent-host.$ID"
+  # Exit timeouts match the systemd units' TimeoutStopSec: the relay drains
+  # its turns, the host its agents, before launchd may SIGKILL them.
+  write_plist "$LAUNCHD_DIR/$HOST_LABEL.plist" "$HOST_LABEL" "$HOME/.anywh-sessions/$ID-agent-host.log" 75 \
+    "$TREE_DIR/anywh-relay" agent-host --profile "$ID"
+  write_plist "$LAUNCHD_DIR/$RELAY_LABEL.plist" "$RELAY_LABEL" "$HOME/.anywh-sessions/$ID-relay.log" 300 \
+    "$TREE_DIR/anywh-relay"
+  bootstrap_job "$HOST_LABEL" "$LAUNCHD_DIR/$HOST_LABEL.plist"
+  bootstrap_job "$RELAY_LABEL" "$LAUNCHD_DIR/$RELAY_LABEL.plist"
+  if wait_for_relay "$RELAY_HOST" "$PORT"; then
+    echo "$RELAY_LABEL is answering on $RELAY_HOST:$PORT"
+  else
+    echo "warning: $RELAY_LABEL didn't answer on $RELAY_HOST:$PORT yet; check $HOME/.anywh-sessions/$ID-relay.log" >&2
+  fi
+elif [[ "$MODE" == "dev" && -d "$SCRIPT_DIR/../../relay" ]]; then
   RELAY_DIR="$(cd "$SCRIPT_DIR/../../relay" && pwd)"
   cat <<EOF
 

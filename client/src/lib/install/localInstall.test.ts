@@ -16,6 +16,7 @@ const healthy: Prerequisites = {
   nodeVersion: "22.4.0",
   nodeOk: true,
   brewPath: null,
+  bundledRelay: false,
   systemdUser: true,
   xdgRuntimeDir: true,
   activeUnits: [],
@@ -54,6 +55,11 @@ describe("evaluatePrerequisites", () => {
     // populates them there, and a stale/mocked `true`/non-empty value must
     // not block an otherwise healthy machine.
     expect(evaluatePrerequisites({ ...macHealthy, systemdUser: false, activeUnits: ["anywh-relay@home.service"] }, "prod", "macos")).toBeNull();
+  });
+
+  it("a Mac app that ships its own relay needs neither Homebrew nor Node", () => {
+    const bare: Prerequisites = { ...healthy, nodePath: null, nodeOk: false, brewPath: null, bundledRelay: true };
+    expect(evaluatePrerequisites(bare, "prod", "macos")).toBeNull();
   });
 });
 

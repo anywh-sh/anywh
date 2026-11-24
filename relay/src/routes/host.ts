@@ -57,7 +57,8 @@ export function relayFeatures(canUpdateItself: boolean): readonly string[] {
 
 /** Whether this relay can install a release over itself and, when it
  * cannot, why. The app picks the way to update it from this: Homebrew for
- * `managed_elsewhere`, and nothing at all for a source checkout or a tree
+ * `managed_elsewhere`, and nothing at all for the app's own relay
+ * (`managed_by_app`: updating the app updates it), a source checkout or a tree
  * the installer did not lay out (no update it could offer would work). */
 export function updateSupportOf(status: RelayUpdateStatus): "supported" | UpdateUnsupportedReason {
   return status.state === "unsupported" ? status.reason : "supported";

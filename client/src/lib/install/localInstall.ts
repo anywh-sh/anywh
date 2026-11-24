@@ -411,7 +411,8 @@ export async function runPrereqs(): Promise<void> {
 
 /**
  * `platform` defaults to `currentPlatform()` so call sites outside Tauri
- * (tests) get the Linux checklist without saying so. macOS drives Homebrew
+ * (tests) get the Linux checklist without saying so. A Mac app that ships
+ * its own relay needs nothing; an older or Intel one drives Homebrew
  * instead of a preinstalled Node — it checks `brewPath` where the Linux
  * branch checks `nodePath`/`nodeOk`, and never asks about `systemd --user`
  * or `activeUnits`, both meaningless off that platform (relay_setup.rs
@@ -423,6 +424,7 @@ export async function runPrereqs(): Promise<void> {
  */
 export function evaluatePrerequisites(result: Prerequisites, mode: "prod" | "dev", platform: string | null = currentPlatform()): LocalFailure | null {
   if (platform === "macos") {
+    if (result.bundledRelay) return null;
     if (!result.brewPath) return { code: "brew_missing", detail: "" };
     return null;
   }
