@@ -66,10 +66,15 @@ export function BotPanelView({
 }) {
   // A task asked for from its conversation (a line of it) opens in place,
   // whether the panel mounts for it or is already open.
-  const [openTask, setOpenTask] = useState<number | null>(() => takePanelTask(bot.roomId) ?? initialTask);
+  const [requestedTask] = useState(() => takePanelTask(bot.roomId));
+  const [openTask, setOpenTask] = useState<number | null>(requestedTask ?? initialTask);
   // Settings asked for from elsewhere (the sidebar's menu) before this
-  // mounted, or while it is open.
-  const [settings, setSettings] = useState(() => initialSettings || takePanelSettings(bot.roomId));
+  // mounted, or while it is open. Both pending at mount: the task wins, as
+  // it does when it arrives while the settings are open.
+  const [settings, setSettings] = useState(() => {
+    const asked = takePanelSettings(bot.roomId);
+    return initialSettings || (asked && requestedTask === undefined);
+  });
   useEffect(
     () =>
       onPanelSettings(bot.roomId, () => {
@@ -88,6 +93,12 @@ export function BotPanelView({
     [bot.roomId],
   );
   const task = openTask === null ? undefined : bot.tasks.find((each) => each.n === openTask);
+  // A task no longer in the list (an old line's) shows the list — and is
+  // forgotten, so it can't pop open by itself if that number comes back.
+  const missing = openTask !== null && task === undefined;
+  useEffect(() => {
+    if (missing) setOpenTask(null);
+  }, [missing]);
   const body = settings ? (
     <BotSettings profile={profile} bot={bot} onBack={() => setSettings(false)} initial={settingsInitial} />
   ) : task ? (

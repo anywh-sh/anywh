@@ -20,10 +20,19 @@ export function takePanelTask(roomId: string): number | undefined {
   return n;
 }
 
+/** Drops a request no panel took: the person opened the panel by hand,
+ * which shows the list, and a late take must not jump to an old click. */
+export function dropPanelTask(roomId: string): void {
+  pending.delete(roomId);
+}
+
 /** Told on each request for the room's panel (without taking it). */
 export function onPanelTask(roomId: string, listener: () => void): () => void {
   const set = listeners.get(roomId) ?? new Set<() => void>();
   set.add(listener);
   listeners.set(roomId, set);
-  return () => set.delete(listener);
+  return () => {
+    set.delete(listener);
+    if (set.size === 0 && listeners.get(roomId) === set) listeners.delete(roomId);
+  };
 }

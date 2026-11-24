@@ -6,7 +6,7 @@ import { Mascot } from "@/components/bots/Mascot";
 import { BotPanel } from "@/components/bots/BotPanel";
 import { useDict } from "@/i18n";
 import { useBots } from "@/lib/bots/botsStore";
-import { onPanelTask } from "@/lib/bots/botTaskRequest";
+import { dropPanelTask, onPanelTask } from "@/lib/bots/botTaskRequest";
 import { mascotStateOf } from "@/lib/bots/mascot";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -27,7 +27,10 @@ export function BotCompactBar({ profile, roomId, onOpenSession }: { profile: Pro
       <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-3 py-2">
         {bot && <Mascot mascot={bot.mascot} state={mascotStateOf(bot)} size={32} badge backdrop="var(--background)" />}
         <span className="min-w-0 flex-1 truncate text-sm text-foreground">{bot?.name}</span>
-        <Button variant={bot && bot.needsYou > 0 ? "outline" : "ghost"} size="xs" onClick={() => setOpen(true)} className={bot && bot.needsYou > 0 ? "border-primary text-primary" : undefined}>
+        <Button variant={bot && bot.needsYou > 0 ? "outline" : "ghost"} size="xs" onClick={() => {
+            dropPanelTask(roomId);
+            setOpen(true);
+          }} className={bot && bot.needsYou > 0 ? "border-primary text-primary" : undefined}>
           <ListTodo />
           {dict.bots.panel.tasks}
           {bot && bot.needsYou > 0 && <span className="size-1.5 rounded-full bg-primary" aria-hidden />}

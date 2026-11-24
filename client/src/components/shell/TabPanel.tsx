@@ -19,7 +19,7 @@ import { DockEmptyState } from "@/components/shell/DockEmptyState";
 import { BotPanel } from "@/components/bots/BotPanel";
 import { BotPaneToggleButton } from "@/components/bots/BotPaneToggleButton";
 import { BotCompactBar } from "@/components/bots/BotCompactBar";
-import { askPanelTask } from "@/lib/bots/botTaskRequest";
+import { askPanelTask, dropPanelTask } from "@/lib/bots/botTaskRequest";
 import { useBotByRoom } from "@/lib/bots/botsStore";
 import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
@@ -223,7 +223,18 @@ function BotPanelToggle({ groupId, dock, actions, tabId }: { groupId: string | n
   const slot = usePanelTogglesSlot(groupId);
   const bot = useBotByRoom(tabId);
   if (!slot) return null;
-  return createPortal(<BotPaneToggleButton open={dock.panes.includes("bot")} attention={(bot?.needsYou ?? 0) > 0} onToggle={() => actions.onTogglePane(tabId, "bot")} />, slot);
+  return createPortal(
+    <BotPaneToggleButton
+      open={dock.panes.includes("bot")}
+      attention={(bot?.needsYou ?? 0) > 0}
+      onToggle={() => {
+        // Opened by hand: the list, not a task an earlier click left pending.
+        dropPanelTask(tabId);
+        actions.onTogglePane(tabId, "bot");
+      }}
+    />,
+    slot,
+  );
 }
 
 /** A room's pane buttons, drawn into its group's side panel rail. A
