@@ -336,7 +336,15 @@ export function useRelayClient(
           // `tailnetTarget` with its stored `connectToken`. `wake` comes from
           // RelayClient: true when the user drove this attempt, false for a
           // reconnect a timer scheduled.
-          const grant = isBrokeredProfile(profile) ? await fetchConnectGrant(profile, { wake }) : undefined;
+          let grant;
+          try {
+            grant = isBrokeredProfile(profile) ? await fetchConnectGrant(profile, { wake }) : undefined;
+          } catch (err) {
+            // No join is under way while the broker keeps refusing — the
+            // flag means "joining the tailnet", not "not connected yet".
+            if (!cancelled) setConnectingTailnet(false);
+            throw err;
+          }
           // The tab went away while the grant was in flight: taking a
           // reference now would leak it, since the cleanup already ran.
           if (cancelled) throw new Error("connection attempt outlived its tab");

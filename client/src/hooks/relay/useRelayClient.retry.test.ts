@@ -85,6 +85,8 @@ describe("useRelayClient tailnet acquisition retry", () => {
     const { result } = renderHook(() => useRelayClient(tailnetProfile, "session-1"));
     await act(() => vi.runOnlyPendingTimersAsync()); // deferred start, first attempt fails
     expect(FakeWebSocket.instances).toHaveLength(0);
+    // Not "joining the tailnet" while the broker refuses — nothing is.
+    expect(result.current.connectingTailnet).toBe(false);
 
     await act(() => vi.runOnlyPendingTimersAsync()); // RelayClient's backoff retries
     expect(fetchConnectGrantMock).toHaveBeenCalledTimes(2);
