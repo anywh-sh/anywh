@@ -1,6 +1,7 @@
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
+import { candidateToolDirs } from "../host/agentPath.js";
 import { resolveShipped } from "../host/paths.js";
 import type { RuntimeIdentity } from "./types.js";
 
@@ -24,11 +25,11 @@ import type { RuntimeIdentity } from "./types.js";
 const CONFIGURED_AGENT_BIN = process.env.AGENT_BIN ?? process.env.CLAUDE_BIN ?? "claude";
 
 // Where a CLI installed for one user lands when the relay's own PATH
-// doesn't have it. Not a guess at one product's installer: these are the
-// per-user and package-manager bin directories a CLI installs into, and
-// what is looked for in them is whatever AGENT_BIN names — an agent that
-// isn't this one, installed the same way, is found the same way.
-const WELL_KNOWN_BIN_DIRS = [join(homedir(), ".local", "bin"), join(homedir(), ".claude", "local"), "/opt/homebrew/bin", "/usr/local/bin"];
+// doesn't have it: the per-user, version-manager and package-manager bin
+// dirs the boot PATH widening also uses (host/agentPath.ts) — one list, so
+// the two never disagree about where an agent CLI lives. What is looked for
+// in them is whatever AGENT_BIN names.
+const WELL_KNOWN_BIN_DIRS = candidateToolDirs(homedir(), process.env);
 
 function isExecutable(path: string): boolean {
   try {
