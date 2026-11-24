@@ -64,3 +64,38 @@ test("readLoginShellPath: a shell that hangs costs the timeout and adds nothing"
 test("readLoginShellPath: a shell that doesn't exist adds nothing", () => {
   assert.deepEqual(readLoginShellPath({ PATH: "/usr/bin" }, "/nonexistent/shell"), []);
 });
+
+/** A home with `node` and `agent` in ~/.local/bin, and a fake shell whose
+ * PATH is one extra dir. */
+function withShellFixture(run: (fixture: { home: string; shell: string; shellDir: string; localBin: string }) => void): Promise<void> {
+  return withHome((home) => {
+    const localBin = join(home, ".local", "bin");
+    const shellDir = join(home, "from-shell");
+    mkdirSync(localBin, { recursive: true });
+    mkdirSync(shellDir);
+    executable(join(localBin, "node"), "#!/bin/sh\n");
+    executable(join(localBin, "agent"), "#!/bin/sh\n");
+    const shell = join(home, "fake-shell");
+    executable(shell, `#!/bin/sh\nprintf '__ANYWH_PATH__%s__ANYWH_PATH__' "${shellDir}"\n`);
+    run({ home, shell, shellDir, localBin });
+  });
+}
+
+test("discoverAgentPath: without a terminal, the login shell is asked when no wanted agent is found, and its dirs come first", () =>
+  withShellFixture(({ home, shell, shellDir, localBin }) => {
+    const added = discoverAgentPath({ PATH: "/usr/bin" }, { home, shell, nodeDir: null, platform: "linux", terminal: false, wanted: ["missing-agent"] });
+    assert.equal(added[0], shellDir);
+    assert.ok(added.includes(localBin));
+  }));
+
+test("discoverAgentPath: the login shell isn't asked when node and an agent are found without it", () =>
+  withShellFixture(({ home, shell, shellDir }) => {
+    const added = discoverAgentPath({ PATH: "/usr/bin" }, { home, shell, nodeDir: null, platform: "linux", terminal: false, wanted: ["agent", "missing-agent"] });
+    assert.ok(!added.includes(shellDir));
+  }));
+
+test("discoverAgentPath: with a terminal the login shell is never asked — the relay already has the shell's PATH", () =>
+  withShellFixture(({ home, shell, shellDir }) => {
+    const added = discoverAgentPath({ PATH: "/usr/bin" }, { home, shell, nodeDir: null, platform: "linux", terminal: true, wanted: ["missing-agent"] });
+    assert.ok(!added.includes(shellDir));
+  }));

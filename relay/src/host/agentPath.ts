@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { accessSync, constants, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { isSea } from "node:sea";
@@ -186,26 +186,66 @@ export interface DiscoverOptions {
    * absolute path, so it's on no PATH, yet it's where `npm i -g` installed.
    * `null` for none. */
   readonly nodeDir?: string | null;
+  /** Agent CLIs this process may spawn. The login shell is only asked when
+   * none of them, or no `node`, is found without it. */
+  readonly wanted?: readonly string[];
+  /** Whether this process has a terminal. Defaults to whether any of its
+   * stdio is one. */
+  readonly terminal?: boolean;
+  /** `false` never asks the login shell. */
   readonly loginShell?: boolean;
 }
 
-/** The dirs to append to `env.PATH`: the login shell's, then the relay's own
- * `node`'s, then the well-known ones — kept only when they exist and aren't
- * already on it. */
+function onPath(name: string, dirs: readonly string[]): boolean {
+  return dirs.some((dir) => {
+    try {
+      accessSync(join(dir, name), constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function hasTerminal(): boolean {
+  return !!(process.stdin.isTTY || process.stdout.isTTY || process.stderr.isTTY);
+}
+
+/**
+ * The dirs to append to `env.PATH` — kept only when they exist and aren't
+ * already on it. First the cheap ones: the relay's own `node`'s dir and the
+ * well-known dirs. The login shell's PATH only when those still leave no
+ * `node` or none of `wanted`, and only without a terminal:
+ *
+ * - with one, the relay was started from a shell and already has its PATH;
+ *   and an interactive shell spawned there opens `/dev/tty` and takes the
+ *   terminal's foreground group, stopping the relay as a background job;
+ * - without one (launchd, systemd) is exactly the case this exists for, and
+ *   checking the cheap dirs first keeps the shell, and its up to
+ *   `LOGIN_SHELL_TIMEOUT_MS` before the relay listens, off most boots.
+ */
 export function discoverAgentPath(env: NodeJS.ProcessEnv, options: DiscoverOptions = {}): string[] {
   const platform = options.platform ?? process.platform;
   if (platform === "win32" || env[AGENT_PATH_DISCOVERY_ENV] === "0") return [];
   const home = options.home ?? homedir();
   const nodeDir = options.nodeDir !== undefined ? options.nodeDir : isSea() ? null : dirname(process.execPath);
-  const candidates = [
-    ...(options.loginShell === false ? [] : readLoginShellPath(env, options.shell)),
-    ...(nodeDir ? [nodeDir] : []),
-    ...candidateToolDirs(home, env),
-  ];
-  const current = new Set((env.PATH ?? "").split(delimiter));
-  return [...new Set(candidates)].filter((dir) => !current.has(dir) && isDir(dir));
-}
+  const current = (env.PATH ?? "").split(delimiter).filter((dir) => dir.length > 0);
+  const known = new Set(current);
+  const keep = (dirs: readonly string[]): string[] =>
+    dirs.filter((dir) => {
+      if (known.has(dir) || !isDir(dir)) return false;
+      known.add(dir);
+      return true;
+    });
 
+  const cheap = keep([...(nodeDir ? [nodeDir] : []), ...candidateToolDirs(home, env)]);
+  const searched = [...current, ...cheap];
+  const wanted = options.wanted ?? [];
+  const missing = !onPath("node", searched) || (wanted.length > 0 && !wanted.some((name) => onPath(name, searched)));
+  const askShell = options.loginShell !== false && missing && !(options.terminal ?? hasTerminal());
+  const fromShell = askShell ? keep(readLoginShellPath(env, options.shell)) : [];
+  return [...fromShell, ...cheap];
+}
 /** Widens `env.PATH` (the process's own by default) in place, once at boot.
  * Returns the dirs it appended, for the boot log. */
 export function widenAgentPath(env: NodeJS.ProcessEnv = process.env, options: DiscoverOptions = {}): string[] {

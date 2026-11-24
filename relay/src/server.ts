@@ -69,7 +69,9 @@ import { widenAgentPath } from "./host/agentPath.js";
 // Before anything spawns: a relay started by launchd/systemd has a PATH
 // without the user's agent CLIs, or without the `node` an npm-installed one
 // needs (host/agentPath.ts).
-const widenedPath = widenAgentPath();
+const widenedPath = widenAgentPath(process.env, {
+  wanted: [claudeRuntimeDef, codexRuntimeDef, kimiRuntimeDef].map((def) => def.identity.bin),
+});
 if (widenedPath.length > 0) console.log(`[relay] PATH widened for agent CLIs: ${widenedPath.join(":")}`);
 
 // Config via env — allows running one instance per profile (systemd,
