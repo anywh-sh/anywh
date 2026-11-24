@@ -8,6 +8,8 @@ import {
   RELAY_PLATFORMS,
   RELAY_UPDATE_REASONS,
   RELAY_UPDATE_REQUEST_RESULTS,
+  VERSION_MAX_LENGTH,
+  VERSION_PATTERN,
   type EventProps,
 } from "@/lib/telemetry/events";
 
@@ -17,15 +19,13 @@ import {
  * do — a code is kept only when it is one of the installer's known ones.
  */
 
-const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9A-Za-z.-]{1,24})?$/;
-
 function closed<T extends readonly string[]>(values: T, pick: string | null | undefined): T[number] {
   return pick !== null && pick !== undefined && (values as readonly string[]).includes(pick) ? pick : "other";
 }
 
 /** A version as the registry accepts it, or nothing. */
 export function versionOrNone(version: string | null | undefined): string | undefined {
-  return version !== null && version !== undefined && VERSION.test(version) ? version : undefined;
+  return version !== null && version !== undefined && version.length <= VERSION_MAX_LENGTH && VERSION_PATTERN.test(version) ? version : undefined;
 }
 
 export function relayVsApp(relayVersion: string | undefined, appVersion: string): EventProps<"relay_seen">["vs_app"] {

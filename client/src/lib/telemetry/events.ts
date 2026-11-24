@@ -33,7 +33,11 @@ const count = (max = 1000) => ({ spec: { kind: "count", max } }) as const;
 const oneOf = <const V extends readonly string[]>(values: V) => ({ spec: { kind: "enum", values } }) as const;
 const optionalOneOf = <const V extends readonly string[]>(values: V) => ({ spec: { kind: "enum", values }, optional: true }) as const;
 const listOf = <const V extends readonly string[]>(values: V, maxItems: number) => ({ spec: { kind: "enumList", values, maxItems } }) as const;
-const version = { spec: { kind: "pattern", pattern: /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9A-Za-z.-]{1,24})?$/, maxLength: 40 } } as const;
+/** What a version property accepts; `versionOrNone` (relay.ts) checks a
+ * relay's version against the same one before sending it. */
+export const VERSION_PATTERN = /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9A-Za-z.-]{1,24})?$/;
+export const VERSION_MAX_LENGTH = 40;
+const version = { spec: { kind: "pattern", pattern: VERSION_PATTERN, maxLength: VERSION_MAX_LENGTH } } as const;
 const optionalVersion = { ...version, optional: true } as const;
 
 export const FEATURES = [
