@@ -1,8 +1,12 @@
 import { composeStories } from "@storybook/react-vite";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
+import { createBot } from "@/lib/bots/botClient";
+
+// A creation that never answers: the form stays in its busy state.
+vi.mock("@/lib/bots/botClient", async (original) => ({ ...(await original<object>()), createBot: vi.fn(() => new Promise(() => undefined)) }));
 import * as stories from "./NewBotDialog.stories";
 
 const { Blank, FromTemplate } = composeStories(stories);
@@ -10,7 +14,10 @@ const copy = en.bots;
 const face = (): string | null | undefined => document.querySelector(`[aria-label="${copy.create.changeMascot}"] [data-mascot]`)?.getAttribute("data-mascot");
 
 describe("New bot dialog stories", () => {
-  afterEach(() => act(() => cleanup()));
+  afterEach(() => {
+    act(() => cleanup());
+    vi.mocked(createBot).mockClear();
+  });
 
   it("from scratch, it can only be created once it has a name and says who it is", async () => {
     render(<Blank />);
@@ -42,5 +49,52 @@ describe("New bot dialog stories", () => {
     await userEvent.click(screen.getByRole("button", { name: copy.mascot.next }));
     await userEvent.click(screen.getByRole("radio", { name: copy.mascot.tones.stone }));
     expect(face()).toBe("visor:stone");
+  });
+
+  it("⌘/Ctrl+Enter creates from anywhere in the form, focused field or not, and not from outside it", async () => {
+    render(<Blank />);
+    await userEvent.type(screen.getByLabelText(copy.create.namePlaceholder), "Deploys");
+    await userEvent.type(screen.getByPlaceholderText(copy.create.soulPlaceholder), "I watch the deploys.");
+    // Focus elsewhere in the app: not this form's keypress.
+    act(() => (document.activeElement as HTMLElement).blur());
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(createBot).not.toHaveBeenCalled();
+    // What WebKit leaves after a click on a switch or blank space: the
+    // keydown raised on something in the form that isn't a field.
+    fireEvent.keyDown(screen.getByText(copy.create.soul), { key: "Enter", metaKey: true });
+    expect(createBot).toHaveBeenCalledTimes(1);
+  });
+
+  it("a held or composing ⌘/Ctrl+Enter does not create", () => {
+    render(<FromTemplate />);
+    const name = screen.getByDisplayValue(copy.templates["ci-check"].name);
+    fireEvent.keyDown(name, { key: "Enter", ctrlKey: true, isComposing: true });
+    fireEvent.keyDown(name, { key: "Enter", ctrlKey: true, repeat: true });
+    expect(createBot).not.toHaveBeenCalled();
+  });
+
+  it("a failed creation unlocks the form and puts focus back on Create", async () => {
+    vi.mocked(createBot).mockRejectedValueOnce(new Error("down"));
+    render(<FromTemplate />);
+    const create = screen.getByRole("button", { name: new RegExp(`^${copy.create.create}`) });
+    await userEvent.click(create);
+    expect(await screen.findByText(copy.create.failed)).toBeInTheDocument();
+    expect(create).toBeEnabled();
+    expect(create).toHaveFocus();
+    expect(screen.getByDisplayValue(copy.templates["ci-check"].name)).toBeEnabled();
+  });
+
+  it("while creating, the button keeps its label and the whole form is locked", async () => {
+    render(<FromTemplate />);
+    const create = screen.getByRole("button", { name: new RegExp(`^${copy.create.create}`) });
+    await userEvent.click(create);
+    expect(create).toHaveAttribute("aria-busy", "true");
+    expect(create).toBeDisabled();
+    expect(create).toHaveTextContent(copy.create.create);
+    expect(screen.getByDisplayValue(copy.templates["ci-check"].name)).toBeDisabled();
+    expect(screen.getByRole("switch", { name: copy.templates["ci-check"].scheduleName })).toBeDisabled();
+    expect(screen.getByRole("button", { name: en.common.cancel })).toBeDisabled();
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    expect(createBot).toHaveBeenCalledTimes(1);
   });
 });
