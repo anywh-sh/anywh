@@ -25,6 +25,21 @@ import {
   type BotTaskStatus,
 } from "./bot.js";
 import { SOUL_MAX, memoryForPrompt, type BotFiles, type MemoryLine } from "./botFiles.js";
+import {
+  parseBotAskArgs,
+  parseBotHandoffArgs,
+  peerAnswerText,
+  peerAskText,
+  peerClosedText,
+  peerHandoffText,
+  peerNoAnswerText,
+  peerPurpose,
+  peerRosterNote,
+  resolvePeer,
+  sendWindow,
+  BOT_PEER_SENDS_PER_HOUR,
+  type PeerNoAnswer,
+} from "./botPeers.js";
 import { checkCron, dueDecision, nextRunAfter } from "./botSchedule.js";
 import type { BotStore } from "./botStore.js";
 import {
@@ -48,6 +63,7 @@ import {
 import type { RoomAgentState } from "./room.js";
 import type { CreateRoomInput, CreateRoomResult, RoomBots } from "./roomManager.js";
 import type { SessionStore } from "./sessionStore.js";
+import type { BotTurnOutcome } from "./sharedSession.js";
 
 const ok = (text: string): RoomToolResult => ({ text, isError: false });
 /** Whether `stopAgent` stopped it (it answers `{ ok }`; anything else is not). */
@@ -68,7 +84,7 @@ const UNKNOWN_RESET_HOLD_MS = 60 * 60 * 1000;
 
 /** The live session of a bot's room, as much of it as bots use. */
 export interface BotSession {
-  submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: { silenced: boolean; failed: boolean; limited?: boolean }) => void }): void;
+  submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: BotTurnOutcome) => void }): void;
   isBusy(): boolean;
   isAnyoneLooking(): boolean;
 }
@@ -133,6 +149,8 @@ export interface BotTaskView {
   status: BotTaskStatus;
   doneMeans?: string;
   question?: BotTask["question"];
+  /** The bot that handed it over; `name` is null once that bot is gone. */
+  from?: { botId: string; name: string | null };
   notes: BotTask["notes"];
   workers: BotWorkerView[];
   createdAt: number;
@@ -197,6 +215,12 @@ export class BotManager implements RoomBots {
    * started. See `isRunning`. */
   private readonly running = new Map<string, number>();
   private started = false;
+  /** Questions between bots waiting for their answer, as `asker>asked`:
+   * one at a time per pair. In memory only: a restart drops them, and frees
+   * the pair. */
+  private readonly openQuestions = new Set<string>();
+  /** When each bot sent its latest messages to other bots (see `sendWindow`). */
+  private readonly sends = new Map<string, number[]>();
 
   constructor(private readonly options: BotManagerOptions) {
     this.now = options.now ?? Date.now;
@@ -286,6 +310,7 @@ export class BotManager implements RoomBots {
     const bot = this.store.get(id);
     if (!bot) return false;
     for (const schedule of bot.schedules) this.running.delete(`${id}:${schedule.id}`);
+    this.tellSendersOfDeleted(bot);
     this.store.delete(id);
     this.options.sessions.deleteSession(bot.roomId);
     this.options.files.remove(id);
@@ -297,6 +322,7 @@ export class BotManager implements RoomBots {
   onRoomDeleted(roomId: string): void {
     const bot = this.store.byRoom(roomId);
     if (!bot) return;
+    this.tellSendersOfDeleted(bot);
     this.store.delete(bot.id);
     this.options.files.remove(bot.id);
     this.arm();
@@ -384,6 +410,7 @@ export class BotManager implements RoomBots {
         }),
       ),
     }));
+    this.tellSender(bot.id, task, "canceled", null, true);
     // Nothing keeps working on a task the person called off, and the bot
     // hears it from the relay rather than from a report out of the blue.
     // The note waits for the stops, so it says what actually happened.
@@ -460,9 +487,19 @@ export class BotManager implements RoomBots {
     const bot = this.store.byRoom(roomId);
     if (!bot) return undefined;
     const clock = botClockNote(this.now(), this.timeZone());
+    // Who the other bots are, on every turn: a bot that has to call bot_list
+    // to learn its peers exist never thinks of involving one on its own.
+    const peers = peerRosterNote(
+      this.store
+        .list()
+        .filter((each) => each.id !== bot.id)
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((each) => ({ name: each.name, purpose: peerPurpose(this.options.files.readSoul(each.id)), paused: each.paused })),
+    );
+    const note = [bot.firstRun ? BOT_FIRST_RUN_NOTE : undefined, clock, peers].filter((part) => part !== undefined).join("\n\n");
     // One note behind a prefix of its own, so a transcript read back can
     // drop all of it (see `stripRelayNote`).
-    return `${BOT_TURN_NOTE_PREFIX} ${bot.firstRun ? `${BOT_FIRST_RUN_NOTE}\n\n${clock}` : clock}`;
+    return `${BOT_TURN_NOTE_PREFIX} ${note}`;
   }
 
   taskRefusal(roomId: string, taskN: number): string | undefined {
@@ -544,6 +581,12 @@ export class BotManager implements RoomBots {
         this.store.update(bot.id, (current) => ({ ...current, firstRun: false }));
         return Promise.resolve(ok("Soul written."));
       }
+      case "bot_list":
+        return Promise.resolve(this.botList(bot));
+      case "bot_ask":
+        return Promise.resolve(this.botAsk(bot, args));
+      case "bot_handoff":
+        return Promise.resolve(this.botHandoff(bot, args));
       case "schedule_create":
         return Promise.resolve(this.scheduleCreate(bot, args));
       case "schedule_update":
@@ -604,6 +647,7 @@ export class BotManager implements RoomBots {
         }),
       ),
     }));
+    if (status === "done" || status === "canceled") this.tellSender(bot.id, target, status, note, false);
     return ok(`Task #${n} updated.`);
   }
 
@@ -625,6 +669,154 @@ export class BotManager implements RoomBots {
       watched: session?.isAnyoneLooking() ?? false,
     });
     return ok(`Question added to task #${n}; the person is notified. End your turn now: their answer comes back as a message.`);
+  }
+
+  // ------------------------------------------------------------ peers
+
+  private botList(bot: BotRecord): RoomToolResult {
+    const peers = this.store
+      .list()
+      .filter((each) => each.id !== bot.id)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((each) => ({
+        name: each.name,
+        id: each.id,
+        purpose: peerPurpose(this.options.files.readSoul(each.id)),
+        busy: this.options.sessions.peek(each.roomId)?.isBusy() ?? false,
+        ...(each.paused ? { paused: true } : {}),
+      }));
+    if (peers.length === 0) return ok("There are no other bots on this computer.");
+    return ok(JSON.stringify({ bots: peers }));
+  }
+
+  /** The sender's own task a peer message is for, refused when it is not open. */
+  private ownTaskRefusal(bot: BotRecord, taskN: number | undefined): string | undefined {
+    if (taskN === undefined) return undefined;
+    const task = bot.tasks.find((each) => each.n === taskN);
+    if (!task || isClosed(task.status)) return `There is no open task #${taskN} of yours.`;
+    return undefined;
+  }
+
+  /** Counts one message against the sender's hourly limit, or says why not. */
+  private takeSend(bot: BotRecord): string | undefined {
+    const now = this.now();
+    const window = sendWindow(this.sends.get(bot.id) ?? [], now);
+    if (!window.allowed) return `You already sent ${BOT_PEER_SENDS_PER_HOUR} messages to other bots in the last hour (the limit); try again later or ask the person.`;
+    this.sends.set(bot.id, [...window.recent, now]);
+    return undefined;
+  }
+
+  private noteOwnTask(botId: string, taskN: number | undefined, text: string): void {
+    if (taskN === undefined) return;
+    const at = this.now();
+    this.store.update(botId, (current) => ({
+      ...current,
+      tasks: current.tasks.map((each) => (each.n === taskN ? { ...each, notes: withNote(each.notes, { text, at }), updatedAt: at } : each)),
+    }));
+  }
+
+  private botAsk(bot: BotRecord, args: unknown): RoomToolResult {
+    const parsed = parseBotAskArgs(args);
+    if (!parsed.ok) return fail(parsed.error);
+    const { question, task } = parsed.value;
+    const found = resolvePeer(this.store.list(), bot.id, parsed.value.to);
+    if (!found.ok) return fail(found.error);
+    const peer = found.value;
+    if (peer.paused) return fail(`${peer.name} is paused; ask the person instead.`);
+    const refusal = this.ownTaskRefusal(bot, task);
+    if (refusal) return fail(refusal);
+    const pair = `${bot.id}>${peer.id}`;
+    if (this.openQuestions.has(pair)) return fail(`You already asked ${peer.name} something; wait for that answer first.`);
+    const limited = this.takeSend(bot);
+    if (limited) return fail(limited);
+    this.openQuestions.add(pair);
+    this.noteOwnTask(bot.id, task, `Asked ${peer.name}: ${question.length > 200 ? `${question.slice(0, 199)}…` : question}`);
+    this.options.sessions.getOrCreate(peer.roomId).submitBotTurn(peerAskText(bot.name, question), {
+      kind: "bot_note",
+      label: `peer_ask:${bot.name}`,
+      onSettled: (outcome) => {
+        this.openQuestions.delete(pair);
+        this.turnSettled(peer.id, outcome);
+        this.deliverAnswer(bot.id, peer, question, outcome);
+      },
+    });
+    return ok(`Sent to ${peer.name}. Its answer comes back to you as a message; end your turn now.`);
+  }
+
+  /** Brings a peer's answer (or why there is none) back to the bot that asked. */
+  private deliverAnswer(askerId: string, peer: BotRecord, question: string, outcome: BotTurnOutcome): void {
+    const asker = this.store.get(askerId);
+    if (!asker) return;
+    const name = this.store.get(peer.id)?.name ?? peer.name;
+    const reply = outcome.reply?.trim() ?? "";
+    const why: PeerNoAnswer | undefined = outcome.limited ? "limited" : outcome.failed ? "failed" : outcome.stopped ? "stopped" : reply === "" ? "empty" : undefined;
+    const text = why ? peerNoAnswerText(name, question, why) : peerAnswerText(name, question, reply);
+    this.options.sessions.getOrCreate(asker.roomId).submitBotTurn(text, {
+      kind: "bot_note",
+      label: `${why ? "peer_noanswer" : "peer_answer"}:${name}`,
+      onSettled: (settled) => this.turnSettled(asker.id, settled),
+    });
+  }
+
+  private botHandoff(bot: BotRecord, args: unknown): RoomToolResult {
+    const parsed = parseBotHandoffArgs(args);
+    if (!parsed.ok) return fail(parsed.error);
+    const { title, details, task } = parsed.value;
+    const found = resolvePeer(this.store.list(), bot.id, parsed.value.to);
+    if (!found.ok) return fail(found.error);
+    const peer = found.value;
+    if (peer.paused) return fail(`${peer.name} is paused; ask the person instead.`);
+    const refusal = this.ownTaskRefusal(bot, task);
+    if (refusal) return fail(refusal);
+    if (peer.tasks.filter((each) => !isClosed(each.status)).length >= BOT_OPEN_TASKS_MAX) return fail(`${peer.name}'s task list is full; ask the person instead.`);
+    const limited = this.takeSend(bot);
+    if (limited) return fail(limited);
+    const at = this.now();
+    const n = peer.nextTaskN;
+    this.store.update(peer.id, (current) => ({
+      ...current,
+      nextTaskN: current.nextTaskN + 1,
+      tasks: [
+        ...current.tasks,
+        { n, title, status: "planned", workerIds: [], from: { botId: bot.id, ...(task !== undefined ? { taskN: task } : {}) }, notes: [{ text: `From ${bot.name}: ${details}`, at }], createdAt: at, updatedAt: at },
+      ],
+    }));
+    this.noteOwnTask(bot.id, task, `Handed to ${peer.name} as #${n}.`);
+    this.options.sessions.getOrCreate(peer.roomId).submitBotTurn(peerHandoffText(bot.name, n, title, details), {
+      kind: "bot_note",
+      label: `peer_handoff:${n}:${bot.name}`,
+      onSettled: (outcome) => this.turnSettled(peer.id, outcome),
+    });
+    return ok(`Handed to ${peer.name} as its task #${n}. You are told when it is done or canceled.`);
+  }
+
+  /** A task another bot handed over just closed: that bot hears how. `note`
+   * is what to tell with it: the update's own note, `null` for none, or (left
+   * out) the task's latest note. */
+  private tellSender(botId: string, before: BotTask, status: "done" | "canceled", note: string | null | undefined, byPerson: boolean): void {
+    if (!before.from || isClosed(before.status)) return;
+    const sender = this.store.get(before.from.botId);
+    const holder = this.store.get(botId);
+    if (!sender || !holder) return;
+    const after = holder.tasks.find((each) => each.n === before.n);
+    const lastNote = note === null ? undefined : (note ?? after?.notes.at(-1)?.text);
+    const forTaskN = before.from.taskN;
+    this.noteOwnTask(sender.id, forTaskN !== undefined && sender.tasks.some((each) => each.n === forTaskN) ? forTaskN : undefined, `${holder.name} closed #${before.n}: ${status}.`);
+    this.options.sessions
+      .getOrCreate(sender.roomId)
+      .submitBotTurn(peerClosedText(holder.name, { n: before.n, title: after?.title ?? before.title, status, ...(lastNote ? { note: lastNote } : {}), byPerson, ...(forTaskN !== undefined ? { forTaskN } : {}) }), {
+        kind: "bot_note",
+        label: `peer_closed:${before.n}:${holder.name}`,
+        onSettled: (outcome) => this.turnSettled(sender.id, outcome),
+      });
+  }
+
+  /** The bot is being deleted: every bot that handed it a task still open
+   * hears that the task is gone, instead of waiting on it forever. */
+  private tellSendersOfDeleted(bot: BotRecord): void {
+    for (const task of bot.tasks) {
+      if (task.from && !isClosed(task.status)) this.tellSender(bot.id, task, "canceled", "The bot that had it was deleted.", true);
+    }
   }
 
   private scheduleCreate(bot: BotRecord, args: unknown): RoomToolResult {
@@ -872,6 +1064,7 @@ export class BotManager implements RoomBots {
       status: taskStatus(task, (id) => this.awaitsPerson(id)),
       ...(task.doneMeans ? { doneMeans: task.doneMeans } : {}),
       ...(task.question ? { question: task.question } : {}),
+      ...(task.from ? { from: { botId: task.from.botId, name: this.store.get(task.from.botId)?.name ?? null } } : {}),
       notes: task.notes,
       workers: task.workerIds.map((agentId) => {
         const room = this.options.sessionStore.getRoom(agentId);

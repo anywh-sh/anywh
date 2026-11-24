@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallEntry } from "@/hooks/relay/useMessageLog";
-import { botActivityOf } from "@/lib/bots/botActivity";
+import { botActivityOf, fillTemplate } from "@/lib/bots/botActivity";
 
 const call = (tool: string, input: Record<string, unknown>, over: Partial<ToolCallEntry> = {}): ToolCallEntry => ({
   kind: "tool-call",
@@ -23,11 +23,26 @@ describe("botActivityOf", () => {
     expect(botActivityOf(call("schedule_create", { name: "Hourly", cron: "0 * * * *", prompt: "p" }))).toEqual({ kind: "scheduled", text: "Hourly" });
   });
 
+  it("reads the calls to other bots as lines naming the bot", () => {
+    expect(botActivityOf(call("bot_list", {}))).toEqual({ kind: "peers" });
+    expect(botActivityOf(call("bot_ask", { to: "Release", question: "What shipped?" }))).toEqual({ kind: "askedBot", name: "Release", text: "What shipped?" });
+    expect(botActivityOf(call("bot_handoff", { to: "Fixer", title: "Fix it", details: "d" }))).toEqual({ kind: "handedOff", name: "Fixer", text: "Fix it" });
+    expect(botActivityOf(call("bot_ask", { question: "q" })), "no bot named").toBeUndefined();
+    expect(botActivityOf(call("bot_ask", { to: "Release", question: "q" }, { isError: true }))).toBeUndefined();
+  });
+
   it("leaves everything else where the log draws it", () => {
     expect(botActivityOf(call("delegate", { name: "Fixer", task: "x" })), "a room's delegate, without a task").toBeUndefined();
     expect(botActivityOf(call("delegate", { name: "Fixer", task: "x", task_number: 2 }))).toEqual({ kind: "delegated", n: 2, text: "Fixer" });
     expect(botActivityOf(call("task_create", { title: "x" }, { isError: true, content: "too many" }))).toBeUndefined();
     expect(botActivityOf(call("task_update", { task: 1 }, { done: false }))).toBeUndefined();
     expect(botActivityOf({ ...call("remember", { text: "x" }), subject: { kind: "mcp", server: "other", tool: "remember" } })).toBeUndefined();
+  });
+});
+
+describe("fillTemplate", () => {
+  it("puts each value in as written, never reading slots or $-patterns inside a value", () => {
+    expect(fillTemplate("{name} handed you task #{n}", { name: "Bot {n} $& $'", n: "12" })).toBe("Bot {n} $& $' handed you task #12");
+    expect(fillTemplate("{missing} stays", {})).toBe("{missing} stays");
   });
 });

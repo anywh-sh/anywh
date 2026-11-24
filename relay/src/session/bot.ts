@@ -30,6 +30,11 @@ export interface BotTaskNote {
   at: number;
 }
 
+export interface BotTaskOrigin {
+  botId: string;
+  taskN?: number;
+}
+
 export interface BotTask {
   /** Sequential per bot, from 1: how the bot and the person name the task. */
   n: number;
@@ -41,6 +46,9 @@ export interface BotTask {
   workerIds: string[];
   /** A question the bot put to the person, open until answered. */
   question?: BotTaskQuestion;
+  /** Another bot handed it over (`bot_handoff`): told how it ends. `taskN`
+   * is the sender's own task it was for, if it named one. */
+  from?: BotTaskOrigin;
   notes: BotTaskNote[];
   createdAt: number;
   updatedAt: number;
@@ -182,6 +190,10 @@ function isQuestion(value: unknown): value is BotTaskQuestion {
   );
 }
 
+function isOrigin(value: unknown): value is BotTaskOrigin {
+  return isRecord(value) && typeof value.botId === "string" && value.botId !== "" && (value.taskN === undefined || (Number.isInteger(value.taskN) && (value.taskN as number) > 0));
+}
+
 function isTask(value: unknown): value is BotTask {
   if (!isRecord(value)) return false;
   return (
@@ -193,6 +205,7 @@ function isTask(value: unknown): value is BotTask {
     (value.doneMeans === undefined || typeof value.doneMeans === "string") &&
     isStringList(value.workerIds) &&
     (value.question === undefined || isQuestion(value.question)) &&
+    (value.from === undefined || isOrigin(value.from)) &&
     Array.isArray(value.notes) &&
     value.notes.every((note) => isRecord(note) && typeof note.text === "string" && isTimestamp(note.at)) &&
     isTimestamp(value.createdAt) &&

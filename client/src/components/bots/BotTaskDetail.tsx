@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Forward } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -8,6 +8,7 @@ import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { TaskStatusIcon } from "@/components/bots/BotPanel";
 import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { useDict, useLocale } from "@/i18n";
+import { fillTemplate } from "@/lib/bots/botActivity";
 import { answerTask, cancelTask } from "@/lib/bots/botClient";
 import { shortWhen } from "@/lib/bots/botStatusLine";
 import { isClosedTask, type BotTask, type BotView, type BotWorkerView } from "@/lib/bots/botTypes";
@@ -48,6 +49,12 @@ export function BotTaskDetail({ profile, bot, task, onBack, onOpenSession }: Bot
             <span className={task.status === "needs_you" ? "text-primary" : undefined}>{dict.bots.task.status[task.status]}</span>
           </span>
           <h3 className="text-[15px] leading-snug font-medium text-foreground">{task.title}</h3>
+          {task.from && (
+            <span className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground" data-testid="bot-task-from">
+              <Forward className="size-3 shrink-0" aria-hidden />
+              {task.from.name === null ? dict.bots.task.fromGone : fillTemplate(dict.bots.task.from, { name: task.from.name })}
+            </span>
+          )}
         </div>
 
         {task.question && (

@@ -28,6 +28,8 @@ export interface BotTask {
   status: BotTaskStatus;
   doneMeans?: string;
   question?: BotTaskQuestion;
+  /** Another bot handed it over; `name` is null once that bot is gone. */
+  from?: { botId: string; name: string | null };
   notes: { text: string; at: number }[];
   workers: BotWorkerView[];
   createdAt: number;

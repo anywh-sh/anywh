@@ -6,7 +6,7 @@ import * as stories from "./BotPanel.stories";
 import { en } from "@/i18n/en";
 
 const copy = en.bots;
-const { Tasks, Empty, Question, Working, ConversationWaits, Settings, SettingsEmptyMemory } = composeStories(stories);
+const { Tasks, Empty, Question, Working, HandedOff, HandedOffSenderGone, ConversationWaits, Settings, SettingsEmptyMemory } = composeStories(stories);
 
 describe("Bot panel stories", () => {
   afterEach(() => act(() => cleanup()));
@@ -21,6 +21,17 @@ describe("Bot panel stories", () => {
     const schedules = screen.getAllByTestId("bot-schedule");
     expect(schedules).toHaveLength(2);
     expect(within(schedules[1]).getByRole("switch")).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("a handed-over task names the bot it came from, or says that bot is gone", () => {
+    render(<HandedOff />);
+    expect(screen.getByTestId("bot-task-from")).toHaveTextContent(copy.task.from.replace("{name}", "Release"));
+    cleanup();
+    render(<HandedOffSenderGone />);
+    expect(screen.getByTestId("bot-task-from")).toHaveTextContent(copy.task.fromGone);
+    cleanup();
+    render(<Working />);
+    expect(screen.queryByTestId("bot-task-from")).not.toBeInTheDocument();
   });
 
   it("opening a task shows it in place, and back returns to the list", async () => {
