@@ -42,6 +42,25 @@ describe("the bot creation funnel", () => {
     expect(named("bot_create_ended")[0]).not.toHaveProperty("runtime");
   });
 
+  it("going to the templates from the dialog and creating from one is one attempt, not an abandonment", () => {
+    openNewBot({ profileId: "p", source: "sidebar" });
+    closeNewBot({ toTemplates: true });
+    openNewBot({ profileId: "p", templateId: "pr-review", source: "templates" });
+    noteBotCreated("claude", false);
+    closeNewBot();
+    expect(named("bot_create_opened")).toEqual([{ source: "sidebar", template: "blank" }]);
+    expect(named("bot_create_ended")).toEqual([expect.objectContaining({ outcome: "created", template: "pr-review" })]);
+  });
+
+  it("going to the templates and then opening the dialog some other way ends the first attempt", () => {
+    openNewBot({ profileId: "p", source: "sidebar" });
+    closeNewBot({ toTemplates: true });
+    openNewBot({ profileId: "p", source: "first_card" });
+    closeNewBot();
+    expect(named("bot_create_ended").map((p) => p.outcome)).toEqual(["abandoned", "abandoned"]);
+    expect(named("bot_create_opened").map((p) => p.source)).toEqual(["sidebar", "first_card"]);
+  });
+
   it("opened again over itself, the earlier opening ends once; a second close counts nothing", () => {
     openNewBot({ profileId: "p", source: "sidebar" });
     openNewBot({ profileId: "p", templateId: "ci-check", source: "templates" });

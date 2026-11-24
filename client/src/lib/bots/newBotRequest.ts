@@ -27,8 +27,10 @@ function emit(next: NewBotRequest | null): void {
 }
 
 // The dialog's current opening, counted from open to close: whether it
-// ended with a bot, and what stood in the way if not.
-let attempt: BotCreateAttempt | null = null;
+// ended with a bot, and what stood in the way if not. `parked`: the dialog
+// closed to let the person pick a template, so the same attempt goes on if
+// the next opening comes from the templates.
+let attempt: (BotCreateAttempt & { parked?: boolean }) | null = null;
 
 function endAttempt(): void {
   if (attempt) trackBotCreateEnded(attempt);
@@ -36,15 +38,24 @@ function endAttempt(): void {
 }
 
 export function openNewBot(request: NewBotRequest): void {
-  // Opened again over itself: the earlier opening ended without a bot.
-  endAttempt();
-  attempt = { templateId: request.templateId, openedAt: Date.now(), gated: false, failedAttempts: 0 };
-  trackBotCreateOpened(request.source ?? "other", request.templateId);
+  if (attempt?.parked && request.source === "templates") {
+    // Back from the templates the dialog sent the person to: one attempt.
+    attempt.parked = false;
+    attempt.templateId = request.templateId;
+  } else {
+    // Opened again over itself: the earlier opening ended without a bot.
+    endAttempt();
+    attempt = { templateId: request.templateId, openedAt: Date.now(), gated: false, failedAttempts: 0 };
+    trackBotCreateOpened(request.source ?? "other", request.templateId);
+  }
   emit(request);
 }
 
-export function closeNewBot(): void {
-  endAttempt();
+/** `toTemplates`: closed to pick a template, which carries on the same
+ * attempt rather than ending it. */
+export function closeNewBot(options: { toTemplates?: boolean } = {}): void {
+  if (options.toTemplates && attempt) attempt.parked = true;
+  else endAttempt();
   emit(null);
 }
 

@@ -66,7 +66,7 @@ export function NewBotDialog({ onCreated, onTemplates }: NewBotDialogProps) {
               onCreated(bot, profile, shown);
             }}
             onTemplates={() => {
-              closeNewBot();
+              closeNewBot({ toTemplates: true });
               onTemplates(shown.profileId);
             }}
           />
@@ -277,7 +277,7 @@ export function NewBotForm({
         </Button>
         <span className="flex-1" />
         {error && <p className="max-w-[220px] text-xs text-destructive">{error}</p>}
-        <Button variant="ghost" onClick={closeNewBot}>
+        <Button variant="ghost" onClick={() => closeNewBot()}>
           {dict.common.cancel}
         </Button>
         {/* The label stays the same while it loads, so the button keeps its
