@@ -75,8 +75,13 @@ vi.mock("@/lib/profiles/tailnetSidecar", () => ({
   acquireTailnetSidecar: acquireTailnetSidecarMock,
   releaseTailnetSidecar: releaseTailnetSidecarMock,
   peekTailnetSidecar: peekTailnetSidecarMock,
+  retargetTailnetSidecar: () => undefined,
 }));
-vi.mock("@/lib/profiles/tailnetBroker", () => ({ resolveTailnetTarget: resolveTailnetTargetMock, fetchConnectGrant: fetchConnectGrantMock }));
+vi.mock("@/lib/profiles/tailnetBroker", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/profiles/tailnetBroker")>()),
+  resolveTailnetTarget: resolveTailnetTargetMock,
+  fetchConnectGrant: fetchConnectGrantMock,
+}));
 
 const EMPTY_PROBE: LocalRelayProbe = {
   platform: "linux",
