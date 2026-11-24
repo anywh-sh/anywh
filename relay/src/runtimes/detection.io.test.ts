@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { widenAgentPath } from "../host/agentPath.js";
+import { discoverAgentPath, widenPath } from "../host/agentPath.js";
 import { detectRuntime, detectRuntimes } from "./detection.js";
 import type { AgentRuntimeDef, Capabilities } from "./types.js";
 
@@ -125,8 +125,11 @@ test("an npm-installed CLI under nvm is detected once the PATH is widened, and n
       process.env.PATH = empty;
       assert.equal((await detectRuntime(fixtureDef({ bin: "anywh-fixture-agent" }))).installed, false);
 
-      const added = widenAgentPath(process.env, { loginShell: false, nodeDir: null, home, platform: "darwin" });
+      // A clean env, not process.env: an NVM_DIR exported by the shell that
+      // runs the tests would aim discovery at that machine's real nvm.
+      const added = discoverAgentPath({ PATH: empty }, { loginShell: false, nodeDir: null, home, platform: "darwin" });
       assert.ok(added.includes(bin), `expected ${bin} in ${added.join(":")}`);
+      process.env.PATH = widenPath(empty, added);
       assert.equal(process.env.PATH.split(":")[0], empty, "the relay's own PATH stays first");
       const detection = await detectRuntime(fixtureDef({ bin: "anywh-fixture-agent" }));
       assert.equal(detection.installed, true);

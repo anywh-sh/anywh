@@ -4,15 +4,15 @@
 // test asserting "no limit was set" then passes or fails by where it ran.
 const AMBIENT_KEYS = ["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "ANYWH_AGENT_MARK"];
 
+// The relay under test sees exactly the PATH the test gave it, never one
+// widened with this machine's real agent CLIs (host/agentPath.ts).
+process.env.ANYWH_AGENT_PATH_DISCOVERY = "0";
+
 // The agent CLIs' config-dir variables, dropped once, when the helpers load:
 // a test run from a shell inside a profile with its own config folders would
 // otherwise aim the relay under test, and the fakes, at that profile's real
 // accounts. Not on every scrub, because a test sets one on purpose (a fake
 // Kimi's home) before it boots the relay.
-// The relay under test sees exactly the PATH the test gave it, never one
-// widened with this machine's real agent CLIs (host/agentPath.ts).
-process.env.ANYWH_AGENT_PATH_DISCOVERY = "0";
-
 for (const key of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIMI_CODE_HOME"]) delete process.env[key];
 
 /** `process.env` without the ambient settings above, nor any `RELAY_*` (each
