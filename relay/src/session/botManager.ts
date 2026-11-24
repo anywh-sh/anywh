@@ -323,6 +323,7 @@ export class BotManager implements RoomBots {
     if (!bot) return false;
     for (const schedule of bot.schedules) this.running.delete(`${id}:${schedule.id}`);
     this.tellSendersOfDeleted(bot);
+    this.peerSent.delete(id);
     this.store.delete(id);
     this.options.sessions.deleteSession(bot.roomId);
     this.options.files.remove(id);
@@ -335,6 +336,7 @@ export class BotManager implements RoomBots {
     const bot = this.store.byRoom(roomId);
     if (!bot) return;
     this.tellSendersOfDeleted(bot);
+    this.peerSent.delete(bot.id);
     this.store.delete(bot.id);
     this.options.files.remove(bot.id);
     this.arm();
