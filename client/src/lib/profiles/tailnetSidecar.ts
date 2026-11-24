@@ -23,6 +23,11 @@ interface Entry {
   /** What the running (or starting) sidecar dials inside the tailnet. */
   target: string;
   endpoint: Promise<TailnetEndpoint>;
+  /** `endpoint` rejected. The next caller that brings a target starts the
+   * sidecar again instead of reattaching to the same dead promise. A failed
+   * restart at a new target matters most: Rust already killed the old child,
+   * so a cached rejection would leave nothing running until the app quits. */
+  failed?: boolean;
   /** Set while a teardown is scheduled but hasn't run yet — see
    * `releaseTailnetSidecar`'s comment for why this exists. */
   pendingStop?: ReturnType<typeof setTimeout>;
@@ -64,9 +69,10 @@ export function acquireTailnetSidecar(profile: Profile, target: string): Promise
     }
     return pointAt(existing, profile, target);
   }
-  const endpoint = startSidecar(profile, target);
-  entries.set(profile.id, { refCount: 1, target, endpoint });
-  return endpoint;
+  const entry: Entry = { refCount: 1, target, endpoint: startSidecar(profile, target) };
+  entries.set(profile.id, entry);
+  watchForFailure(entry);
+  return entry.endpoint;
 }
 
 /** Makes the sidecar someone already holds for `profile` dial `target`, and
@@ -83,13 +89,28 @@ export function retargetTailnetSidecar(profile: Profile, target: string): Promis
 }
 
 function pointAt(entry: Entry, profile: Profile, target: string): Promise<TailnetEndpoint> {
-  if (entry.target === target) return entry.endpoint;
-  entry.target = target;
+  if (entry.target === target && !entry.failed) return entry.endpoint;
   // The Rust command does the actual swap — it sees a running child with a
   // different target, kills it and starts one at the new target — and it
   // serializes per profile, so this can't race a start still in flight.
+  return start(entry, profile, target);
+}
+
+function start(entry: Entry, profile: Profile, target: string): Promise<TailnetEndpoint> {
+  entry.target = target;
   entry.endpoint = startSidecar(profile, target);
+  entry.failed = false;
+  watchForFailure(entry);
   return entry.endpoint;
+}
+
+function watchForFailure(entry: Entry): void {
+  const endpoint = entry.endpoint;
+  endpoint.catch(() => {
+    // Only this attempt's own failure: a newer start may already have
+    // replaced it on the entry.
+    if (entry.endpoint === endpoint) entry.failed = true;
+  });
 }
 
 function startSidecar(profile: Profile, target: string): Promise<TailnetEndpoint> {
@@ -122,7 +143,9 @@ function startSidecar(profile: Profile, target: string): Promise<TailnetEndpoint
  * (e.g. a background tailnet profile queried without ever being opened) —
  * the caller decides whether to fall back to its own acquire/release. */
 export function peekTailnetSidecar(profileId: string): Promise<TailnetEndpoint> | undefined {
-  return entries.get(profileId)?.endpoint;
+  const entry = entries.get(profileId);
+  // A failed join is nothing to dial; the caller's own acquire retries it.
+  return entry && !entry.failed ? entry.endpoint : undefined;
 }
 
 /** Releases one reference acquired via `acquireTailnetSidecar` — once the
