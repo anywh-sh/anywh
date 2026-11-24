@@ -16,12 +16,22 @@ import {
   updateModeOf,
   type ErrorKind,
   type Feature,
+  type PromptTarget,
+  type UpgradePromptSource,
+  type BotAction,
+  type BotCreateFailure,
+  type BotCreateSource,
   type EventProps,
 } from "@/lib/telemetry/events";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { getInstallOrigin, resolveUpdateMode } from "@/lib/install/updateMode";
 import type { Profile } from "@/lib/profiles/profiles";
 import { LOOPBACK_HOSTS } from "@/lib/profiles/loopback";
+import type { HostInfo } from "@/lib/relay/filesClient";
+import type { BotSummary } from "@/lib/bots/botTypes";
+import { botsSnapshot, templateKind } from "@/lib/telemetry/bots";
+import { exceptionReport } from "@/lib/telemetry/exceptions";
+import { relayPlatform, relayUpdatePath, relayVsApp, updateRequestResult, installerCode, installerStep, secondsSince, updateReason, versionOrNone } from "@/lib/telemetry/relay";
 
 /**
  * The call sites' vocabulary. Each function takes what the app already has
@@ -54,7 +64,8 @@ export function trackSessionStarted(input: {
   });
 }
 
-export function trackPromptSent(agentId: string | null | undefined): void {
+export function trackPromptSent(agentId: string | null | undefined, target: PromptTarget = "chat"): void {
+  telemetry.trackDaily(`prompt:${target}`, "prompt_sent", { target, runtime: runtimeOf(agentId) });
   const now = Date.now();
   telemetry.trackOnce("first_prompt_sent", "first_prompt_sent", {
     seconds_since_first_open: Math.max(0, Math.round((now - firstOpenAt(now)) / 1000)),
@@ -62,8 +73,14 @@ export function trackPromptSent(agentId: string | null | undefined): void {
   });
 }
 
+/** A profile whose relay runs on this machine: installed here by the app,
+ * or reached on loopback without the broker. */
+function isLocalProfile(profile: Pick<Profile, "host" | "localRelay" | "brokerNodeId">): boolean {
+  return profile.localRelay === true || (!profile.brokerNodeId && LOOPBACK_HOSTS.has(profile.host));
+}
+
 export function trackProfileAdded(profile: Pick<Profile, "host" | "localRelay" | "brokerNodeId">): void {
-  const local = profile.localRelay === true || (!profile.brokerNodeId && LOOPBACK_HOSTS.has(profile.host));
+  const local = isLocalProfile(profile);
   telemetry.track("profile_added", local ? { kind: "local" } : { kind: "remote", pairing_method: profile.brokerNodeId ? "code" : "address" });
 }
 
@@ -99,6 +116,146 @@ export function trackFirstRunCompleted(profile: Pick<Profile, "host" | "localRel
     duration_s: Math.max(0, Math.round((Date.now() - started) / 1000)),
     agents_installed: agents,
   });
+}
+
+/** Once a day per profile, from the relay's own `/host-info`: the release
+ * it runs against the app's, and the way it gets updated. The profile id is
+ * only the dedupe key, kept on this device. */
+export function trackRelaySeen(profile: Pick<Profile, "id" | "host" | "localRelay" | "brokerNodeId">, info: HostInfo, appVersion: string = APP_VERSION): void {
+  const relayVersion = versionOrNone(info.version);
+  telemetry.trackDaily(`relay_seen:${profile.id}`, "relay_seen", {
+    ...(relayVersion !== undefined ? { relay_version: relayVersion } : {}),
+    vs_app: relayVsApp(info.version, appVersion),
+    update_path: relayUpdatePath(info),
+    platform: relayPlatform(info.platform),
+    profile_kind: isLocalProfile(profile) ? "local" : "remote",
+    has_bots: info.features?.includes("bots") === true,
+  });
+}
+
+/** What `POST /relay/update` ended in; `error` absent when it was taken. */
+export function trackRelayUpdateRequested(fromVersion: string | undefined, toVersion: string, error?: unknown): void {
+  const from = versionOrNone(fromVersion);
+  const to = versionOrNone(toVersion);
+  if (from === undefined || to === undefined) return;
+  telemetry.track("relay_update_requested", { from_version: from, to_version: to, result: updateRequestResult(error) });
+}
+
+export interface RelayUpdateEnd {
+  path: EventProps<"relay_update_finished">["path"];
+  outcome: EventProps<"relay_update_finished">["outcome"];
+  reason?: string;
+  installerCode?: string;
+  installerStep?: string;
+  lastState?: EventProps<"relay_update_finished">["last_state"];
+  fromVersion?: string;
+  toVersion: string;
+  startedAt: number;
+}
+
+/** How an update the app started ended. A failure of the one-click update
+ * is also a visible error (its notice says why); the self-update's is not,
+ * since it runs in the background and nothing shows it.
+ * `onceKey` reports it at most once for that key ever: the relay's own
+ * update keeps its failure until it is asked again, so the app can read
+ * the same one on more than one launch. */
+export function trackRelayUpdateFinished(end: RelayUpdateEnd, onceKey?: string): void {
+  const to = versionOrNone(end.toVersion);
+  if (to === undefined) return;
+  const from = versionOrNone(end.fromVersion);
+  const reason = updateReason(end.reason);
+  const code = installerCode(end.installerCode);
+  const step = installerStep(end.installerStep);
+  const props: EventProps<"relay_update_finished"> = {
+    path: end.path,
+    outcome: end.outcome,
+    ...(reason !== undefined ? { reason } : {}),
+    ...(code !== undefined ? { installer_code: code } : {}),
+    ...(step !== undefined ? { installer_step: step } : {}),
+    ...(end.lastState !== undefined ? { last_state: end.lastState } : {}),
+    ...(from !== undefined ? { from_version: from } : {}),
+    to_version: to,
+    duration_s: secondsSince(end.startedAt, Date.now()),
+  };
+  const result = onceKey === undefined ? telemetry.track("relay_update_finished", props) : telemetry.trackOnce(onceKey, "relay_update_finished", props);
+  if (end.outcome === "failed" && end.path !== "auto" && result !== "dropped") trackError("relay_update_failed");
+}
+
+/** The offer to update a relay by hand: `shown` once a day per profile and
+ * place, `clicked` and `dismissed` each time. */
+export function trackRelayUpgradePrompt(
+  profileId: string,
+  action: EventProps<"relay_upgrade_prompt">["action"],
+  kind: EventProps<"relay_upgrade_prompt">["kind"],
+  source: UpgradePromptSource,
+): void {
+  const props = { action, kind, source };
+  if (action === "shown") telemetry.trackDaily(`upgrade_prompt:${profileId}:${source}`, "relay_upgrade_prompt", props);
+  else telemetry.track("relay_upgrade_prompt", props);
+}
+
+export function trackBotCreateOpened(source: BotCreateSource, templateId: string | undefined): void {
+  telemetry.track("bot_create_opened", { source, template: templateKind(templateId) });
+}
+
+export interface BotCreateAttempt {
+  templateId: string | undefined;
+  openedAt: number;
+  gated: boolean;
+  failedAttempts: number;
+  lastFailure?: BotCreateFailure;
+  created?: { agentId: string; scheduleOn: boolean };
+}
+
+export function trackBotCreateEnded(attempt: BotCreateAttempt): void {
+  telemetry.track("bot_create_ended", {
+    outcome: attempt.created ? "created" : "abandoned",
+    template: templateKind(attempt.templateId),
+    ...(attempt.created ? { runtime: runtimeOf(attempt.created.agentId) } : {}),
+    schedule_on: attempt.created?.scheduleOn === true,
+    gated: attempt.gated,
+    failed_attempts: Math.min(10, attempt.failedAttempts),
+    ...(attempt.lastFailure ? { last_failure: attempt.lastFailure } : {}),
+    duration_s: secondsSince(attempt.openedAt, Date.now()),
+  });
+}
+
+/** What a person did with a bot, once a day per kind of action. */
+export function trackBotAction(action: BotAction): void {
+  telemetry.trackDaily(`bot_action:${action}`, "bot_action", { action });
+}
+
+/** Once a day per profile, the first time its relay's bots are known. */
+export function trackBotsSnapshot(profileId: string, bots: readonly BotSummary[]): void {
+  telemetry.trackDaily(`bots_snapshot:${profileId}`, "bots_snapshot", botsSnapshot(bots));
+}
+
+/** An error nobody caught, reported as its type and where in the app's
+ * code it was thrown (`exceptionReport`), never its message. */
+export function trackException(error: unknown, handled = false): void {
+  if (!telemetry.available) return;
+  const report = exceptionReport(error, {
+    handled,
+    appOrigin: typeof window === "undefined" ? "" : window.location.origin,
+    chunkIds: (globalThis as { _posthogChunkIds?: Record<string, string> })._posthogChunkIds,
+  });
+  if (report) telemetry.trackException(report);
+}
+
+let exceptionCaptureInstalled = false;
+
+/** Listens for what nothing caught: a thrown error (React's own uncaught
+ * render errors arrive here too, through `reportError`) and a rejected
+ * promise nobody handled. Logging is left as it was. A no-op without a key. */
+export function installExceptionCapture(): void {
+  if (exceptionCaptureInstalled || !telemetry.available || typeof window === "undefined") return;
+  exceptionCaptureInstalled = true;
+  window.addEventListener("error", (event) => {
+    // A script error with no error object (a cross-origin script) says
+    // nothing about this code.
+    if (event.error !== undefined && event.error !== null) trackException(event.error);
+  });
+  window.addEventListener("unhandledrejection", (event) => trackException(event.reason));
 }
 
 /** `custom` only for an imported theme: any built-in, the default or not, and

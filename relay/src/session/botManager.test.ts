@@ -282,3 +282,18 @@ test("a run the limit held still catches up when the agent host was away as the 
     { schedulePaused: false, hostConnected: () => connected },
   );
 });
+
+test("a bot's summary counts its schedules and the last day's runs by how each ended", () => {
+  withBot(({ manager, settles, advance }) => {
+    const summary = () => manager.summaries()[0];
+    assert.equal(summary().scheduleCount, 1, "a paused schedule still counts");
+    assert.deepEqual(summary().runs24h, { replied: 0, silent: 0, failed: 0, missed: 0, limited: 0 });
+    assert.equal(manager.runScheduleNow("b1", "s1").ok, true);
+    settles[0]({ silenced: false, failed: true });
+    assert.equal(manager.runScheduleNow("b1", "s1").ok, true);
+    settles[1]({ silenced: true, failed: false });
+    assert.deepEqual(summary().runs24h, { replied: 0, silent: 1, failed: 1, missed: 0, limited: 0 });
+    advance(24 * 60 * 60 * 1000 + 1);
+    assert.deepEqual(summary().runs24h, { replied: 0, silent: 0, failed: 0, missed: 0, limited: 0 }, "older runs fall out");
+  });
+});

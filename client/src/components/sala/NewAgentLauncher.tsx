@@ -10,6 +10,7 @@ import { effectiveModel, getModelCatalogs } from "@/lib/composer/modelCatalog";
 import type { LaunchAgentInput, RoomAgent } from "@/lib/relay/roomClient";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import type { Profile } from "@/lib/profiles/profiles";
+import { trackPromptSent } from "@/lib/telemetry/instrument";
 
 export type LaunchOutcome = { ok: true } | { ok: false; reason: "full" | "failed" };
 
@@ -65,7 +66,11 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
       parentId: parent?.agentId ?? parentId,
     });
     setBusy(false);
-    if (outcome.ok) onClose();
+    if (outcome.ok) {
+      // A task handed to a new agent of the room is a prompt to the room.
+      trackPromptSent(runtime, "sala");
+      onClose();
+    }
     else setError(outcome.reason === "full" ? text.full : text.failed);
   }
 

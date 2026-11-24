@@ -13,6 +13,7 @@ import { answerTask, cancelTask } from "@/lib/bots/botClient";
 import { shortWhen } from "@/lib/bots/botStatusLine";
 import { isClosedTask, type BotTask, type BotView, type BotWorkerView } from "@/lib/bots/botTypes";
 import type { Profile } from "@/lib/profiles/profiles";
+import { trackBotAction, trackError } from "@/lib/telemetry/instrument";
 
 interface BotTaskDetailProps {
   profile: Profile;
@@ -71,8 +72,12 @@ export function BotTaskDetail({ profile, bot, task, onBack, onOpenSession }: Bot
             onAnswer={(answers) => {
               const answer = answers[0]?.selected.join(", ").trim();
               if (!answer) return;
+              trackBotAction("answer_question");
               setError(false);
-              answerTask(profile, bot.id, task.n, answer).catch(() => setError(true));
+              answerTask(profile, bot.id, task.n, answer).catch(() => {
+                trackError("bot_action_failed");
+                setError(true);
+              });
             }}
           />
         )}
@@ -117,8 +122,12 @@ export function BotTaskDetail({ profile, bot, task, onBack, onOpenSession }: Bot
             size="xs"
             className="self-start"
             onClick={() => {
+              trackBotAction("cancel_task");
               setError(false);
-              cancelTask(profile, bot.id, task.n).catch(() => setError(true));
+              cancelTask(profile, bot.id, task.n).catch(() => {
+                trackError("bot_action_failed");
+                setError(true);
+              });
             }}
           >
             {dict.bots.task.cancel}
@@ -139,7 +148,16 @@ function WorkerQuestion({ profile, worker }: { profile: Profile; worker: BotWork
     <div className="flex flex-col gap-1.5">
       <span className="font-mono text-[11px] text-primary">{dict.bots.task.workerAsks}</span>
       {prompt ? (
-        <ChoiceCard key={prompt.promptId} promptId={prompt.promptId} questions={prompt.questions} kind={prompt.kind} onAnswer={(answers) => session.answerChoice(answers)} />
+        <ChoiceCard
+          key={prompt.promptId}
+          promptId={prompt.promptId}
+          questions={prompt.questions}
+          kind={prompt.kind}
+          onAnswer={(answers) => {
+            trackBotAction("answer_worker_choice");
+            session.answerChoice(answers);
+          }}
+        />
       ) : (
         <Spinner size="sm" />
       )}

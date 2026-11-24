@@ -355,7 +355,7 @@ function IdentityRows({ profile, effectiveColorIndex }: { profile: Profile; effe
  */
 function RelayDriftRow({ profile }: { profile: Profile }) {
   const dict = useDict().settings.profile.relay;
-  const { state, relayVersion, start } = useLegacyRelayUpgrade(profile);
+  const { state, relayVersion, start } = useLegacyRelayUpgrade(profile, { source: "settings" });
   if (state.phase === "hidden" || relayVersion === undefined) return null;
   return (
     <SettingsRow title={dict.title} description={dict.description.replace("{relayVersion}", relayVersion).replace("{appVersion}", APP_VERSION)}>

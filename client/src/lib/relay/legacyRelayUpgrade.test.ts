@@ -103,7 +103,12 @@ describe("parseUpgradeOutput", () => {
 
   it("through colours and cursor moves, with the installer's reason when it failed", () => {
     const out = `\u001b[1mDownloading\u001b[0m\r\nANYWH fail download checksum_mismatch checksum mismatch for a.tar.gz\r\n\u001b[32m${UPGRADE_EXIT_MARKER}=1\u001b[0m`;
-    expect(parseUpgradeOutput(out)).toEqual({ exitCode: 1, failure: "checksum mismatch for a.tar.gz" });
+    expect(parseUpgradeOutput(out)).toEqual({
+      exitCode: 1,
+      failure: "checksum mismatch for a.tar.gz",
+      failStep: "download",
+      failCode: "checksum_mismatch",
+    });
   });
 });
 

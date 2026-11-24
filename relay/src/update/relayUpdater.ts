@@ -23,7 +23,10 @@ export type RelayUpdateStatus =
   | { readonly state: "installing"; readonly version: string }
   /** On disk, waiting for the release watch to restart onto it. */
   | { readonly state: "installed"; readonly version: string }
-  | { readonly state: "failed"; readonly version: string; readonly code: string; readonly message: string };
+  /** `step` is the installer step that failed (`download`, `preflight`…),
+   * absent when the installer never got to name one. `code` and `step` are
+   * the installer's stable words; `message` is prose for a person. */
+  | { readonly state: "failed"; readonly version: string; readonly code: string; readonly step?: string; readonly message: string };
 
 export type StartUpdateResult =
   | { readonly ok: true; readonly status: RelayUpdateStatus }
@@ -159,7 +162,7 @@ export class RelayUpdater {
       }
       const failure =
         result?.kind === "fail"
-          ? { code: result.code, message: result.message }
+          ? { code: result.code, step: result.step, message: result.message }
           : { code: "unexpected", message: spawnError?.message ?? `installer exited with status ${code ?? "unknown"}` };
       console.error(`[relay] installing release ${version} failed: ${failure.code} ${failure.message}\n${tail.join("\n")}`);
       this.current = { state: "failed", version, ...failure };

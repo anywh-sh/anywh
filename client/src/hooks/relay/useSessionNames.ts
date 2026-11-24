@@ -10,6 +10,7 @@ import { isBotSummary } from "@/lib/bots/botTypes";
 import { useForegroundSync } from "@/hooks/relay/useForegroundSync";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { SessionSummary } from "@/lib/relay/relay-types";
+import { trackBotsSnapshot } from "@/lib/telemetry/instrument";
 
 // A broker that answered 429 is telling this account to stop asking — the
 // watch loop's usual 2s retry is the one thing that makes that worse, and
@@ -207,7 +208,9 @@ export function useSessionNames(profile: Profile): {
             }
             // The profile's bots, whole, whenever one changes.
             if (type === "bots_state" && Array.isArray(bots)) {
-              setBots(profileId, bots.filter(isBotSummary));
+              const summaries = bots.filter(isBotSummary);
+              setBots(profileId, summaries);
+              trackBotsSnapshot(profileId, summaries);
               return;
             }
             if (typeof id !== "string") return;

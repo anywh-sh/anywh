@@ -67,6 +67,13 @@ export interface BotSummary {
   /** Its agent hit a usage limit: no schedule fires before this. */
   limitedUntil?: number;
   createdAt: number;
+  /** The rest only from a relay recent enough to send it. How many
+   * schedules it has, paused or not. */
+  scheduleCount?: number;
+  /** Its schedules' runs in the last 24 hours, by how each ended. */
+  runs24h?: Record<BotRunOutcome, number>;
+  /** What it sent other bots in the last 24 hours. */
+  peer24h?: { asks: number; handoffs: number };
 }
 
 /** A bot as its room's channel sends it. */

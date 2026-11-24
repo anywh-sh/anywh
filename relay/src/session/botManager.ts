@@ -65,6 +65,8 @@ import type { CreateRoomInput, CreateRoomResult, RoomBots } from "./roomManager.
 import type { SessionStore } from "./sessionStore.js";
 import type { BotTurnOutcome } from "./sharedSession.js";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 const ok = (text: string): RoomToolResult => ({ text, isError: false });
 /** Whether `stopAgent` stopped it (it answers `{ ok }`; anything else is not). */
 const isStopped = (result: unknown): boolean => typeof result === "object" && result !== null && (result as { ok?: unknown }).ok === true;
@@ -192,6 +194,14 @@ export interface BotSummary {
   /** Its agent hit a usage limit: back at this time. */
   limitedUntil?: number;
   createdAt: number;
+  /** How many schedules it has, paused or not. */
+  scheduleCount: number;
+  /** Its schedules' runs in the last 24 hours, by how each ended (from the
+   * runs each schedule keeps, so at most that many per schedule). */
+  runs24h: Record<BotRunOutcome, number>;
+  /** What it sent other bots in the last 24 hours. Counted in memory: a
+   * relay restart starts it from zero. */
+  peer24h: { asks: number; handoffs: number };
 }
 
 /** A bot as its room's channel shows it. */
@@ -221,6 +231,8 @@ export class BotManager implements RoomBots {
   private readonly openQuestions = new Set<string>();
   /** When each bot sent its latest messages to other bots (see `sendWindow`). */
   private readonly sends = new Map<string, number[]>();
+  /** Each bot's sends to other bots in the last day, for its summary. */
+  private readonly peerSent = new Map<string, { at: number; kind: "ask" | "handoff" }[]>();
 
   constructor(private readonly options: BotManagerOptions) {
     this.now = options.now ?? Date.now;
@@ -311,6 +323,7 @@ export class BotManager implements RoomBots {
     if (!bot) return false;
     for (const schedule of bot.schedules) this.running.delete(`${id}:${schedule.id}`);
     this.tellSendersOfDeleted(bot);
+    this.peerSent.delete(id);
     this.store.delete(id);
     this.options.sessions.deleteSession(bot.roomId);
     this.options.files.remove(id);
@@ -323,6 +336,7 @@ export class BotManager implements RoomBots {
     const bot = this.store.byRoom(roomId);
     if (!bot) return;
     this.tellSendersOfDeleted(bot);
+    this.peerSent.delete(bot.id);
     this.store.delete(bot.id);
     this.options.files.remove(bot.id);
     this.arm();
@@ -730,6 +744,7 @@ export class BotManager implements RoomBots {
     const limited = this.takeSend(bot);
     if (limited) return fail(limited);
     this.openQuestions.add(pair);
+    this.notePeerSent(bot.id, "ask");
     this.noteOwnTask(bot.id, task, `Asked ${peer.name}: ${question.length > 200 ? `${question.slice(0, 199)}…` : question}`);
     this.options.sessions.getOrCreate(peer.roomId).submitBotTurn(peerAskText(bot.name, question), {
       kind: "bot_note",
@@ -781,6 +796,7 @@ export class BotManager implements RoomBots {
         { n, title, status: "planned", workerIds: [], from: { botId: bot.id, ...(task !== undefined ? { taskN: task } : {}) }, notes: [{ text: `From ${bot.name}: ${details}`, at }], createdAt: at, updatedAt: at },
       ],
     }));
+    this.notePeerSent(bot.id, "handoff");
     this.noteOwnTask(bot.id, task, `Handed to ${peer.name} as #${n}.`);
     this.options.sessions.getOrCreate(peer.roomId).submitBotTurn(peerHandoffText(bot.name, n, title, details), {
       kind: "bot_note",
@@ -1110,7 +1126,28 @@ export class BotManager implements RoomBots {
       lastRunFailed: lastRun?.outcome === "failed",
       ...(bot.limitedUntil !== undefined && bot.limitedUntil > this.now() ? { limitedUntil: bot.limitedUntil } : {}),
       createdAt: bot.createdAt,
+      scheduleCount: bot.schedules.length,
+      runs24h: this.runsInLastDay(bot),
+      peer24h: this.peerSentInLastDay(bot.id),
     };
+  }
+
+  private runsInLastDay(bot: BotRecord): Record<BotRunOutcome, number> {
+    const since = this.now() - DAY_MS;
+    const counts: Record<BotRunOutcome, number> = { replied: 0, silent: 0, failed: 0, missed: 0, limited: 0 };
+    for (const run of bot.schedules.flatMap((each) => each.runs)) if (run.at > since) counts[run.outcome]++;
+    return counts;
+  }
+
+  private notePeerSent(botId: string, kind: "ask" | "handoff"): void {
+    const now = this.now();
+    this.peerSent.set(botId, [...(this.peerSent.get(botId) ?? []).filter((each) => each.at > now - DAY_MS), { at: now, kind }]);
+  }
+
+  private peerSentInLastDay(botId: string): { asks: number; handoffs: number } {
+    const since = this.now() - DAY_MS;
+    const recent = (this.peerSent.get(botId) ?? []).filter((each) => each.at > since);
+    return { asks: recent.filter((each) => each.kind === "ask").length, handoffs: recent.filter((each) => each.kind === "handoff").length };
   }
 
   summaries(): BotSummary[] {

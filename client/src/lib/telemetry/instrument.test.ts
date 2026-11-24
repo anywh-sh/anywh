@@ -74,6 +74,18 @@ describe("instrument helpers", () => {
     setSelectedThemeId(null);
   });
 
+  it("counts a prompt under the target it went to, with the agent reduced to a runtime", () => {
+    trackPromptSent("claude", "bot");
+    trackPromptSent("kimi", "sala");
+    trackPromptSent("codex");
+    const prompts = sent.filter((e) => e.name === "prompt_sent").map((e) => e.props);
+    expect(prompts).toEqual([
+      { target: "bot", runtime: "claude" },
+      { target: "sala", runtime: "other" },
+      { target: "chat", runtime: "codex" },
+    ]);
+  });
+
   it("never lets an unknown agent, model or mode through as text", () => {
     trackSessionStarted({ agentId: "my-private-agent", model: "something/odd", effort: "weird", permissionMode: "custom", kind: "chat" });
     expect(sent[0]?.props).toEqual({ runtime: "other", model_family: "other", effort: "other", permission_mode: "other", kind: "chat" });

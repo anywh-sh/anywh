@@ -18,6 +18,8 @@ import {
   upgradeCommand,
 } from "@/lib/relay/legacyRelayUpgrade";
 import { fetchSessions } from "@/lib/relay/relayClient";
+import type { UpgradePromptSource } from "@/lib/telemetry/events";
+import { trackRelayUpdateFinished, trackRelayUpgradePrompt } from "@/lib/telemetry/instrument";
 
 /** The command for the relay's machine, for when the app cannot run it:
  * install, then restart every profile's relay there (they share the tree). */
@@ -76,6 +78,8 @@ class Failed extends Error {
   constructor(
     readonly reason: LegacyUpgradeFailure,
     readonly detail?: string,
+    /** The installer's step and code for it, when the installer failed. */
+    readonly installer?: { step?: string; code?: string },
   ) {
     super(reason);
   }
@@ -196,11 +200,16 @@ function brewFailure(error: unknown): Failed | NotPublished {
   }
 }
 
+const promptKind = (kind: LegacyUpgradeKind | undefined): "installer" | "homebrew" => (kind === "homebrew" ? "homebrew" : "installer");
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const running = (state: LegacyUpgradeState): boolean => ["checking", "waiting", "updating", "restarting"].includes(state.phase);
 
 async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUpgradeTiming): Promise<void> {
   const entry = entryFor(profile.id);
+  const startedAt = Date.now();
+  // What the run is counted as, fixed now: a later check can clear these.
+  const ended = { path: entry.kind === "homebrew" ? ("homebrew" as const) : ("installer" as const), fromVersion: entry.version, startedAt };
   const manual = entry.kind === "homebrew" ? MANUAL_BREW_COMMAND : MANUAL_UPGRADE_COMMAND;
   const run = Symbol("legacy-relay-upgrade");
   entry.run = run;
@@ -244,12 +253,14 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
       const outcome = await runInRelayTerminal(profile, terminalSession, command).catch(() => {
         throw new Failed("terminal");
       });
-      if (outcome.exitCode === 3) throw new Failed("not_installed");
+      const installer = { step: outcome.failStep, code: outcome.failCode };
+      if (outcome.exitCode === 3) throw new Failed("not_installed", undefined, installer);
       if (entry.kind === "homebrew" && outcome.exitCode === NOTHING_NEWER_EXIT) throw new NotPublished();
-      if (outcome.exitCode !== 0) throw new Failed("installer", outcome.failure);
+      if (outcome.exitCode !== 0) throw new Failed("installer", outcome.failure, installer);
     }
 
     setState(profile.id, { phase: "restarting" });
+    let reached: string | null = null;
     const deadline = Date.now() + timing.restartTimeoutMs;
     for (;;) {
       const version = await getHostInfo(profile).then(
@@ -258,7 +269,10 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
       );
       // Homebrew installs whatever its formula names, not a version of ours
       // to pick: a different one is the update having happened.
-      if (entry.kind === "homebrew" ? version !== null && version !== entry.version : version === appVersion) break;
+      if (entry.kind === "homebrew" ? version !== null && version !== entry.version : version === appVersion) {
+        reached = version;
+        break;
+      }
       if (Date.now() > deadline) throw new Failed("not_back");
       await sleep(timing.versionPollMs);
     }
@@ -266,6 +280,7 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
     if (cancelled()) return;
     entry.run = undefined;
     writeNotPublished(profile.id, null);
+    trackRelayUpdateFinished({ ...ended, outcome: "done", toVersion: reached ?? appVersion });
     setState(profile.id, { phase: "done" });
   } catch (error) {
     if (cancelled()) return;
@@ -273,10 +288,19 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
     if (error instanceof NotPublished) {
       if (terminalSession !== undefined) await closeUpgradeTerminal(profile, terminalSession);
       if (entry.version !== undefined) writeNotPublished(profile.id, { relay: entry.version, app: appVersion, at: Date.now() });
+      trackRelayUpdateFinished({ ...ended, outcome: "not_published", toVersion: appVersion });
       setState(profile.id, { phase: "not_published" });
       return;
     }
     const failure = error instanceof Failed ? error : new Failed("terminal");
+    trackRelayUpdateFinished({
+      ...ended,
+      outcome: "failed",
+      reason: failure.reason,
+      installerCode: failure.installer?.code,
+      installerStep: failure.installer?.step,
+      toVersion: appVersion,
+    });
     setState(profile.id, { phase: "failed", reason: failure.reason, ...(failure.detail ? { detail: failure.detail } : {}), command: manual });
   }
 }
@@ -293,7 +317,8 @@ async function runUpgrade(profile: Profile, appVersion: string, timing: LegacyUp
  */
 export function useLegacyRelayUpgrade(
   profile: Profile,
-  options: { appVersion?: string; timing?: Partial<LegacyUpgradeTiming> } = {},
+  /** `source`: where the offer is on screen, so it is counted as seen there. */
+  options: { appVersion?: string; timing?: Partial<LegacyUpgradeTiming>; source?: UpgradePromptSource } = {},
 ): { state: LegacyUpgradeState; noticeDismissed: boolean; relayVersion?: string; eachTime: boolean; start: () => void; dismiss: () => void } {
   const appVersion = options.appVersion ?? APP_VERSION;
   const subscribe = useCallback(
@@ -343,16 +368,29 @@ export function useLegacyRelayUpgrade(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile.id, where, eligible]);
 
+  const source = options.source;
+  const offered = state.phase !== "hidden";
+  const noticeDismissed = entryFor(profile.id).noticeDismissed;
+  useEffect(() => {
+    if (source === undefined || !offered || (source === "banner" && noticeDismissed)) return;
+    trackRelayUpgradePrompt(profile.id, "shown", promptKind(entryFor(profile.id).kind), source);
+  }, [source, offered, noticeDismissed, profile.id]);
+
   const timing = { ...DEFAULT_TIMING, ...options.timing };
   const start = useCallback(() => {
-    if (running(entryFor(profile.id).state)) return;
+    const entry = entryFor(profile.id);
+    if (running(entry.state)) return;
+    if (source !== undefined) trackRelayUpgradePrompt(profile.id, "clicked", promptKind(entry.kind), source);
     void runUpgrade(profile, appVersion, timing);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, appVersion]);
+  }, [profile, appVersion, source]);
 
   const dismiss = useCallback(() => {
     const entry = entryFor(profile.id);
     if (entry.state.phase === "updating" || entry.state.phase === "restarting") return;
+    if (source !== undefined && entry.state.phase !== "hidden" && entry.state.phase !== "done") {
+      trackRelayUpgradePrompt(profile.id, "dismissed", promptKind(entry.kind), source);
+    }
     // Closing the notice calls off a run that is only checking or waiting,
     // and hides the notice alone: settings and the bots section still offer
     // the update.
@@ -365,7 +403,7 @@ export function useLegacyRelayUpgrade(
       // snapshot, and an unchanged one would leave the notice on screen.
       setState(profile.id, entry.state.phase === "done" ? { phase: "hidden" } : { ...entry.state });
     }
-  }, [profile.id]);
+  }, [profile.id, source]);
 
   const entry = entryFor(profile.id);
   // A Homebrew relay never updates itself, on this Mac or another: the

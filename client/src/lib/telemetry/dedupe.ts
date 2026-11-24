@@ -16,6 +16,8 @@ interface Marks {
   firstOpenAt?: number;
   /** The version the app last booted as, for `update_installed`. */
   lastBootVersion?: string;
+  /** Exception reports sent on a local day, for the daily cap. */
+  exceptions?: { day: string; count: number };
 }
 
 function read(): Marks {
@@ -29,6 +31,10 @@ function read(): Marks {
         once: typeof candidate.once === "object" && candidate.once !== null ? candidate.once : {},
         firstOpenAt: typeof candidate.firstOpenAt === "number" ? candidate.firstOpenAt : undefined,
         lastBootVersion: typeof candidate.lastBootVersion === "string" ? candidate.lastBootVersion : undefined,
+        exceptions:
+          typeof candidate.exceptions === "object" && candidate.exceptions !== null && typeof candidate.exceptions.day === "string" && typeof candidate.exceptions.count === "number"
+            ? candidate.exceptions
+            : undefined,
       };
     }
   } catch {
@@ -92,4 +98,17 @@ export function swapBootVersion(version: string): string | undefined {
     write(marks);
   }
   return previous;
+}
+
+/** Exception reports already sent today. */
+export function exceptionsToday(now: number): number {
+  const marks = read();
+  return marks.exceptions?.day === localDay(now) ? marks.exceptions.count : 0;
+}
+
+export function countException(now: number): void {
+  const marks = read();
+  const day = localDay(now);
+  marks.exceptions = { day, count: (marks.exceptions?.day === day ? marks.exceptions.count : 0) + 1 };
+  write(marks);
 }

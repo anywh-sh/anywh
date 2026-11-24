@@ -29,6 +29,24 @@ vi.mock("@/lib/install/localRelay", async (importOriginal) => {
   };
 });
 
+// Telemetry is an edge of its own: what the run counts is recorded here.
+const counted = vi.hoisted(() => [] as { name: string; props: Record<string, unknown> }[]);
+vi.mock("@/lib/telemetry", () => {
+  const record = (name: string, props: Record<string, unknown>) => {
+    counted.push({ name, props });
+    return "sent";
+  };
+  return {
+    telemetry: {
+      available: true,
+      track: record,
+      trackDaily: (_key: string, name: string, props: Record<string, unknown>) => record(name, props),
+      trackOnce: (_key: string, name: string, props: Record<string, unknown>) => record(name, props),
+    },
+  };
+});
+
+import { validateEvent } from "@/lib/telemetry/events";
 import {
   MANUAL_BREW_COMMAND,
   MANUAL_UPGRADE_COMMAND,
@@ -96,6 +114,7 @@ const fast = { busyPollMs: 5, busyTimeoutMs: 2000, versionPollMs: 5, restartTime
 beforeEach(() => {
   resetLegacyRelayUpgrades();
   localStorage.clear();
+  counted.length = 0;
   Object.assign(native, { platform: "linux", tauri: false, brewRuns: 0, brewHosts: [], brewError: null, onBrew: () => undefined });
   relay = { version: "0.2.40", busy: new Set(), terminalOutput: `ANYWH done ok\r\n${UPGRADE_EXIT_MARKER}=0\r\n`, versionAfter: "0.2.50", commands: [] };
   vi.stubGlobal("WebSocket", FakeSocket);
@@ -252,6 +271,58 @@ describe("useLegacyRelayUpgrade", () => {
     relay.busy.clear();
     await waitFor(() => expect(second.result.current.state.phase).toBe("done"));
     expect(relay.commands).toHaveLength(1);
+  });
+});
+
+describe("what an update from the app counts", () => {
+  const mountFrom = (source: "banner" | "settings" | "bots_gate") => renderHook(() => useLegacyRelayUpgrade(profile, { appVersion: "0.2.50", timing: fast, source }));
+  const named = (name: string) => counted.filter((event) => event.name === name).map((event) => event.props);
+
+  it("the offer seen where it is, the click, and how the run ended, all inside the registry", async () => {
+    const { result } = mountFrom("banner");
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    expect(named("relay_upgrade_prompt")).toEqual([
+      { action: "shown", kind: "installer", source: "banner" },
+      { action: "clicked", kind: "installer", source: "banner" },
+    ]);
+    expect(named("relay_update_finished")).toEqual([
+      expect.objectContaining({ path: "installer", outcome: "done", from_version: "0.2.40", to_version: "0.2.50" }),
+    ]);
+    for (const { name, props } of counted) expect(validateEvent(name, props), `${name} ${JSON.stringify(props)}`).not.toBeNull();
+  });
+
+  it("an installer failure is counted by the installer's code and step, never its words", async () => {
+    relay.terminalOutput = `ANYWH fail download checksum_mismatch checksum mismatch for /home/someone/a.tar.gz\r\n${UPGRADE_EXIT_MARKER}=1\r\n`;
+    relay.versionAfter = "0.2.40";
+    const { result } = mountFrom("settings");
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("failed"));
+    const [finished] = named("relay_update_finished");
+    expect(finished).toMatchObject({ path: "installer", outcome: "failed", reason: "installer", installer_code: "checksum_mismatch", installer_step: "download" });
+    expect(JSON.stringify(counted)).not.toContain("someone");
+    expect(named("error_shown")).toEqual([{ kind: "relay_update_failed" }]);
+  });
+
+  it("an installer code it has never heard of goes out as other", async () => {
+    relay.terminalOutput = `ANYWH fail newstep brand_new_code something\r\n${UPGRADE_EXIT_MARKER}=1\r\n`;
+    relay.versionAfter = "0.2.40";
+    const { result } = mountFrom("bots_gate");
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("failed"));
+    expect(named("relay_update_finished")[0]).toMatchObject({ installer_code: "other", installer_step: "other" });
+  });
+
+  it("closing the notice is counted; a place that does not say where it is counts nothing", async () => {
+    const banner = mountFrom("banner");
+    const silent = mount();
+    await waitFor(() => expect(banner.result.current.state.phase).toBe("available"));
+    act(() => silent.result.current.dismiss());
+    act(() => banner.result.current.dismiss());
+    expect(named("relay_upgrade_prompt").map((p) => p.action)).toEqual(["shown", "dismissed"]);
   });
 });
 

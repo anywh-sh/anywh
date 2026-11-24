@@ -30,7 +30,7 @@ describe("Bots sidebar section stories", () => {
     const card = screen.getByTestId("bots-first-card");
     expect(within(card).getByText(en.bots.firstBot.title)).toBeInTheDocument();
     await userEvent.click(within(card).getByRole("button", { name: en.bots.firstBot.create }));
-    expect(onNewBot).toHaveBeenLastCalledWith();
+    expect(onNewBot).toHaveBeenLastCalledWith(undefined, "first_card");
     await userEvent.click(within(card).getByRole("button", { name: en.bots.firstBot.templates }));
     expect(onNewBot).toHaveBeenLastCalledWith("templates");
   });

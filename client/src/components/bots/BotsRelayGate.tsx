@@ -16,7 +16,7 @@ export const RELAY_UPDATE_COMMAND = "curl -fsSL https://anywh.sh/install | sh -s
  * the machine that can.
  */
 export function BotsRelayGate({ profile, relayVersion }: { profile: Profile; relayVersion?: string }) {
-  const { state, start } = useLegacyRelayUpgrade(profile);
+  const { state, start } = useLegacyRelayUpgrade(profile, { source: "bots_gate" });
   return <BotsRelayGateView relayVersion={relayVersion} state={state} onUpdate={start} />;
 }
 

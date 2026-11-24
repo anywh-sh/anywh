@@ -67,6 +67,10 @@ describe("validateEvent", () => {
       [
         "app_active",
         "app_opened",
+        "bot_action",
+        "bot_create_ended",
+        "bot_create_opened",
+        "bots_snapshot",
         "error_shown",
         "feature_used",
         "first_prompt_sent",
@@ -74,13 +78,18 @@ describe("validateEvent", () => {
         "first_run_step_viewed",
         "profile_added",
         "profile_connect_failed",
+        "prompt_sent",
+        "relay_seen",
+        "relay_update_finished",
+        "relay_update_requested",
+        "relay_upgrade_prompt",
         "session_started",
         "telemetry_opted_out",
         "update_installed",
       ].sort(),
     );
     expect(FEATURES).toHaveLength(16);
-    expect(ERROR_KINDS).toHaveLength(8);
+    expect(ERROR_KINDS).toHaveLength(11);
   });
 });
 

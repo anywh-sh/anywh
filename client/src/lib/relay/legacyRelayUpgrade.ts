@@ -145,6 +145,9 @@ export interface UpgradeOutcome {
   exitCode?: number;
   /** The installer's own reason, when it failed one of its steps. */
   failure?: string;
+  /** That failure's step and code: the installer's stable words for it. */
+  failStep?: string;
+  failCode?: string;
 }
 
 /** Reads what the command printed so far: its exit status (the echoed
@@ -155,8 +158,12 @@ export function parseUpgradeOutput(raw: string): UpgradeOutcome {
   const outcome: UpgradeOutcome = {};
   const exit = new RegExp(`${UPGRADE_EXIT_MARKER}=(\\d+)`).exec(text);
   if (exit) outcome.exitCode = Number(exit[1]);
-  const fail = /ANYWH fail \S+ \S+ ([^\n]*)/.exec(text);
-  if (fail) outcome.failure = fail[1].trim();
+  const fail = /ANYWH fail (\S+) (\S+) ([^\n]*)/.exec(text);
+  if (fail) {
+    outcome.failure = fail[3].trim();
+    outcome.failStep = fail[1];
+    outcome.failCode = fail[2];
+  }
   return outcome;
 }
 

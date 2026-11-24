@@ -1042,7 +1042,9 @@ export function ChatPanel({
       return;
     }
     if (sentImages.length > 0) trackFeature("attachment");
-    trackPromptSent(agentId);
+    // A room's own agents (beside its canvas) count as the room, as does
+    // the first prompt that creates one.
+    trackPromptSent(agentId, roomMode || besideRoom === true ? "sala" : onOpenTask ? "bot" : "chat");
     if (roomMode) {
       trackSessionStarted({ agentId, model, effort, permissionMode, kind: "sala" });
       trackFeature("sala");

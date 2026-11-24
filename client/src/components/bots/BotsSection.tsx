@@ -18,14 +18,16 @@ import { mascotStateOf } from "@/lib/bots/mascot";
 import { BOT_TEMPLATES } from "@/lib/bots/templates";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import type { Profile } from "@/lib/profiles/profiles";
+import type { BotCreateSource } from "@/lib/telemetry/events";
 import { cn } from "@/lib/utils";
 
 export interface BotsSectionActions {
   onSelectBot: (bot: BotSummary) => void;
   /** Opens one of the bot's agents as a tab. */
   onOpenAgent: (bot: BotSummary, agentId: string, title: string | null) => void;
-  /** Opens the "New bot" dialog, or with `templates` the templates tab. */
-  onNewBot: (start?: "templates") => void;
+  /** Opens the "New bot" dialog, or with `templates` the templates tab.
+   * `source`: where it was asked from, for the creation funnel. */
+  onNewBot: (start?: "templates", source?: BotCreateSource) => void;
   onBotSettings: (bot: BotSummary) => void;
   onTogglePaused: (bot: BotSummary) => void;
   onDeleteBot: (bot: BotSummary) => void;
@@ -75,7 +77,7 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
         <div className="flex flex-col gap-3 border border-border bg-background p-3">
           <span className="text-[length:calc(12.5px*var(--chrome-scale))] font-medium text-foreground">{dict.bots.firstBot.title}</span>
           <div className="flex gap-2">
-            <Button size="xs" onClick={() => actions.onNewBot()}>
+            <Button size="xs" onClick={() => actions.onNewBot(undefined, "first_card")}>
               <Plus className="size-3" />
               {dict.bots.firstBot.create}
             </Button>

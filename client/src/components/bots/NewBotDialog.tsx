@@ -18,7 +18,8 @@ import { useDict } from "@/i18n";
 import { BotRequestError, createBot } from "@/lib/bots/botClient";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { defaultChoice, type MascotChoice } from "@/lib/bots/mascot";
-import { closeNewBot, useNewBotRequest, type NewBotRequest } from "@/lib/bots/newBotRequest";
+import { closeNewBot, noteBotCreated, noteBotCreateFailed, noteBotCreateGated, useNewBotRequest, type NewBotRequest } from "@/lib/bots/newBotRequest";
+import { createFailureOf } from "@/lib/telemetry/bots";
 import { BOT_TEMPLATES } from "@/lib/bots/templates";
 import { shortcutKeys } from "@/lib/platform/platform";
 import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
@@ -65,7 +66,7 @@ export function NewBotDialog({ onCreated, onTemplates }: NewBotDialogProps) {
               onCreated(bot, profile, shown);
             }}
             onTemplates={() => {
-              closeNewBot();
+              closeNewBot({ toTemplates: true });
               onTemplates(shown.profileId);
             }}
           />
@@ -116,6 +117,9 @@ export function NewBotForm({
   }, [agents, agentId]);
 
   const gated = lacksFeature(relay, "bots");
+  useEffect(() => {
+    if (gated) noteBotCreateGated();
+  }, [gated]);
   const ready = name.trim() !== "" && soul.trim() !== "" && !busy && !gated;
   const rootRef = useRef<HTMLFieldSetElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
@@ -141,8 +145,10 @@ export function NewBotForm({
         agentId,
         ...(template && words ? { templateId: template.id, schedules: [{ name: words.scheduleName, cron: template.cron, prompt: template.prompt, paused: !scheduleOn }] } : {}),
       });
+      noteBotCreated(agentId, template !== undefined && scheduleOn);
       onCreated(bot, profile);
     } catch (caught) {
+      noteBotCreateFailed(createFailureOf(caught));
       setError(caught instanceof BotRequestError && caught.status === 503 ? copy.noHost : copy.failed);
       setBusy(false);
     }
@@ -271,7 +277,7 @@ export function NewBotForm({
         </Button>
         <span className="flex-1" />
         {error && <p className="max-w-[220px] text-xs text-destructive">{error}</p>}
-        <Button variant="ghost" onClick={closeNewBot}>
+        <Button variant="ghost" onClick={() => closeNewBot()}>
           {dict.common.cancel}
         </Button>
         {/* The label stays the same while it loads, so the button keeps its

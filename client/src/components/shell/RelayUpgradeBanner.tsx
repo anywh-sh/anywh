@@ -144,7 +144,7 @@ export function RelayUpgradeAction({ state, onUpdate, align = "end" }: { state: 
 
 /** The notice for one profile, driven by its relay. */
 export function RelayUpgradeBanner({ profile }: { profile: Profile }) {
-  const { state, noticeDismissed, eachTime, start, dismiss } = useLegacyRelayUpgrade(profile);
+  const { state, noticeDismissed, eachTime, start, dismiss } = useLegacyRelayUpgrade(profile, { source: "banner" });
   useEffect(() => {
     if (state.phase !== "done") return;
     const timer = setTimeout(dismiss, DONE_NOTICE_MS);
