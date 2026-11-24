@@ -23,4 +23,11 @@ if (envFilePath) {
   }
 }
 
-require("../dist/server.js");
+// One binary, two programs: `anywh-relay agent-host --profile <id>` runs the
+// agent host instead of the relay (a second SEA would ship a second Node).
+if (process.argv[2] === "agent-host") {
+  process.argv.splice(2, 1);
+  require("../dist/agentHost/main.js");
+} else {
+  require("../dist/server.js");
+}
