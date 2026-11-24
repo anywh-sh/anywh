@@ -1419,6 +1419,7 @@ export const en: Dictionary = {
     },
     task: {
       back: "Tasks",
+      open: "Open task #{n}",
       doneMeans: "Done when",
       workers: "Agents",
       openConversation: "Open conversation",

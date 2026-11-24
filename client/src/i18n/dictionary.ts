@@ -1998,6 +1998,8 @@ export interface Dictionary {
     };
     task: {
       back: string;
+      /** `{n}`. */
+      open: string;
       doneMeans: string;
       workers: string;
       openConversation: string;

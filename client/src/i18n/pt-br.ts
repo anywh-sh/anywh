@@ -1419,6 +1419,7 @@ export const ptBr: Dictionary = {
     },
     task: {
       back: "Tarefas",
+      open: "Abrir tarefa #{n}",
       doneMeans: "Pronto quando",
       workers: "Agentes",
       openConversation: "Abrir conversa",

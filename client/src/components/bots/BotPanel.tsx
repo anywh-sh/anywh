@@ -11,6 +11,7 @@ import { useRoomChannel } from "@/hooks/sala/useRoomChannel";
 import { useDict, useLocale } from "@/i18n";
 import { removeSchedule, runScheduleNow, setSchedulePaused } from "@/lib/bots/botClient";
 import { onPanelSettings, takePanelSettings } from "@/lib/bots/botSettingsRequest";
+import { onPanelTask, takePanelTask } from "@/lib/bots/botTaskRequest";
 import { BotSettings } from "@/components/bots/BotSettings";
 import { botStatusLine, shortWhen } from "@/lib/bots/botStatusLine";
 import { TASK_GROUPS, taskGroup, type BotSchedule, type BotTask, type BotTaskStatus, type BotView } from "@/lib/bots/botTypes";
@@ -63,7 +64,9 @@ export function BotPanelView({
   /** The settings' soul and memory, instead of asking the relay (the stories). */
   settingsInitial?: Parameters<typeof BotSettings>[0]["initial"];
 }) {
-  const [openTask, setOpenTask] = useState<number | null>(initialTask);
+  // A task asked for from its conversation (a line of it) opens in place,
+  // whether the panel mounts for it or is already open.
+  const [openTask, setOpenTask] = useState<number | null>(() => takePanelTask(bot.roomId) ?? initialTask);
   // Settings asked for from elsewhere (the sidebar's menu) before this
   // mounted, or while it is open.
   const [settings, setSettings] = useState(() => initialSettings || takePanelSettings(bot.roomId));
@@ -71,6 +74,16 @@ export function BotPanelView({
     () =>
       onPanelSettings(bot.roomId, () => {
         if (takePanelSettings(bot.roomId)) setSettings(true);
+      }),
+    [bot.roomId],
+  );
+  useEffect(
+    () =>
+      onPanelTask(bot.roomId, () => {
+        const n = takePanelTask(bot.roomId);
+        if (n === undefined) return;
+        setSettings(false);
+        setOpenTask(n);
       }),
     [bot.roomId],
   );

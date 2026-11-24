@@ -77,6 +77,8 @@ interface MessageLogProps {
    * `undefined` on compact/iOS, where that panel doesn't exist (see
    * `Message.tsx`'s `AssistantText`). */
   onOpenPath?: (path: string) => void;
+  /** Opens a bot's task in its side panel, from the line naming it. */
+  onOpenTask?: (n: number) => void;
   /** The session's working directory — a tool call's header shows the file
    * it touched relative to this, not as the relay's absolute path. */
   cwd: string | null;
@@ -120,6 +122,7 @@ interface UserActionHandlers {
   sendDisabled?: boolean;
   onCopy: (text: string) => void;
   onOpenPath?: (path: string) => void;
+  onOpenTask?: (n: number) => void;
   cwd: string | null;
   /** Signs the session's agent back in, for a turn that failed for a lost
    * login. Absent where the app can't offer it. */
@@ -183,7 +186,7 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
       const botActivity = botActivityOf(entry);
       return (
         <LogEntryRow key={entry.id} className={botActivity ? "py-0.5" : undefined}>
-          {botActivity ? <BotActivityLine activity={botActivity} /> : <ToolCallCard call={entry} />}
+          {botActivity ? <BotActivityLine activity={botActivity} onOpenTask={userActions.onOpenTask} /> : <ToolCallCard call={entry} />}
         </LogEntryRow>
       );
     }
@@ -266,6 +269,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   sendDisabled,
   onCopy,
   onOpenPath,
+  onOpenTask,
   cwd,
   isActiveTab,
   trailing,
@@ -273,7 +277,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
 }: MessageLogProps, ref) {
   const parentRef = useRef<HTMLDivElement>(null);
   const dict = useDict();
-  const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, sendDisabled, onCopy, onOpenPath, cwd, reconnect };
+  const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, sendDisabled, onCopy, onOpenPath, onOpenTask, cwd, reconnect };
 
   // Which rows are expanded, for this tab — held here, above the virtualized
   // list, so a row that scrolls out of view keeps its state.
