@@ -1,5 +1,5 @@
 import { composeStories } from "@storybook/react-vite";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
@@ -51,14 +51,37 @@ describe("New bot dialog stories", () => {
     expect(face()).toBe("visor:stone");
   });
 
-  it("⌘/Ctrl+Enter creates even when focus has left the form", async () => {
+  it("⌘/Ctrl+Enter creates from anywhere in the form, focused field or not, and not from outside it", async () => {
     render(<Blank />);
     await userEvent.type(screen.getByLabelText(copy.create.namePlaceholder), "Deploys");
     await userEvent.type(screen.getByPlaceholderText(copy.create.soulPlaceholder), "I watch the deploys.");
-    // What WebKit does after a click on a switch or on the form's blank space.
+    // Focus elsewhere in the app: not this form's keypress.
     act(() => (document.activeElement as HTMLElement).blur());
     await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(createBot).not.toHaveBeenCalled();
+    // What WebKit leaves after a click on a switch or blank space: the
+    // keydown raised on something in the form that isn't a field.
+    fireEvent.keyDown(screen.getByText(copy.create.soul), { key: "Enter", metaKey: true });
     expect(createBot).toHaveBeenCalledTimes(1);
+  });
+
+  it("a held or composing ⌘/Ctrl+Enter does not create", () => {
+    render(<FromTemplate />);
+    const name = screen.getByDisplayValue(copy.templates["ci-check"].name);
+    fireEvent.keyDown(name, { key: "Enter", ctrlKey: true, isComposing: true });
+    fireEvent.keyDown(name, { key: "Enter", ctrlKey: true, repeat: true });
+    expect(createBot).not.toHaveBeenCalled();
+  });
+
+  it("a failed creation unlocks the form and puts focus back on Create", async () => {
+    vi.mocked(createBot).mockRejectedValueOnce(new Error("down"));
+    render(<FromTemplate />);
+    const create = screen.getByRole("button", { name: new RegExp(`^${copy.create.create}`) });
+    await userEvent.click(create);
+    expect(await screen.findByText(copy.create.failed)).toBeInTheDocument();
+    expect(create).toBeEnabled();
+    expect(create).toHaveFocus();
+    expect(screen.getByDisplayValue(copy.templates["ci-check"].name)).toBeEnabled();
   });
 
   it("while creating, the button keeps its label and the whole form is locked", async () => {
