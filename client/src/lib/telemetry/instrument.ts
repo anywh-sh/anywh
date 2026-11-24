@@ -16,6 +16,7 @@ import {
   updateModeOf,
   type ErrorKind,
   type Feature,
+  type PromptTarget,
   type EventProps,
 } from "@/lib/telemetry/events";
 import { APP_VERSION } from "@/lib/install/appVersion";
@@ -54,7 +55,8 @@ export function trackSessionStarted(input: {
   });
 }
 
-export function trackPromptSent(agentId: string | null | undefined): void {
+export function trackPromptSent(agentId: string | null | undefined, target: PromptTarget = "chat"): void {
+  telemetry.trackDaily(`prompt:${target}`, "prompt_sent", { target, runtime: runtimeOf(agentId) });
   const now = Date.now();
   telemetry.trackOnce("first_prompt_sent", "first_prompt_sent", {
     seconds_since_first_open: Math.max(0, Math.round((now - firstOpenAt(now)) / 1000)),

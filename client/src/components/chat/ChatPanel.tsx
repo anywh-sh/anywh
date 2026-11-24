@@ -1042,7 +1042,7 @@ export function ChatPanel({
       return;
     }
     if (sentImages.length > 0) trackFeature("attachment");
-    trackPromptSent(agentId);
+    trackPromptSent(agentId, roomMode ? "sala" : onOpenTask ? "bot" : "chat");
     if (roomMode) {
       trackSessionStarted({ agentId, model, effort, permissionMode, kind: "sala" });
       trackFeature("sala");

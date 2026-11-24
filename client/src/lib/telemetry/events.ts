@@ -68,6 +68,11 @@ export const ERROR_KINDS = [
 export type ErrorKind = (typeof ERROR_KINDS)[number];
 
 export const RUNTIMES = ["claude", "codex", "other"] as const;
+
+/** Where a prompt went: a plain conversation, a room, or a bot's own
+ * conversation. */
+export const PROMPT_TARGETS = ["chat", "sala", "bot"] as const;
+export type PromptTarget = (typeof PROMPT_TARGETS)[number];
 export type Runtime = (typeof RUNTIMES)[number];
 
 /** What a runtime id, model id, effort or permission mode reduces to before
@@ -166,6 +171,9 @@ export const EVENTS = {
     kind: oneOf(["chat", "sala"]),
   }, 30),
   feature_used: def({ feature: oneOf(FEATURES) }, 20),
+  /** Once a day per target: a prompt in an existing conversation counts too,
+   * which `first_prompt_sent` and `session_started` never see. */
+  prompt_sent: def({ target: oneOf(PROMPT_TARGETS), runtime: oneOf(RUNTIMES) }, 10),
   profile_added: def({ kind: oneOf(["local", "remote"]), pairing_method: optionalOneOf(["code", "address"]) }, 10),
   profile_connect_failed: def({
     stage: oneOf(CONNECT_FAILED_STAGES),

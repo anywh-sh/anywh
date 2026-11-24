@@ -74,6 +74,7 @@ describe("validateEvent", () => {
         "first_run_step_viewed",
         "profile_added",
         "profile_connect_failed",
+        "prompt_sent",
         "session_started",
         "telemetry_opted_out",
         "update_installed",
