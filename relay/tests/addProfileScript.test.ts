@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,5 +95,40 @@ test("--env adds a line, and giving the key again replaces it instead of duplica
     assert.equal(text.match(/^ANYWH_CLAUDE_SHARED_MCP=/gm)?.length, 1);
     assert.equal(readEnv(envDir, "work").ANYWH_CLAUDE_SHARED_MCP, "/b/.claude.json");
     assert.throws(() => addProfile(home, envDir, ["other", "--env", "not a pair"]), /KEY=VALUE/);
+  });
+});
+
+// The macOS app ships the script inside the relay's SEA tree (the binary at
+// the tree's root, infra/ beside it) to Macs that have no Node. There the
+// registry write must go through the binary, never `node`. The binary here
+// runs the real sea-entry.cjs against the compiled dist/ (`npm run build`),
+// which is all the SEA bundles.
+const RELAY_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+test("inside the SEA tree, the profile is recorded by the binary, not by node", () => {
+  assert.ok(existsSync(join(RELAY_DIR, "dist/host/recordProfile.js")), "run `npm run build` in relay/ first");
+  withHome((home, envDir) => {
+    const tree = join(home, "tree");
+    cpSync(resolve(RELAY_DIR, "../infra"), join(tree, "infra"), { recursive: true });
+    const bin = join(tree, "anywh-relay");
+    writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${join(RELAY_DIR, "sea-build/sea-entry.cjs")}" "$@"\n`);
+    chmodSync(bin, 0o755);
+    // A `node` that only fails, ahead of any real one on PATH.
+    const noNode = join(home, "no-node");
+    mkdirSync(noNode);
+    writeFileSync(join(noNode, "node"), "#!/bin/sh\necho 'node must not run here' >&2\nexit 127\n");
+    chmodSync(join(noNode, "node"), 0o755);
+
+    execFileSync("bash", [join(tree, "infra/systemd/add-profile.sh"), "work", "--label", "Work", "--relay-host", "127.0.0.2", "--mode", "dev"], {
+      env: { ...process.env, HOME: home, ANYWH_ENV_DIR: envDir, PATH: `${noNode}:/usr/bin:/bin` },
+      encoding: "utf8",
+    });
+    const registry = JSON.parse(readFileSync(join(dirname(envDir), "profiles.json"), "utf8")) as {
+      profiles: { id: string; label: string; colorIndex: number }[];
+    };
+    assert.deepEqual(
+      registry.profiles.map((p) => [p.id, p.label, p.colorIndex]),
+      [["work", "Work", 0]],
+    );
   });
 });

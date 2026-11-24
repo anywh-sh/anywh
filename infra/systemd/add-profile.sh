@@ -328,11 +328,18 @@ trap 'rm -f "$ENV_TMP"' EXIT
 } > "$ENV_TMP"
 mv "$ENV_TMP" "$ENV_FILE"
 
-# `profiles.json` read-modify-write done in Node (already a hard
-# requirement for the relay itself) rather than hand-rolled in bash —
-# allocates the smallest colorIndex not already taken, same rule as
-# `profileColorClass` uses for profiles that predate the field.
+# `profiles.json` read-modify-write done in Node rather than hand-rolled in
+# bash — allocates the smallest colorIndex not already taken, same rule as
+# `profileColorClass` uses for profiles that predate the field. Inside the
+# macOS SEA tree (the binary two levels up) there may be no `node` to run:
+# the binary does the same write itself (relay/src/host/recordProfile.ts,
+# which must stay in sync with the snippet below). Everywhere else Node is
+# already a hard requirement of the relay.
 PROFILES_JSON="$(dirname "$ANYWH_ENV_DIR")/profiles.json"
+SEA_BIN="$SCRIPT_DIR/../../anywh-relay"
+if [[ -x "$SEA_BIN" ]]; then
+  "$SEA_BIN" record-profile "$PROFILES_JSON" "$ID" "$LABEL"
+else
 node -e '
 const fs = require("fs");
 // `-e` doesn'\''t consume an argv slot for a script filename the way a real
@@ -365,6 +372,7 @@ const entry = {
 data.profiles = [...data.profiles.filter((p) => p.id !== id), entry];
 fs.writeFileSync(path, JSON.stringify(data, null, 2));
 ' "$PROFILES_JSON" "$ID" "$LABEL"
+fi
 
 echo "Provisioned $ENV_FILE"
 
