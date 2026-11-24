@@ -227,3 +227,17 @@ test("the person canceling a handed-off task tells the sender too; with the send
     assert.equal(turns.filter((turn) => turn.roomId === "room-ana").length, 1);
   });
 });
+
+test("a bot's summary counts what it sent other bots in the last day, and refusals not at all", async () => {
+  await withPeers(async ({ call, manager, advance }) => {
+    const sent = () => manager.summaries().find((each) => each.id === "ana")!.peer24h;
+    assert.deepEqual(sent(), { asks: 0, handoffs: 0 });
+    await call("ana", "bot_ask", { to: "Bruno", question: "q" });
+    await call("ana", "bot_ask", { to: "Ana", question: "q" });
+    await call("ana", "bot_handoff", { to: "Bruno", title: "t", details: "d" });
+    assert.deepEqual(sent(), { asks: 1, handoffs: 1 });
+    assert.deepEqual(manager.summaries().find((each) => each.id === "bruno")!.peer24h, { asks: 0, handoffs: 0 }, "only the sender's");
+    advance(24 * 60 * 60 * 1000);
+    assert.deepEqual(sent(), { asks: 0, handoffs: 0 });
+  });
+});
