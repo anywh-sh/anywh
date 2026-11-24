@@ -51,6 +51,7 @@ export function BotActivityLine({ activity, onOpenTask }: { activity: BotActivit
     <TextButton
       tone={asked ? "none" : "muted"}
       title={label}
+      aria-label={`${label}: ${activity.text ?? verb}`}
       onClick={() => onOpenTask(n)}
       className={cn("group/activity flex w-full min-w-0 items-center gap-1.5 text-[12.5px]", asked && "text-primary hover:text-primary/80")}
     >

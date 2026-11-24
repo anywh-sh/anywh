@@ -13,7 +13,7 @@ describe("Bot activity line stories", () => {
   it("Asked is a button that opens its task", async () => {
     const onOpenTask = vi.fn();
     render(<Asked onOpenTask={onOpenTask} />);
-    const line = screen.getByRole("button", { name: new RegExp(en.bots.activity.asked.replace("{n}", "2")) });
+    const line = screen.getByRole("button", { name: new RegExp(en.bots.task.open.replace("{n}", "2")) });
     expect(line).toHaveAttribute("title", en.bots.task.open.replace("{n}", "2"));
     await userEvent.click(line);
     expect(onOpenTask).toHaveBeenCalledWith(2);
