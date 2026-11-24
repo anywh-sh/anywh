@@ -465,6 +465,14 @@ jobs:
           # telemetry module inert, which is also what a fork or a local
           # build gets.
           VITE_POSTHOG_KEY: ${{ secrets.ANYWH_POSTHOG_KEY }}
+          # Source maps for error tracking: Vite writes them hidden, and
+          # client/scripts/sourcemaps.mjs uploads them to PostHog and deletes
+          # them from dist/ before the bundle, so none ships in the app. The
+          # upload is optional like the key above (a personal API key with
+          # error tracking write access); the deletion is not.
+          ANYWH_SOURCEMAPS: "1"
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_CLI_PROJECT_ID }}
         with:
           projectPath: client
           args: ${{ matrix.rustTarget && format('--target {0}', matrix.rustTarget) || '' }}

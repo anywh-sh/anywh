@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/sourcemaps.mjs",
     "preview": "vite preview",
     "pretauri": "npm run build:sidecar",
     "tauri": "node scripts/tauri.mjs",

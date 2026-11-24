@@ -9,6 +9,14 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+  // Source maps only for the release build that uploads them
+  // (scripts/sourcemaps.mjs), and "hidden": no comment in the bundle points
+  // at them, and the script deletes them before Tauri bundles `dist/`, so
+  // none ever ships inside the app.
+  build: {
+    // @ts-expect-error process is a nodejs global
+    sourcemap: process.env.ANYWH_SOURCEMAPS === "1" ? ("hidden" as const) : false,
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
