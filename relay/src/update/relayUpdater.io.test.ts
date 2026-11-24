@@ -195,6 +195,7 @@ test("a tarball that fails its checksum is refused and the running tree is left 
     const status = await settled(updater);
     assert.equal(status.state, "failed");
     assert.equal(status.state === "failed" && status.code, "checksum_mismatch");
+    assert.equal(status.state === "failed" && status.step, "download", "the step that failed is named");
     assert.deepEqual(installed, []);
     assert.equal(versionIn(relayDir), "0.2.40");
   } finally {
