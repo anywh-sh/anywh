@@ -226,7 +226,8 @@ export type RelayUpdateStatus =
   | { state: "idle" }
   | { state: "installing"; version: string }
   | { state: "installed"; version: string }
-  | { state: "failed"; version: string; code: string; message: string };
+  /** `step` only from a relay recent enough to name it. */
+  | { state: "failed"; version: string; code: string; step?: string; message: string };
 
 export async function getRelayUpdateStatus(profile: Profile): Promise<RelayUpdateStatus> {
   const { base, token } = await resolveBase(profile);
