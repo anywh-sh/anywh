@@ -31,6 +31,7 @@ import { AGENT_MARK_ENV } from "./processTree.js";
 import { RELEASE_VERSION } from "./release.js";
 import { resolveShipped } from "../host/paths.js";
 import { readPackageVersion, supervisedForRestart, watchForNewRelease } from "../update/releaseWatch.js";
+import { widenAgentPath } from "../host/agentPath.js";
 
 function numberEnv(name: string): number | undefined {
   const raw = process.env[name];
@@ -43,6 +44,11 @@ function hibernationPolicy(): "idle" | "memory" | "off" {
   const raw = process.env.ANYWH_AGENT_HOST_HIBERNATE;
   return raw === "memory" || raw === "off" ? raw : "idle";
 }
+
+// Same as the relay's boot: the agents this host spawns need the user's
+// PATH, not the service manager's (host/agentPath.ts).
+const widenedPath = widenAgentPath();
+if (widenedPath.length > 0) console.log(`[agent-host] PATH widened for agent CLIs: ${widenedPath.join(":")}`);
 
 const { values: args } = parseArgs({
   options: {
