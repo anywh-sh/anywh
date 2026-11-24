@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { isSea } from "node:sea";
 import * as pty from "node-pty";
 import type { IPty } from "node-pty";
 
@@ -14,7 +17,21 @@ import type { IPty } from "node-pty";
 // because the tmux server runs independently of the relay process. The
 // relay keeps no in-memory record of which terminal is alive — tmux is the
 // source of truth, queried on demand (list-sessions) when needed.
-const TMUX_BIN = process.env.TMUX_BIN ?? "/usr/bin/tmux";
+const TMUX_BIN = resolveTmuxBin(process.env, isSea() ? join(dirname(process.execPath), "tmux") : undefined);
+
+/** Which tmux to run: `TMUX_BIN` from the environment, then the tmux the
+ * macOS app ships beside the relay's SEA binary (a stock Mac has none), then
+ * the system's. The shipped one only counts if it is there: the Homebrew
+ * build is also a SEA, with tmux coming from Homebrew instead. */
+export function resolveTmuxBin(
+  env: NodeJS.ProcessEnv,
+  shippedTmux: string | undefined,
+  exists: (path: string) => boolean = existsSync,
+): string {
+  if (env.TMUX_BIN) return env.TMUX_BIN;
+  if (shippedTmux && exists(shippedTmux)) return shippedTmux;
+  return "/usr/bin/tmux";
+}
 
 /** A dedicated tmux socket per relay instance (== per profile, since each
  * profile runs its own relay process on its own port) — without this, the
