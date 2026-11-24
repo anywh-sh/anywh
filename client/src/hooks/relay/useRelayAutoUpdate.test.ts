@@ -180,6 +180,23 @@ describe("what it counts", () => {
     expect(named("relay_update_finished")[0]).toMatchObject({ outcome: "gave_up", last_state: "installed" });
   });
 
+  it("an app left open looks again for a relay not yet counted today", async () => {
+    relayAt(9001, { version: "0.2.41", features: [] });
+    renderHook(() => useRelayAutoUpdate([profile("a", 9001)], "0.2.41", { watch: fastWatch, seenRecheckMs: 20 }));
+    // The fake controller never marks the day as done, so each pass counts again.
+    await waitFor(() => expect(named("relay_seen").length).toBeGreaterThanOrEqual(2));
+  });
+
+  it("stops following an update once the profile is gone, and reports nothing for it", async () => {
+    const old = relayAt(9001, { version: "0.2.40", features: ["self_update"] });
+    old.onUpdate = accept((version) => (old.status = { state: "installing", version }));
+    const { rerender } = renderHook(({ list }) => useRelayAutoUpdate(list, "0.2.41", { watch: { intervalMs: 20, timeoutMs: 200 } }), { initialProps: { list: [profile("a", 9001)] } });
+    await waitFor(() => expect(named("relay_update_requested")).toHaveLength(1));
+    rerender({ list: [] });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(named("relay_update_finished")).toEqual([]);
+  });
+
   it("a failure the relay still holds from before is counted once, before asking again", async () => {
     const old = relayAt(9001, { version: "0.2.40", features: ["self_update"], status: { state: "failed", version: "0.2.41", code: "download_failed", step: "download", message: "x" } });
     old.onUpdate = () => new Response(JSON.stringify({ error: "busy" }), { status: 409 });

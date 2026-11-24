@@ -3,6 +3,8 @@ import { APP_VERSION } from "@/lib/install/appVersion";
 import { getHostInfo, getRelayUpdateStatus, requestRelayUpdate, type HostInfo } from "@/lib/relay/filesClient";
 import { shouldAutoUpdateRelay } from "@/lib/relay/relayDrift";
 import { DEFAULT_WATCH_TIMING, watchRelayUpdate, type RelayUpdateWatchTiming } from "@/lib/relay/relayUpdateWatch";
+import { telemetry } from "@/lib/telemetry";
+import { dailyDue } from "@/lib/telemetry/dedupe";
 import { trackRelaySeen, trackRelayUpdateFinished, trackRelayUpdateRequested } from "@/lib/telemetry/instrument";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -10,6 +12,11 @@ import type { Profile } from "@/lib/profiles/profiles";
  * one request per relay per launch is enough — the relay itself keeps the
  * install going and restarts onto it when it is idle. */
 const asked = new Set<string>();
+
+/** How often an app left open looks again for a relay not yet seen today. */
+export const RELAY_SEEN_RECHECK_MS = 30 * 60_000;
+
+const relayKey = (profile: Profile): string => `${profile.id}@${profile.host}:${profile.relayPort}`;
 
 /** For tests: forget which relays were asked. */
 export function resetRelayAutoUpdate(): void {
@@ -32,7 +39,7 @@ async function reportHeldFailure(profile: Profile, info: HostInfo): Promise<void
   );
 }
 
-async function followUpdate(profile: Profile, fromVersion: string | undefined, toVersion: string, timing: RelayUpdateWatchTiming): Promise<void> {
+async function followUpdate(profile: Profile, fromVersion: string | undefined, toVersion: string, timing: RelayUpdateWatchTiming, active: () => boolean): Promise<void> {
   const startedAt = Date.now();
   const end = await watchRelayUpdate(
     toVersion,
@@ -41,9 +48,11 @@ async function followUpdate(profile: Profile, fromVersion: string | undefined, t
       getStatus: () => getRelayUpdateStatus(profile),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       now: () => Date.now(),
+      active,
     },
     timing,
   );
+  if (end.outcome === "stopped") return;
   const base = { path: "auto" as const, fromVersion, toVersion, startedAt };
   if (end.outcome === "failed") {
     trackRelayUpdateFinished({ ...base, outcome: "failed", reason: "installer", installerCode: end.code, installerStep: end.step }, failureKey(profile, toVersion));
@@ -65,7 +74,11 @@ async function followUpdate(profile: Profile, fromVersion: string | undefined, t
  * updated), and each request is followed until the relay runs the new
  * release, says the install failed, or the watch gives up.
  */
-export function useRelayAutoUpdate(profiles: readonly Profile[], appVersion: string = APP_VERSION, options: { watch?: Partial<RelayUpdateWatchTiming> } = {}): void {
+export function useRelayAutoUpdate(
+  profiles: readonly Profile[],
+  appVersion: string = APP_VERSION,
+  options: { watch?: Partial<RelayUpdateWatchTiming>; seenRecheckMs?: number } = {},
+): void {
   const profilesRef = useRef(profiles);
   profilesRef.current = profiles;
   const watchRef = useRef(options.watch);
@@ -74,7 +87,7 @@ export function useRelayAutoUpdate(profiles: readonly Profile[], appVersion: str
 
   useEffect(() => {
     for (const profile of profilesRef.current) {
-      const key = `${profile.id}@${profile.host}:${profile.relayPort}`;
+      const key = relayKey(profile);
       if (asked.has(key)) continue;
       asked.add(key);
       void getHostInfo(profile)
@@ -90,7 +103,9 @@ export function useRelayAutoUpdate(profiles: readonly Profile[], appVersion: str
             throw error;
           }
           trackRelayUpdateRequested(info.version, appVersion);
-          void followUpdate(profile, info.version, appVersion, { ...DEFAULT_WATCH_TIMING, ...watchRef.current });
+          // Followed only while the app still has this relay at this address.
+          const active = (): boolean => profilesRef.current.some((each) => relayKey(each) === key);
+          void followUpdate(profile, info.version, appVersion, { ...DEFAULT_WATCH_TIMING, ...watchRef.current }, active);
         })
         .catch((error: unknown) => {
           // Unreachable now: try again on the next launch or profile change.
@@ -99,4 +114,21 @@ export function useRelayAutoUpdate(profiles: readonly Profile[], appVersion: str
         });
     }
   }, [relays, appVersion]);
+
+  // An app left open for days still counts each relay once a day: the
+  // launch above only asks once.
+  const recheckMs = options.seenRecheckMs ?? RELAY_SEEN_RECHECK_MS;
+  useEffect(() => {
+    if (!telemetry.available) return;
+    const timer = setInterval(() => {
+      for (const profile of profilesRef.current) {
+        if (!dailyDue(`relay_seen:${profile.id}`, Date.now())) continue;
+        void getHostInfo(profile).then(
+          (info) => trackRelaySeen(profile, info, appVersion),
+          () => undefined,
+        );
+      }
+    }, recheckMs);
+    return () => clearInterval(timer);
+  }, [appVersion, recheckMs]);
 }

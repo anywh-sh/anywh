@@ -22,10 +22,15 @@ export interface RelayUpdateWatchDeps {
   getStatus: () => Promise<RelayUpdateStatus>;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
+  /** False once the watch no longer concerns a relay the app has (the
+   * profile was edited to another address, or removed): it stops. */
+  active?: () => boolean;
 }
 
 export type RelayUpdateWatchOutcome =
   | { outcome: "done" }
+  /** Called off (`active` turned false): nothing to report. */
+  | { outcome: "stopped" }
   | { outcome: "failed"; code: string; step?: string }
   /** `lastState`: where the install last stood — `installed` is on disk,
    * waiting for the conversations' turns to end. */
@@ -37,6 +42,7 @@ export async function watchRelayUpdate(toVersion: string, deps: RelayUpdateWatch
   for (;;) {
     // The install takes a while: the first look is one interval in.
     await deps.sleep(timing.intervalMs);
+    if (deps.active && !deps.active()) return { outcome: "stopped" };
     const version = await deps.getVersion().catch(() => undefined);
     if (version === toVersion) return { outcome: "done" };
     const status = await deps.getStatus().catch(() => null);
