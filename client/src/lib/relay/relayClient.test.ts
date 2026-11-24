@@ -108,6 +108,32 @@ describe("RelayClient connect token", () => {
     expect(tokenOf(FakeWebSocket.instances[1])).toBe("grant-2");
   });
 
+  it("waits exactly the broker's retry hint after a throttled refusal, reports it, and clears it once connected", async () => {
+    const retryAt = new Date(Date.now() + 5 * 60_000);
+    const resolve = vi
+      .fn()
+      .mockRejectedValueOnce(new BrokerThrottledError(5 * 60_000, retryAt, "resume_budget_exhausted"))
+      .mockResolvedValue("grant-2");
+    const onThrottled = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", { ...noopCallbacks, onThrottled }, resolve);
+
+    client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onThrottled).toHaveBeenLastCalledWith({ retryAt, reason: "resume_budget_exhausted" });
+
+    // Not one attempt before the hint — not the half-second backoff.
+    await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(FakeWebSocket.instances).toHaveLength(0);
+
+    // And not a minute past it either: the UI told the user this time.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resolve).toHaveBeenCalledTimes(2);
+    FakeWebSocket.instances[0].emit("open");
+    expect(onThrottled).toHaveBeenLastCalledWith(null);
+  });
+
   it("keeps sending the same static token, for a profile whose token is a fixed credential", () => {
     // `Profile.connectToken` (a reverse proxy's static credential) is the
     // opposite case — nothing to refresh, and no async hop before dialing.

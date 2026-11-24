@@ -53,12 +53,86 @@ export class BrokerRevokedError extends Error {
 export class BrokerThrottledError extends Error {
   /** From the body's `retry_after_ms`, when the broker offers one. */
   readonly retryAfterMs?: number;
+  /** When the refusal clears: the body's `retry_at`, or now plus
+   * `retry_after_ms` when only that came. Absent with no hint at all. */
+  readonly retryAt?: Date;
+  /** The body's `error` code, verbatim — opaque here; the UI decides which
+   * ones it has words for (`resume_budget_exhausted` today). */
+  readonly reason?: string;
 
-  constructor(retryAfterMs?: number) {
+  constructor(retryAfterMs?: number, retryAt?: Date, reason?: string) {
     super("the broker is refusing new connections for this account right now (throttled or out of quota)");
     this.name = "BrokerThrottledError";
     this.retryAfterMs = retryAfterMs;
+    this.retryAt = retryAt;
+    this.reason = reason;
   }
+}
+
+/** A 429 that said when it clears holds every later grant request for the
+ * same profile until then — a window focus, a sidebar retry and a chat tab's
+ * backoff all go through `fetchConnectGrant`, and none of them should spend
+ * a request (or, for a resume-budget refusal, push the wake further out)
+ * that the broker already said it would refuse. Per profile, in memory: an
+ * app restart asks once and learns the same answer again. */
+export interface ThrottleHold {
+  /** Local clock. From `retry_after_ms` when given (relative, so a skewed
+   * device clock can't cut it short), else from `retry_at`. */
+  until: number;
+  retryAt?: Date;
+  reason?: string;
+}
+const throttleHolds = new Map<string, ThrottleHold>();
+const throttleHoldListeners = new Set<() => void>();
+
+/** The hold on `profileId`'s grant requests, if one was ever set — the same
+ * object until it's replaced, so it works as a `useSyncExternalStore`
+ * snapshot. It may already have expired: compare `until` with the clock. */
+export function throttleHoldFor(profileId: string): ThrottleHold | undefined {
+  return throttleHolds.get(profileId);
+}
+
+export function subscribeThrottleHolds(listener: () => void): () => void {
+  throttleHoldListeners.add(listener);
+  return () => throttleHoldListeners.delete(listener);
+}
+
+function heldError(profileId: string): BrokerThrottledError | undefined {
+  const hold = throttleHolds.get(profileId);
+  if (!hold) return undefined;
+  const remaining = hold.until - Date.now();
+  if (remaining <= 0) {
+    throttleHolds.delete(profileId);
+    return undefined;
+  }
+  return new BrokerThrottledError(remaining, hold.retryAt ?? new Date(hold.until), hold.reason);
+}
+
+/** Turns a 429's body into the error `fetchConnectGrant` throws, and holds
+ * the profile's later grant requests until the refusal clears. Only a hint
+ * that came with the refusal holds anything; a bare 429 leaves the pacing to
+ * each caller's own backoff, as before. Exported for the UI tier, whose
+ * broker double answers with a body instead of a signed HTTP call. */
+export function refusedWith429(profileId: string, body: Record<string, unknown>): BrokerThrottledError {
+  const error = throttledFrom(body);
+  const until = error.retryAfterMs !== undefined ? Date.now() + error.retryAfterMs : error.retryAt?.getTime();
+  if (until !== undefined && until > Date.now()) {
+    throttleHolds.set(profileId, { until, retryAt: error.retryAt, reason: error.reason });
+    for (const listener of throttleHoldListeners) listener();
+  }
+  return error;
+}
+
+function throttledFrom(hint: { error?: unknown; retry_after_ms?: unknown; retry_at?: unknown }): BrokerThrottledError {
+  const retryAfterMs = typeof hint.retry_after_ms === "number" && hint.retry_after_ms >= 0 ? hint.retry_after_ms : undefined;
+  const parsedAt = typeof hint.retry_at === "string" ? Date.parse(hint.retry_at) : NaN;
+  const retryAt = Number.isFinite(parsedAt)
+    ? new Date(parsedAt)
+    : retryAfterMs !== undefined
+      ? new Date(Date.now() + retryAfterMs)
+      : undefined;
+  const reason = typeof hint.error === "string" ? hint.error : undefined;
+  return new BrokerThrottledError(retryAfterMs, retryAt, reason);
 }
 
 /**
@@ -124,6 +198,8 @@ export async function fetchConnectGrant(profile: Profile, options?: GrantOptions
   // ignores an unknown query param and behaves exactly as before, which is
   // what keeps this safe to send at a self-hosted broker too.
   if (options?.wake === false) url.searchParams.set("wake", "false");
+  const held = heldError(profile.id);
+  if (held) throw held;
   const deadline = Date.now() + RESUME_DEADLINE_MS;
   for (;;) {
     // Signed inside the loop, once per attempt: the signature carries its
@@ -160,8 +236,7 @@ export async function fetchConnectGrant(profile: Profile, options?: GrantOptions
     if (!response.ok) {
       if (response.status === 410) throw new BrokerRevokedError();
       if (response.status === 429) {
-        const hint = (await response.json().catch(() => ({}))) as { retry_after_ms?: number };
-        throw new BrokerThrottledError(hint.retry_after_ms);
+        throw refusedWith429(profile.id, (await response.json().catch(() => ({}))) as Record<string, unknown>);
       }
       throw new Error(`broker refused the connection request (${String(response.status)})`);
     }

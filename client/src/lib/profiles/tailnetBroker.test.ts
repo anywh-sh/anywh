@@ -7,7 +7,14 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@/lib/platform/tauri", () => ({ inTauri: () => true }));
 
-import { BrokerAsleepError, BrokerThrottledError, fetchConnectGrant, reportTailnetKey, resolveTailnetTarget } from "@/lib/profiles/tailnetBroker";
+import {
+  BrokerAsleepError,
+  BrokerThrottledError,
+  fetchConnectGrant,
+  reportTailnetKey,
+  resolveTailnetTarget,
+  throttleHoldFor,
+} from "@/lib/profiles/tailnetBroker";
 
 const profile: Profile = {
   id: "p1",
@@ -128,10 +135,58 @@ describe("fetchConnectGrant", () => {
   it("carries the broker's own retry hint when it offers one", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ retry_after_ms: 90_000 }), { status: 429 })));
 
-    const grant = fetchConnectGrant(profile);
+    // Its own id: the hint holds this profile's later calls (tested below).
+    const grant = fetchConnectGrant({ ...profile, id: "hinted" });
     const assertion = expect(grant).rejects.toMatchObject({ retryAfterMs: 90_000 });
     await vi.runAllTimersAsync();
     await assertion;
+  });
+
+  it("maps the resume-budget 429 to a throttled error that says when it clears", async () => {
+    // ENG-100's body: the hourly wake budget is spent until `retry_at`.
+    const retryAt = new Date(Date.now() + 20 * 60_000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "resume_budget_exhausted", retry_at: retryAt.toISOString(), retry_after_ms: 20 * 60_000 }), {
+          status: 429,
+        }),
+      ),
+    );
+
+    const grant = fetchConnectGrant({ ...profile, id: "budget-mapped" });
+    const assertion = expect(grant).rejects.toMatchObject({ reason: "resume_budget_exhausted", retryAfterMs: 20 * 60_000, retryAt });
+    await vi.runAllTimersAsync();
+    await assertion;
+  });
+
+  it("holds every later grant request for the profile until retry_after_ms has passed, then asks again", async () => {
+    const budgetProfile = { ...profile, id: "budget-held" };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "resume_budget_exhausted", retry_at: new Date(Date.now() + 60_000).toISOString(), retry_after_ms: 60_000 }), {
+          status: 429,
+        }),
+      )
+      .mockImplementation(() => Promise.resolve(granted()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchConnectGrant(budgetProfile)).rejects.toBeInstanceOf(BrokerThrottledError);
+    expect(throttleHoldFor(budgetProfile.id)?.reason).toBe("resume_budget_exhausted");
+
+    // A focus, a sidebar retry: refused locally, nothing signed or sent.
+    vi.advanceTimersByTime(59_000);
+    invokeMock.mockClear();
+    await expect(fetchConnectGrant(budgetProfile, { wake: true })).rejects.toMatchObject({ retryAfterMs: 1_000, reason: "resume_budget_exhausted" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).not.toHaveBeenCalled();
+    // Other profiles are not held.
+    await expect(fetchConnectGrant(profile)).resolves.toMatchObject({ token: "tok" });
+
+    vi.advanceTimersByTime(1_000);
+    await expect(fetchConnectGrant(budgetProfile)).resolves.toMatchObject({ token: "tok" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("still fails immediately on a refusal that is not a resume", async () => {
