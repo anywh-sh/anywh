@@ -174,6 +174,9 @@ interface ChatPanelProps {
    * passes `undefined` on compact/iOS (there's no file panel to open it in
    * there). */
   onOpenPath?: (path: string) => void;
+  /** Opens one of a bot's tasks in its side panel, from a line of its
+   * conversation ("Asked you about task #2") — only a bot's tab has it. */
+  onOpenTask?: (n: number) => void;
   /** Only the active tab should react to Tauri's native drag-and-drop —
    * unlike the old HTML5 DnD (scoped by the DOM itself), the native event
    * reaches ALL mounted instances (background tabs stay mounted),
@@ -260,6 +263,7 @@ export function ChatPanel({
   terminal,
   files,
   onOpenPath,
+  onOpenTask,
   isActiveTab,
   renderComposer,
   besideRoom,
@@ -1115,6 +1119,7 @@ export function ChatPanel({
           sendDisabled={!live}
           onCopy={onCopyMessage}
           onOpenPath={onOpenPath}
+          onOpenTask={onOpenTask}
           cwd={cwd}
           isActiveTab={isActiveTab}
           trailing={logTrailing}

@@ -4,6 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import * as stories from "./BotPanel.stories";
 import { en } from "@/i18n/en";
+import { askPanelTask } from "@/lib/bots/botTaskRequest";
+import { askPanelSettings, takePanelSettings } from "@/lib/bots/botSettingsRequest";
+import { storyBotView } from "@/components/bots/botStoryData";
 
 const copy = en.bots;
 const { Tasks, Empty, Question, Working, HandedOff, HandedOffSenderGone, ConversationWaits, Settings, SettingsEmptyMemory } = composeStories(stories);
@@ -41,6 +44,31 @@ describe("Bot panel stories", () => {
     expect(screen.getByText(/20 times in a row/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: copy.task.back }));
     expect(screen.queryByTestId("bot-task-detail")).not.toBeInTheDocument();
+  });
+
+  it("a task asked for from the conversation opens in place, whether the panel mounts for it or is open", async () => {
+    askPanelTask(storyBotView.roomId, 13);
+    render(<Tasks />);
+    expect(screen.getByText("Retry per test or the whole job?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: copy.task.back }));
+    expect(screen.queryByTestId("bot-task-detail")).not.toBeInTheDocument();
+    act(() => askPanelTask(storyBotView.roomId, 12));
+    expect(screen.getByTestId("bot-task-detail")).toBeInTheDocument();
+    expect(screen.getByText(copy.task.doneMeans)).toBeInTheDocument();
+  });
+
+  it("a task no longer in the list shows the list, and a task asked with the settings wins at mount", () => {
+    askPanelTask(storyBotView.roomId, 999);
+    render(<Tasks />);
+    expect(screen.queryByTestId("bot-task-detail")).not.toBeInTheDocument();
+    expect(screen.getByText("Fix the flaky relay test")).toBeInTheDocument();
+    cleanup();
+    askPanelSettings(storyBotView.roomId);
+    askPanelTask(storyBotView.roomId, 13);
+    render(<Tasks />);
+    expect(screen.getByText("Retry per test or the whole job?")).toBeInTheDocument();
+    expect(screen.queryByTestId("bot-settings")).not.toBeInTheDocument();
+    expect(takePanelSettings(storyBotView.roomId)).toBe(false);
   });
 
   it("Question offers the options with the recommended one marked; Working lists its agent and history", () => {

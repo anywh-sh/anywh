@@ -1,4 +1,4 @@
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useCallback, useMemo, type ReactNode } from "react";
 import { BotTemplatesView } from "@/components/bots/BotTemplatesView";
 import { isBotTemplatesTab } from "@/lib/bots/botTabs";
 import { openNewBot } from "@/lib/bots/newBotRequest";
@@ -19,6 +19,8 @@ import { DockEmptyState } from "@/components/shell/DockEmptyState";
 import { BotPanel } from "@/components/bots/BotPanel";
 import { BotPaneToggleButton } from "@/components/bots/BotPaneToggleButton";
 import { BotCompactBar } from "@/components/bots/BotCompactBar";
+import { askPanelTask, dropPanelTask } from "@/lib/bots/botTaskRequest";
+import { useBotByRoom } from "@/lib/bots/botsStore";
 import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
@@ -106,6 +108,16 @@ const TabChat = memo(function TabChat({
     () => ({ openAgent: (agentId: string) => actions.onOpenSession(profile, agentId, null) }),
     [actions, profile],
   );
+  // A bot's task named in its conversation opens in its side panel — the
+  // dock's pane on desktop, the compact bar's sheet elsewhere (it listens).
+  const isBot = tab.bot === true;
+  const openTask = useCallback(
+    (n: number) => {
+      askPanelTask(tab.id, n);
+      if (!noPanes) actions.onOpenPane(tab.id, "bot");
+    },
+    [actions, noPanes, tab.id],
+  );
   return (
     <RoomCardActionsContext.Provider value={cardActions}>
     <ChatPanel
@@ -142,6 +154,7 @@ const TabChat = memo(function TabChat({
       terminal={noPanes ? undefined : { open: terminalOpen, onToggle: () => actions.onTogglePane(tab.id, "terminal") }}
       files={noPanes ? undefined : { open: filesOpen, onToggle: () => actions.onTogglePane(tab.id, "files") }}
       onOpenPath={noPanes ? undefined : (path) => actions.onOpenPath(profile, tab.id, path)}
+      onOpenTask={isBot ? openTask : undefined}
       isActiveTab={isVisible}
     />
     </RoomCardActionsContext.Provider>
@@ -208,8 +221,20 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
  * its `ChatPanel` draws. */
 function BotPanelToggle({ groupId, dock, actions, tabId }: { groupId: string | null; dock: DockState; actions: TabPanelActions; tabId: string }) {
   const slot = usePanelTogglesSlot(groupId);
+  const bot = useBotByRoom(tabId);
   if (!slot) return null;
-  return createPortal(<BotPaneToggleButton open={dock.panes.includes("bot")} onToggle={() => actions.onTogglePane(tabId, "bot")} />, slot);
+  return createPortal(
+    <BotPaneToggleButton
+      open={dock.panes.includes("bot")}
+      attention={(bot?.needsYou ?? 0) > 0}
+      onToggle={() => {
+        // Opened by hand: the list, not a task an earlier click left pending.
+        dropPanelTask(tabId);
+        actions.onTogglePane(tabId, "bot");
+      }}
+    />,
+    slot,
+  );
 }
 
 /** A room's pane buttons, drawn into its group's side panel rail. A
