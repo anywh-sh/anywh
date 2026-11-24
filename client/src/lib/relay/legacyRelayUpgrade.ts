@@ -54,6 +54,9 @@ export function legacyUpgradeKind(info: { platform?: string; updateSupport?: str
       return info.platform === "darwin" ? "homebrew" : "installer";
     case "managed_elsewhere":
       return info.platform === "darwin" ? "homebrew" : null;
+    // The relay the macOS app ships: the app's own update replaces it.
+    case "managed_by_app":
+      return null;
     default:
       return null;
   }

@@ -205,6 +205,7 @@ export interface HostInfo {
   features?: string[];
   /** Whether the relay can install a release over itself (`supported`)
    * and, when not, why: `managed_elsewhere` (the Homebrew build),
+   * `managed_by_app` (the relay the macOS app ships and updates),
    * `source_checkout`, `not_installer_layout`. Absent from a relay older
    * than the field. */
   updateSupport?: string;
