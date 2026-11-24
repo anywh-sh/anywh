@@ -6,7 +6,7 @@ import App from "./App";
 import { applyFontSize, readFontSize } from "@/lib/fontSize";
 import { installHostBridge } from "@/lib/platform/hostBridge";
 import { startTelemetry } from "@/lib/telemetry";
-import { reportBoot } from "@/lib/telemetry/instrument";
+import { installExceptionCapture, reportBoot } from "@/lib/telemetry/instrument";
 import { applyCachedTheme } from "@/lib/theme/themeApply";
 import "./index.css";
 
@@ -24,6 +24,7 @@ applyFontSize(readFontSize());
 // Reads what only the native side knows (the environment). A no-op in a
 // build without a project key.
 startTelemetry();
+installExceptionCapture();
 void reportBoot();
 
 // The WebdriverIO Tauri stack has three halves that all have to match: the

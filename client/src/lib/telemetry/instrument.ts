@@ -30,6 +30,7 @@ import { LOOPBACK_HOSTS } from "@/lib/profiles/loopback";
 import type { HostInfo } from "@/lib/relay/filesClient";
 import type { BotSummary } from "@/lib/bots/botTypes";
 import { botsSnapshot, templateKind } from "@/lib/telemetry/bots";
+import { exceptionReport } from "@/lib/telemetry/exceptions";
 import { relayPlatform, relayUpdatePath, relayVsApp, updateRequestResult, installerCode, installerStep, secondsSince, updateReason, versionOrNone } from "@/lib/telemetry/relay";
 
 /**
@@ -225,6 +226,34 @@ export function trackBotAction(action: BotAction): void {
 /** Once a day per profile, the first time its relay's bots are known. */
 export function trackBotsSnapshot(profileId: string, bots: readonly BotSummary[]): void {
   telemetry.trackDaily(`bots_snapshot:${profileId}`, "bots_snapshot", botsSnapshot(bots));
+}
+
+/** An error nobody caught, reported as its type and where in the app's
+ * code it was thrown (`exceptionReport`), never its message. */
+export function trackException(error: unknown, handled = false): void {
+  if (!telemetry.available) return;
+  const report = exceptionReport(error, {
+    handled,
+    appOrigin: typeof window === "undefined" ? "" : window.location.origin,
+    chunkIds: (globalThis as { _posthogChunkIds?: Record<string, string> })._posthogChunkIds,
+  });
+  if (report) telemetry.trackException(report);
+}
+
+let exceptionCaptureInstalled = false;
+
+/** Listens for what nothing caught: a thrown error (React's own uncaught
+ * render errors arrive here too, through `reportError`) and a rejected
+ * promise nobody handled. Logging is left as it was. A no-op without a key. */
+export function installExceptionCapture(): void {
+  if (exceptionCaptureInstalled || !telemetry.available || typeof window === "undefined") return;
+  exceptionCaptureInstalled = true;
+  window.addEventListener("error", (event) => {
+    // A script error with no error object (a cross-origin script) says
+    // nothing about this code.
+    if (event.error !== undefined && event.error !== null) trackException(event.error);
+  });
+  window.addEventListener("unhandledrejection", (event) => trackException(event.reason));
 }
 
 /** `custom` only for an imported theme: any built-in, the default or not, and

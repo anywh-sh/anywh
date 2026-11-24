@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createTelemetry, type Sdk, type TelemetryDeps } from "@/lib/telemetry/client";
+import { createTelemetry, EXCEPTIONS_PER_DAY, type Sdk, type TelemetryDeps } from "@/lib/telemetry/client";
+import type { ExceptionReport } from "@/lib/telemetry/exceptions";
 
 /** The SDK is the one boundary faked: it records what it was asked to send,
  * nothing else about the controller is replaced. */
@@ -255,5 +256,66 @@ describe("a blocked SDK", () => {
     expect(() => r.telemetry.track("app_active", {})).not.toThrow();
     await r.settle();
     expect(r.sent).toEqual([]);
+  });
+});
+
+describe("exception reports", () => {
+  const report = (fingerprint: string): ExceptionReport => ({
+    fingerprint,
+    properties: {
+      $exception_list: [{ type: "TypeError", value: "", mechanism: { type: "generic", handled: false, synthetic: false }, stacktrace: { type: "raw", frames: [] } }],
+      $exception_level: "error",
+    },
+  });
+
+  it("go out as $exception, once per session for the same fingerprint", async () => {
+    const r = rig({}, true);
+    r.telemetry.setEnvDisabled(false);
+    expect(r.telemetry.trackException(report("a"))).toBe("sent");
+    expect(r.telemetry.trackException(report("a"))).toBe("dropped");
+    await r.settle();
+    expect(r.sent.map((e) => e.event)).toEqual(["$exception"]);
+    expect(r.sent[0].properties).toMatchObject({ $exception_level: "error", $process_person_profile: false, $geoip_disable: true, app_version: "0.1.7" });
+  });
+
+  it("stop at the daily cap, and start again the next day", async () => {
+    const r = rig({}, true);
+    r.telemetry.setEnvDisabled(false);
+    for (let i = 0; i < EXCEPTIONS_PER_DAY + 5; i++) {
+      r.telemetry.trackException(report(`f${String(i)}`));
+      r.advance(60_000);
+    }
+    await r.settle();
+    expect(r.sent).toHaveLength(EXCEPTIONS_PER_DAY);
+    r.advance(24 * 60 * 60 * 1000);
+    expect(r.telemetry.trackException(report("tomorrow"))).toBe("sent");
+  });
+
+  it("at most a few a minute, however many different ones are thrown", () => {
+    const r = rig({}, true);
+    r.telemetry.setEnvDisabled(false);
+    const results = Array.from({ length: 10 }, (_, i) => r.telemetry.trackException(report(`m${String(i)}`)));
+    expect(results.filter((result) => result === "sent").length).toBeLessThan(10);
+  });
+
+  it("wait for the notice like any event, and are gone if the answer is no", async () => {
+    const r = rig();
+    r.telemetry.setEnvDisabled(false);
+    expect(r.telemetry.trackException(report("held"))).toBe("buffered");
+    r.telemetry.optOut("banner");
+    await r.settle();
+    expect(r.sent.map((e) => e.event)).toEqual(["telemetry_opted_out"]);
+
+    const yes = rig();
+    yes.telemetry.setEnvDisabled(false);
+    yes.telemetry.trackException(report("held"));
+    yes.telemetry.optIn();
+    await yes.settle();
+    expect(yes.sent.map((e) => e.event)).toEqual(["$exception"]);
+  });
+
+  it("are never sent without a key", () => {
+    const r = rig({ key: undefined }, true);
+    expect(r.telemetry.trackException(report("x"))).toBe("dropped");
   });
 });

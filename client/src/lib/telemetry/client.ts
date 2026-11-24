@@ -1,4 +1,5 @@
-import { dailyDue, markDaily, markOnce, onceDue } from "@/lib/telemetry/dedupe";
+import { countException, dailyDue, exceptionsToday, markDaily, markOnce, onceDue } from "@/lib/telemetry/dedupe";
+import type { ExceptionReport } from "@/lib/telemetry/exceptions";
 import { isPending, resolveConsent, type ConsentState } from "@/lib/telemetry/consent";
 import { eventRateLimit, validateEvent, type EventName, type EventProps } from "@/lib/telemetry/events";
 
@@ -24,8 +25,17 @@ export interface TelemetryDeps {
  * rate limit, or sent nowhere because the answer is no. */
 export type TrackResult = "sent" | "buffered" | "dropped";
 
+/** The event an exception report goes out as. It is not in the registry:
+ * its shape is `ExceptionReport`'s, built and scrubbed in `exceptions.ts`. */
+const EXCEPTION_EVENT = "$exception";
+
+/** At most this many exception reports a day, and this many a minute: a
+ * bug that throws in a loop costs a handful, not the month's allowance. */
+export const EXCEPTIONS_PER_DAY = 20;
+const EXCEPTIONS_PER_MINUTE = 5;
+
 interface Held {
-  name: EventName;
+  name: EventName | typeof EXCEPTION_EVENT;
   payload: Record<string, unknown>;
   at: number;
 }
@@ -43,6 +53,9 @@ export interface Telemetry {
   trackDaily<N extends EventName>(key: string, name: N, props: EventProps<N>): TrackResult;
   /** Once per installation for `key`. */
   trackOnce<N extends EventName>(key: string, name: N, props: EventProps<N>): TrackResult;
+  /** An uncaught error, reduced to `ExceptionReport`: once per session per
+   * fingerprint, within the daily and per-minute caps. */
+  trackException(report: ExceptionReport): TrackResult;
   consentState(): ConsentState;
   /** The banner is on screen exactly while this is true. */
   bannerPending(): boolean;
@@ -67,7 +80,9 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
   // when the event is handed to the transport, so quitting before the banner
   // is answered does not burn them.
   let heldMarks = new Map<string, () => void>();
-  const recent = new Map<EventName, number[]>();
+  const recent = new Map<EventName | typeof EXCEPTION_EVENT, number[]>();
+  // Fingerprints reported (or held) this session.
+  const reportedExceptions = new Set<string>();
   let sdk: Promise<Sdk> | null = null;
   const listeners = new Set<() => void>();
   const notify = (): void => {
@@ -78,9 +93,9 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
     return resolveConsent(envDisabled, deps.readOptedIn());
   }
 
-  function withinRate(name: EventName, at: number): boolean {
+  function withinRate(name: EventName | typeof EXCEPTION_EVENT, at: number): boolean {
     const window = (recent.get(name) ?? []).filter((t) => at - t < RATE_WINDOW_MS);
-    if (window.length >= eventRateLimit(name)) {
+    if (window.length >= (name === EXCEPTION_EVENT ? EXCEPTIONS_PER_MINUTE : eventRateLimit(name))) {
       recent.set(name, window);
       return false;
     }
@@ -89,7 +104,7 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
     return true;
   }
 
-  function deliver(name: EventName, payload: Record<string, unknown>, at: number, force = false): void {
+  function deliver(name: EventName | typeof EXCEPTION_EVENT, payload: Record<string, unknown>, at: number, force = false): void {
     sdk ??= deps.loadSdk();
     void Promise.all([sdk, deps.commonProps()]).then(
       ([instance, common]) => {
@@ -134,9 +149,31 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
     return "dropped";
   }
 
+  function trackException(report: ExceptionReport): TrackResult {
+    if (!available || reportedExceptions.has(report.fingerprint)) return "dropped";
+    const current = state();
+    const at = deps.now();
+    const pending = isPending(current);
+    if (current !== "enabled" && !pending) return "dropped";
+    const heldToday = held.filter((item) => item.name === EXCEPTION_EVENT).length;
+    if (exceptionsToday(at) + heldToday >= EXCEPTIONS_PER_DAY) return "dropped";
+    if (!withinRate(EXCEPTION_EVENT, at)) return "dropped";
+    reportedExceptions.add(report.fingerprint);
+    if (current === "enabled") {
+      countException(at);
+      deliver(EXCEPTION_EVENT, report.properties, at);
+      return "sent";
+    }
+    if (held.length >= MAX_HELD) return "dropped";
+    held.push({ name: EXCEPTION_EVENT, payload: report.properties, at });
+    heldMarks.set(`exception:${report.fingerprint}`, () => countException(at));
+    return "buffered";
+  }
+
   return {
     available,
     track,
+    trackException,
     trackDaily(key, name, props) {
       const markKey = `daily:${key}`;
       if (heldMarks.has(markKey) || !dailyDue(key, deps.now())) return "dropped";
