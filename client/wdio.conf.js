@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -24,17 +25,39 @@ function newestMtime(dir) {
 // `tauri dev`/`tauri build` — this is an opt-in, e2e-only binary.
 const appBinaryPath = resolve(import.meta.dirname, "src-tauri/target/debug/anywh");
 
-// update.spec.js's fixtures. The port has to be static: each spec file gets
-// its own freshly spawned app process, using the env below, before that
-// file's own `before()` hook (where update.spec.js's fixture HTTP server
-// actually starts listening) ever runs — so `ANYWH_UPDATE_ENDPOINT` has to
-// be a value known here, not discovered later from an ephemeral listener.
+/** A port on 127.0.0.1 nothing listens on, below every OS's ephemeral range. */
+async function freeFixturePort() {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const port = 20000 + Math.floor(Math.random() * 12000);
+    const free = await new Promise((resolveFree) => {
+      const probe = createServer();
+      probe.once("error", () => resolveFree(false));
+      probe.listen(port, "127.0.0.1", () => probe.close(() => resolveFree(true)));
+    });
+    if (free) return port;
+  }
+  throw new Error("no free port for the e2e update fixtures");
+}
+
+// update.spec.js's fixtures. The port has to be known before any app starts:
+// each spec file gets its own freshly spawned app process, using the env
+// below, before that file's own `before()` hook (where update.spec.js's
+// fixture HTTP server actually starts listening) ever runs — so
+// `ANYWH_UPDATE_ENDPOINT` has to be a value known here, not discovered later
+// from an ephemeral listener. It is picked once per run instead of being a
+// constant: a fixed port inside the OS's ephemeral range (Linux hands out
+// 32768-60999, macOS 49152-65535) can be held by any outgoing connection on
+// the CI runner, which made the specs fail with EADDRINUSE. The pick stays
+// below both ranges, so nothing takes it between this check and the spec's
+// `listen()`. Picked by the launcher and inherited through the environment by
+// the worker, which loads this file again: both have to name the same port.
 // `openedUrlsLog` is where the fake `xdg-open` (tests/e2e/fixtures/bin)
 // records what it was asked to open, standing in for a real browser launch
 // — see that file and update.spec.js for why.
+const updatePort = Number((process.env.ANYWH_E2E_UPDATE_PORT ??= String(await freeFixturePort())));
 export const updateE2EFixtures = {
-  port: 47862,
-  endpoint: "http://127.0.0.1:47862/repos/anywh-sh/anywh/releases/latest",
+  port: updatePort,
+  endpoint: `http://127.0.0.1:${updatePort}/repos/anywh-sh/anywh/releases/latest`,
   openedUrlsLog: resolve(tmpdir(), "anywh-e2e-opened-urls.log"),
 };
 const fakeOpenerBinDir = resolve(import.meta.dirname, "tests/e2e/fixtures/bin");
@@ -70,14 +93,15 @@ mkdirSync(firstRunE2EFixtures.installDir, { recursive: true });
 // env var: the plugin's endpoints/pubkey are read once at plugin
 // registration time from tauri.conf.json (`Builder::new().build()` has no
 // per-call override, unlike updater.rs's own `ANYWH_UPDATE_ENDPOINT`
-// command), so `47864` is also hardcoded into
+// command), so `31864` is also hardcoded into
 // `src-tauri/tauri.e2e.conf.json`'s `plugins.updater.endpoints` — change one
 // without the other and the spec times out waiting for a download that
 // never starts. `pubkey` there is the public half of a disposable test-only
 // keypair generated just for this fixture; `artifactPath`/`signaturePath`
-// were signed with its (discarded) private half.
+// were signed with its (discarded) private half. The port sits below every
+// OS's ephemeral range for the same reason as `updateE2EFixtures.port`.
 export const updateDownloadE2EFixtures = {
-  port: 47864,
+  port: 31864,
   // Written by the fixture artifact (a shell script standing in for the next
   // release's binary) when the title-bar button relaunches into it.
   relaunchMarker: resolve(tmpdir(), "anywh-e2e-relaunched.marker"),

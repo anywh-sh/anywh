@@ -19,7 +19,7 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["http://127.0.0.1:47864/latest.json"],
+      "endpoints": ["http://127.0.0.1:31864/latest.json"],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY0N0VFMTdCMkNFNzc4MjUKUldRbGVPY3NlK0YrOURzKzdnRzAwOVRDMVB1UTNrVFlBRk5nbkJodWFGbGZsQjFXTnl6SHY4VHkK"
     }
   }
