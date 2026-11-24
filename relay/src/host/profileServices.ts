@@ -65,9 +65,10 @@ async function stopSystemdUnit(service: ProfileService, id: string, env: NodeJS.
   return { stopped: true };
 }
 
-/** How long a job may take to go after `bootout`: past the agent host's
- * `ExitTimeOut` (75 s), when launchd SIGKILLs it. */
-const LAUNCHD_SETTLE_MS = 90_000;
+/** How long a job may take to go after `bootout`: a little past its plist's
+ * `ExitTimeOut` (add-profile.sh: 300 s for the relay, which drains its turns,
+ * 75 s for the host), when launchd SIGKILLs it. */
+const LAUNCHD_SETTLE_MS: Record<ProfileService, number> = { relay: 310_000, "agent-host": 85_000 };
 
 /** `bootout` returns before launchd has finished tearing the job down
  * (measured: `print` still finds it right after), so the verdict is `print`
@@ -94,7 +95,7 @@ export function stopProfileService(
   service: ProfileService,
   id: string,
   env: NodeJS.ProcessEnv = process.env,
-  launchdSettleMs: number = LAUNCHD_SETTLE_MS,
+  launchdSettleMs: number = LAUNCHD_SETTLE_MS[service],
 ): Promise<StopResult> {
   return managedByApp(env) ? stopLaunchdJob(service, id, env, launchdSettleMs) : stopSystemdUnit(service, id, env);
 }
