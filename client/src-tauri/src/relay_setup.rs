@@ -27,8 +27,10 @@
 //!   a monotonic `seq`, and a gap tells it to hydrate again.
 //!
 //! Linux and macOS can start a run — the embedded script differs (systemd
-//! via `install-relay.sh`, Homebrew via `MACOS_INSTALL_SCRIPT`), the porcelain
-//! protocol and everything downstream of it does not. Everywhere else, the
+//! via `install-relay.sh`; on a Mac app that ships its own relay, that
+//! relay's `add-profile.sh` through `BUNDLED_PROFILE_SCRIPT`; Homebrew via
+//! `MACOS_INSTALL_SCRIPT` otherwise), the porcelain protocol and everything
+//! downstream of it does not. Everywhere else, the
 //! probe, the prerequisites and the address suggestion still answer, so the
 //! first-run screen can explain *why* not.
 
@@ -58,6 +60,26 @@ pub const INSTALL_SCRIPT: &str = include_str!("../../../install-relay.sh");
 /// launchd here" comment), so there is nothing in it for `relay_setup_start`
 /// to drive on that platform.
 pub const MACOS_INSTALL_SCRIPT: &str = include_str!("../../../infra/homebrew/app-install.sh");
+
+/// On a Mac app that ships its own relay (`macos_relay.rs`) there is nothing
+/// to install: the tree is copied out of the bundle, and creating the profile
+/// is that tree's own `add-profile.sh`, which writes and starts its launchd
+/// jobs. This wraps it in the installers' porcelain (a step, then `done ok`)
+/// so the run reads like any other. Its first argument is the script.
+pub const BUNDLED_PROFILE_SCRIPT: &str = r#"#!/usr/bin/env bash
+set -uo pipefail
+add_profile="$1"
+shift
+echo "ANYWH step profile"
+bash "$add_profile" "$@"
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "ANYWH fail profile profile_failed couldn't create the profile; see the lines above"
+  exit "$status"
+fi
+echo "ANYWH done profile"
+echo "ANYWH done ok service=launchd"
+"#;
 
 /// Dev and e2e escape hatch: a path to run instead of the embedded script.
 const INSTALL_SCRIPT_OVERRIDE_ENV: &str = "ANYWH_INSTALL_SCRIPT";
@@ -322,6 +344,8 @@ pub struct Prerequisites {
     /// `depends_on "node"`, so `node_path`/`node_ok` above answer a
     /// question that platform doesn't ask.
     pub brew_path: Option<String>,
+    /// This macOS app ships its own relay: nothing to install, no Homebrew.
+    pub bundled_relay: bool,
     /// `systemctl --user` answers in this session.
     pub systemd_user: bool,
     pub xdg_runtime_dir: bool,
@@ -575,7 +599,7 @@ fn brew_outcome(status: Option<i32>, stdout: &str, stderr: &str) -> Result<(), B
 }
 
 #[tauri::command]
-pub async fn relay_setup_prerequisites() -> Prerequisites {
+pub async fn relay_setup_prerequisites(app: tauri::AppHandle) -> Prerequisites {
     let short = Duration::from_secs(10);
     let node_path = login_shell_line("command -v node", short).await;
     let node_version = match &node_path {
@@ -590,6 +614,7 @@ pub async fn relay_setup_prerequisites() -> Prerequisites {
         node_version,
         node_ok,
         brew_path,
+        bundled_relay: bundled_relay(&app).is_some(),
         systemd_user: systemctl_user_ok().await,
         xdg_runtime_dir: std::env::var_os("XDG_RUNTIME_DIR").is_some(),
         active_units: active_relay_units().await,
@@ -1118,6 +1143,18 @@ fn relay_release_tag(app_version: &str) -> Option<String> {
 /// (appVersion.test.ts keeps them in step).
 const UNRELEASED_VERSION: &str = "0.0.0";
 
+/// The relay tree this macOS app ships and where its running copy lives,
+/// when it ships one (the Apple Silicon release; never a dev or Intel build).
+#[cfg(target_os = "macos")]
+fn bundled_relay(app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
+    Some((crate::macos_relay::bundled_tree(app)?, crate::macos_relay::support_dir(app)?))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn bundled_relay(_app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
+    None
+}
+
 /// Starts the installer for this machine, or joins the run already alive.
 #[tauri::command]
 pub async fn relay_setup_start(
@@ -1153,7 +1190,18 @@ pub async fn relay_setup_start(
     }
 
     let is_macos = cfg!(target_os = "macos");
-    let script_path = if is_macos {
+    // The running copy of the relay this app ships, brought up to date first
+    // (the app may have been updated since it was opened).
+    let bundled = match bundled_relay(&app) {
+        Some((tree, support)) => Some((
+            crate::macos_relay::sync_tree(&tree, &support).map_err(|e| format!("couldn't set up the relay that came with the app: {e}"))?,
+            support,
+        )),
+        None => None,
+    };
+    let script_path = if bundled.is_some() {
+        write_script(&dir, "bundled-profile.sh", BUNDLED_PROFILE_SCRIPT)?
+    } else if is_macos {
         write_script(&dir, "app-install.sh", MACOS_INSTALL_SCRIPT)?
     } else {
         write_script(&dir, "install-relay.sh", INSTALL_SCRIPT)?
@@ -1177,8 +1225,24 @@ pub async fn relay_setup_start(
     write_state(&dir, &run)?;
 
     let mut command = tokio::process::Command::new("bash");
-    command.arg(&script_path).args(["--porcelain", "--relay-host", &params.relay_host]);
-    if is_macos {
+    if let Some((relay, support)) = &bundled {
+        command
+            .arg(&script_path)
+            .arg(relay.join("infra/systemd/add-profile.sh"))
+            .arg(params.profile_id.as_deref().unwrap_or("default"))
+            .args(["--porcelain", "--resume", "--relay-host", &params.relay_host])
+            .args(["--mode", params.mode.as_deref().unwrap_or("prod")])
+            // What makes add-profile.sh write launchd jobs, and where.
+            .env("ANYWH_RELAY_MANAGED_BY_APP", "1")
+            .env("ANYWH_LAUNCHD_DIR", crate::macos_relay::launchd_dir(support));
+        if let Some(label) = &params.profile_label {
+            command.args(["--label", label]);
+        }
+        if let Some(home) = &params.profile_home {
+            command.args(["--home", home]);
+        }
+    } else if is_macos {
+        command.arg(&script_path).args(["--porcelain", "--relay-host", &params.relay_host]);
         // The Homebrew launchd service is wired to the "default" profile
         // only (app-install.sh's own comment) — the id is never the
         // caller's to choose here, only the label is, and there is no
@@ -1188,6 +1252,7 @@ pub async fn relay_setup_start(
             command.args(["--profile-label", label]);
         }
     } else {
+        command.arg(&script_path).args(["--porcelain", "--relay-host", &params.relay_host]);
         if let Some(tag) = relay_release_tag(&app.package_info().version.to_string()) {
             command.args(["--version", &tag]);
         }

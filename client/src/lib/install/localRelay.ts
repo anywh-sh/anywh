@@ -43,6 +43,9 @@ export interface Prerequisites {
    * `depends_on "node"`, so `nodePath`/`nodeOk` answer a question that
    * platform doesn't ask. */
   brewPath: string | null;
+  /** macOS: this app ships its own relay (the Apple Silicon release), so
+   * nothing is installed and Homebrew is not needed. */
+  bundledRelay: boolean;
   systemdUser: boolean;
   xdgRuntimeDir: boolean;
   activeUnits: string[];

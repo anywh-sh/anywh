@@ -1041,6 +1041,7 @@ export const ptBr: Dictionary = {
       sub: {
         waitingAt: "esperando o anywh em {address}",
         brew: "Homebrew · instalando o pacote do anywh",
+        bundled: "preparando o anywh que veio com o app",
         download: "baixando o anywh",
         profilesOne: "1 perfil: {names}",
         profilesMany: "{count} perfis: {names}",

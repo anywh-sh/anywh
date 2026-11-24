@@ -19,6 +19,11 @@ mod tailnet_sidecar;
 // the machine's filesystem — desktop only, same exclusion as the rest.
 #[cfg(not(target_os = "ios"))]
 mod relay_setup;
+// The relay the Apple Silicon app ships: copied out of the bundle and its
+// local profiles started under launchd when the app opens. Built on every
+// desktop Unix so its tests run on Linux; only macOS calls it.
+#[cfg(all(unix, not(target_os = "ios")))]
+mod macos_relay;
 // In-app updater check: no update path exists for the iOS build (App Store
 // owns that), same exclusion as the rest of this list.
 #[cfg(not(target_os = "ios"))]
@@ -190,6 +195,12 @@ pub fn run_with(
             if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
                 let _ = window.set_title("anywh.sh");
             }
+
+            // The relay this app ships, if it ships one: update its running
+            // copy and start the local profiles (nothing runs at login; this
+            // is what starts them). Off the UI thread.
+            #[cfg(target_os = "macos")]
+            macos_relay::on_app_open(app.handle());
 
             // The OS-level scheme registration (tauri.conf.json's
             // `plugins.deep-link.desktop.schemes`) only happens automatically

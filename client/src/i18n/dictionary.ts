@@ -374,6 +374,7 @@ export interface Dictionary {
         /** `{address}` */
         waitingAt: string;
         brew: string;
+        bundled: string;
         download: string;
         /** `{names}` — one profile found. */
         profilesOne: string;
