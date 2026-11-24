@@ -1033,6 +1033,9 @@ export interface Dictionary {
    * (the working directory, which went from the composer row to the title
    * bar) doesn't drag its key along with it. */
   shell: {
+    /** macOS app menu item: quit and also stop the relay this Mac runs for
+     * its local profile (a normal quit leaves it running). */
+    quitCompletely: string;
     titleBar: {
       /** Row of the iOS top bar dropdown that opens the model list. */
       model: string;

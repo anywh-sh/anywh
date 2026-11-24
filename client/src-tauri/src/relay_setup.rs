@@ -1163,6 +1163,39 @@ fn bundled_relay(_app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
     None
 }
 
+/// Whether this app ships its own relay, so its app menu offers "Quit
+/// Completely" (stop the local relay along with the app).
+#[tauri::command]
+pub fn relay_bundled(app: tauri::AppHandle) -> bool {
+    #[cfg(target_os = "macos")]
+    return crate::macos_relay::bundled_tree(&app).is_some();
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        false
+    }
+}
+
+/// "Quit Completely": closing the app leaves the local relay running under
+/// launchd (the phone keeps reaching this Mac); this stops it too, then
+/// quits. The windows go first, so the app is gone from sight while the
+/// relay drains a turn in flight.
+#[tauri::command]
+pub async fn relay_quit_completely(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        for window in app.webview_windows().values() {
+            let _ = window.hide();
+        }
+        if let Some(support) = crate::macos_relay::support_dir(&app) {
+            let launchd = crate::macos_relay::launchd_dir(&support);
+            tauri::async_runtime::spawn_blocking(move || crate::macos_relay::stop_profiles(&launchd)).await.map_err(|e| e.to_string())?;
+        }
+    }
+    app.exit(0);
+    Ok(())
+}
+
 /// Starts the installer for this machine, or joins the run already alive.
 #[tauri::command]
 pub async fn relay_setup_start(

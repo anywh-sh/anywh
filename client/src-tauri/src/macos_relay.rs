@@ -166,6 +166,27 @@ pub fn start_profiles(launchd: &Path) {
     }
 }
 
+/// Stops every local profile's jobs, for "Quit Completely": what a logout
+/// does. The plists stay, so the next time the app opens it starts them
+/// again. `bootout` waits for each job to exit, so the relay first drains
+/// a turn in flight (up to its `ExitTimeOut`).
+pub fn stop_profiles(launchd: &Path) {
+    let domain = gui_domain();
+    // The relays first: an agent host stopped under a relay still running
+    // would be restarted by its KeepAlive while the relay waits on it.
+    let mut plists = profile_plists(launchd);
+    plists.reverse();
+    for plist in plists {
+        let Some(label) = plist.file_stem().and_then(|s| s.to_str()) else { continue };
+        match Command::new("/bin/launchctl").args(["bootout", &format!("{domain}/{label}")]).output() {
+            Ok(out) if out.status.success() => eprintln!("[macos-relay] stopped {label}"),
+            // Not loaded (never started since the last login): nothing to stop.
+            Ok(_) => {}
+            Err(error) => eprintln!("[macos-relay] couldn't run launchctl for {label}: {error}"),
+        }
+    }
+}
+
 /// What the app does when it opens, off the UI thread: bring the running
 /// copy up to the bundled tree, then start the local profiles. With no local
 /// profile there is nothing to run, and the tree is not copied either (a

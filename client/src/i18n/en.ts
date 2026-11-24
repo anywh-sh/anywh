@@ -395,6 +395,7 @@ export const en: Dictionary = {
     },
   },
   shell: {
+    quitCompletely: "Quit Completely",
     titleBar: {
       model: "Model",
       mode: "Mode",

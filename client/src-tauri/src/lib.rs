@@ -175,6 +175,8 @@ pub fn run_with(
             relay_setup::relay_setup_cancel,
             relay_setup::relay_setup_status,
             relay_setup::relay_brew_upgrade,
+            relay_setup::relay_bundled,
+            relay_setup::relay_quit_completely,
             updater::app_install_source,
             updater::app_check_latest_release,
             telemetry::telemetry_env_disabled

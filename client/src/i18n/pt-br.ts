@@ -395,6 +395,7 @@ export const ptBr: Dictionary = {
     },
   },
   shell: {
+    quitCompletely: "Sair completamente",
     titleBar: {
       model: "Modelo",
       mode: "Modo",

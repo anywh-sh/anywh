@@ -64,6 +64,7 @@ import { useNotificationClick } from "@/hooks/platform/useNotificationClick";
 import { usePushRegistration } from "@/hooks/platform/usePushRegistration";
 import { useVisibleSession } from "@/hooks/platform/useVisibleSession";
 import { useContextMenuGuard } from "@/hooks/platform/useContextMenuGuard";
+import { useQuitCompletelyMenu } from "@/hooks/platform/useQuitCompletelyMenu";
 import { useProfileImport } from "@/hooks/profiles/useProfileImport";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useFirstRun } from "@/hooks/useFirstRun";
@@ -171,6 +172,7 @@ function AppShell() {
   const fileTabs = useFileTabs();
   const windowFocused = useWindowFocus();
   useContextMenuGuard();
+  useQuitCompletelyMenu();
   // Both registry mirrors live here, at the one place that is mounted for
   // the whole life of the app in both layouts. The profile sync used to sit
   // inside ProfileSwitcher, which the collapsible sidebar unmounts and iOS
