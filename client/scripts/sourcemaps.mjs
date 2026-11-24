@@ -40,7 +40,11 @@ function main() {
   if (process.env.ANYWH_SOURCEMAPS !== "1") return;
   const version = JSON.parse(readFileSync(join(clientDir, "package.json"), "utf8")).version;
   if (process.env.POSTHOG_CLI_API_KEY && process.env.POSTHOG_CLI_PROJECT_ID) {
-    const release = ["--release-name", RELEASE_NAME, "--release-version", version];
+    // `symbol-set`: the release is stamped on the uploaded maps, so an
+    // exception resolved through them is tied to its release. The default
+    // (`event`) expects each event to carry an id the SDK's own capture
+    // reads from the bundle, which the app's exception report does not send.
+    const release = ["--release-name", RELEASE_NAME, "--release-version", version, "--release-mode", "symbol-set"];
     const uploaded = posthogCli(["sourcemap", "inject", "--directory", "dist", ...release]) && posthogCli(["sourcemap", "upload", "--directory", "dist", ...release, "--delete-after"]);
     if (!uploaded) console.warn("[sourcemaps] the upload to PostHog failed; this release's stack traces stay minified");
   } else {
