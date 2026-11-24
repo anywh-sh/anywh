@@ -1,8 +1,12 @@
 import { composeStories } from "@storybook/react-vite";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
+import { createBot } from "@/lib/bots/botClient";
+
+// A creation that never answers: the form stays in its busy state.
+vi.mock("@/lib/bots/botClient", async (original) => ({ ...(await original<object>()), createBot: vi.fn(() => new Promise(() => undefined)) }));
 import * as stories from "./NewBotDialog.stories";
 
 const { Blank, FromTemplate } = composeStories(stories);
@@ -10,7 +14,10 @@ const copy = en.bots;
 const face = (): string | null | undefined => document.querySelector(`[aria-label="${copy.create.changeMascot}"] [data-mascot]`)?.getAttribute("data-mascot");
 
 describe("New bot dialog stories", () => {
-  afterEach(() => act(() => cleanup()));
+  afterEach(() => {
+    act(() => cleanup());
+    vi.mocked(createBot).mockClear();
+  });
 
   it("from scratch, it can only be created once it has a name and says who it is", async () => {
     render(<Blank />);
@@ -42,5 +49,15 @@ describe("New bot dialog stories", () => {
     await userEvent.click(screen.getByRole("button", { name: copy.mascot.next }));
     await userEvent.click(screen.getByRole("radio", { name: copy.mascot.tones.stone }));
     expect(face()).toBe("visor:stone");
+  });
+
+  it("⌘/Ctrl+Enter creates even when focus has left the form", async () => {
+    render(<Blank />);
+    await userEvent.type(screen.getByLabelText(copy.create.namePlaceholder), "Deploys");
+    await userEvent.type(screen.getByPlaceholderText(copy.create.soulPlaceholder), "I watch the deploys.");
+    // What WebKit does after a click on a switch or on the form's blank space.
+    act(() => (document.activeElement as HTMLElement).blur());
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(createBot).toHaveBeenCalledTimes(1);
   });
 });

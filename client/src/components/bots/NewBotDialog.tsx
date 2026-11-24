@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarClock, LayoutGrid, Lock, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -138,16 +138,25 @@ export function NewBotForm({
     }
   };
 
+  // ⌘/Ctrl+Enter creates from anywhere while the form is up, not only from
+  // inside it: WebKit doesn't focus a button, switch or select it clicks, and
+  // a click on the form's blank space focuses nothing, so after either the
+  // keydown lands on the dialog itself (or the body), outside any handler
+  // the form could put on its own element.
+  const createRef = useRef(create);
+  createRef.current = create;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.defaultPrevented) return;
+      event.preventDefault();
+      void createRef.current();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   return (
-    <div
-      className="flex flex-col"
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-          event.preventDefault();
-          void create();
-        }
-      }}
-    >
+    <div className="flex flex-col">
       <DialogHeader className="h-[52px] border-b-0 bg-transparent py-0 pl-5">
         <DialogTitle className="font-display text-[17px] font-semibold tracking-[-0.01em]">{copy.title}</DialogTitle>
       </DialogHeader>
