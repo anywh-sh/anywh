@@ -153,7 +153,9 @@ export interface RelayUpdateEnd {
   startedAt: number;
 }
 
-/** How an update the app started ended. A failure is also a visible error.
+/** How an update the app started ended. A failure of the one-click update
+ * is also a visible error (its notice says why); the self-update's is not,
+ * since it runs in the background and nothing shows it.
  * `onceKey` reports it at most once for that key ever: the relay's own
  * update keeps its failure until it is asked again, so the app can read
  * the same one on more than one launch. */
@@ -176,7 +178,7 @@ export function trackRelayUpdateFinished(end: RelayUpdateEnd, onceKey?: string):
     duration_s: secondsSince(end.startedAt, Date.now()),
   };
   const result = onceKey === undefined ? telemetry.track("relay_update_finished", props) : telemetry.trackOnce(onceKey, "relay_update_finished", props);
-  if (end.outcome === "failed" && result !== "dropped") trackError("relay_update_failed");
+  if (end.outcome === "failed" && end.path !== "auto" && result !== "dropped") trackError("relay_update_failed");
 }
 
 /** The offer to update a relay by hand: `shown` once a day per profile and

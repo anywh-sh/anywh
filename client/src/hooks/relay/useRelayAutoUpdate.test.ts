@@ -162,13 +162,13 @@ describe("what it counts", () => {
     for (const { name, props } of counted.events) expect(validateEvent(name, props), `${name} ${JSON.stringify(props)}`).not.toBeNull();
   });
 
-  it("an install that fails is counted by the installer's code and step, and as an error", async () => {
+  it("an install that fails is counted by the installer's code and step, and not as an error shown: nothing shows it", async () => {
     const old = relayAt(9001, { version: "0.2.40", features: ["self_update"] });
     old.onUpdate = accept((version) => (old.status = { state: "failed", version, code: "preflight_failed", step: "preflight", message: "GLIBC_2.42 not found in /home/x" }));
     renderHook(() => useRelayAutoUpdate([profile("a", 9001)], "0.2.41", { watch: fastWatch }));
     await waitFor(() => expect(named("relay_update_finished")).toHaveLength(1));
     expect(named("relay_update_finished")[0]).toMatchObject({ outcome: "failed", reason: "installer", installer_code: "preflight_failed", installer_step: "preflight" });
-    expect(named("error_shown")).toEqual([{ kind: "relay_update_failed" }]);
+    expect(named("error_shown")).toEqual([]);
     expect(JSON.stringify(counted.events)).not.toContain("GLIBC");
   });
 
