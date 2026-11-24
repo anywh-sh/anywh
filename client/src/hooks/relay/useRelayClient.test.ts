@@ -77,6 +77,9 @@ describe("useRelayClient tailnet mode", () => {
     // profile's sidecar.
     const tabA = renderHook(() => useRelayClient(tailnetProfile, "session-a"));
     await vi.runAllTimersAsync();
+    // The client's first connection attempt is what joins the sidecar.
+    const [, , , , resolveA] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, (o: { wake: boolean }) => Promise<unknown>];
+    await resolveA({ wake: true });
     expect(invokeMock).toHaveBeenCalledWith("tailnet_sidecar_start", expect.anything());
 
     // Tab B: opened and closed again before its own deferred `start()` ever
@@ -99,11 +102,12 @@ describe("useRelayClient tailnet mode", () => {
     renderHook(() => useRelayClient(tailnetProfile, "session-a"));
     await vi.runAllTimersAsync();
 
-    const [host, port, , , token] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, unknown];
-    expect({ host, port }).toEqual({ host: "127.0.0.1", port: 12345 });
+    const [, , , , token] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, unknown];
     expect(typeof token).toBe("function");
-    const resolve = token as (options: { wake: boolean }) => Promise<string>;
-    await expect(resolve({ wake: true })).resolves.toBe("grant-token");
+    const resolve = token as (options: { wake: boolean }) => Promise<unknown>;
+    // The placeholder host/port the client was built with are never dialed:
+    // each attempt says where the sidecar listens.
+    await expect(resolve({ wake: true })).resolves.toEqual({ token: "grant-token", host: "127.0.0.1", port: 12345 });
   });
 
   it("passes the caller's wake intent straight through to the broker call", async () => {
@@ -116,9 +120,8 @@ describe("useRelayClient tailnet mode", () => {
 
     const [, , , , token] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, unknown];
     const resolve = token as (options: { wake: boolean }) => Promise<string>;
-    // The first call hands back the grant the hook already opened with, so
-    // it never reaches the broker — the second is the one that does.
     await resolve({ wake: true });
+    expect(vi.mocked(fetchConnectGrant)).toHaveBeenLastCalledWith(tailnetProfile, { wake: true });
     await resolve({ wake: false });
 
     expect(vi.mocked(fetchConnectGrant)).toHaveBeenLastCalledWith(tailnetProfile, { wake: false });
@@ -133,7 +136,7 @@ describe("useRelayClient tailnet mode", () => {
 
     const [, , , , token] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, unknown];
     const resolve = token as (options: { wake: boolean }) => Promise<unknown>;
-    await resolve({ wake: true }); // spends the opening grant
+    await resolve({ wake: true }); // joins the sidecar at the first endpoint
 
     vi.mocked(fetchConnectGrant).mockResolvedValueOnce({ endpoint: { host: "100.64.0.3", port: 8765 }, token: "moved-token" });
     invokeMock.mockImplementationOnce(() => Promise.resolve({ addr: "127.0.0.1:23456", nodeKey: "nodekey:moved" }));
@@ -141,6 +144,23 @@ describe("useRelayClient tailnet mode", () => {
 
     expect(invokeMock).toHaveBeenLastCalledWith("tailnet_sidecar_start", expect.objectContaining({ target: "100.64.0.3:8765" }));
     expect(resolved).toEqual({ token: "moved-token", host: "127.0.0.1", port: 23456 });
+    expect(invokeMock).not.toHaveBeenCalledWith("tailnet_sidecar_stop", expect.anything());
+  });
+
+  it("retries a sidecar join that failed on the next attempt, instead of caching the failure", async () => {
+    // ENG-99: the first join fails (a 401 at launch, a control plane
+    // mid-deploy). That attempt fails like any other, and the next one
+    // RelayClient schedules starts the sidecar again.
+    renderHook(() => useRelayClient({ ...tailnetProfile, id: "retry-profile" }, "session-retry"));
+    await vi.runAllTimersAsync();
+    const [, , , , token] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, unknown];
+    const resolve = token as (options: { wake: boolean }) => Promise<unknown>;
+
+    invokeMock.mockImplementationOnce(() => Promise.reject(new Error("tsnet up: 401")));
+    await expect(resolve({ wake: true })).rejects.toThrow("401");
+
+    await expect(resolve({ wake: false })).resolves.toEqual({ token: "grant-token", host: "127.0.0.1", port: 12345 });
+    expect(invokeMock.mock.calls.filter(([cmd]) => cmd === "tailnet_sidecar_start")).toHaveLength(2);
     expect(invokeMock).not.toHaveBeenCalledWith("tailnet_sidecar_stop", expect.anything());
   });
 

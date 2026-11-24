@@ -20,8 +20,8 @@ import {
 } from "@/lib/relay/relayClient";
 import { getModelCatalogs } from "@/lib/composer/modelCatalog";
 import { isBrokeredProfile, isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
-import { acquireTailnetSidecar, releaseTailnetSidecar, retargetTailnetSidecar } from "@/lib/profiles/tailnetSidecar";
-import { BrokerRevokedError, fetchConnectGrant, grantTarget } from "@/lib/profiles/tailnetBroker";
+import { acquireTailnetSidecar, releaseTailnetSidecar, retargetTailnetSidecar, type TailnetEndpoint } from "@/lib/profiles/tailnetSidecar";
+import { fetchConnectGrant, grantTarget } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
 
 /** A received `compact_boundary`, with a timestamp — the timestamp guarantees a
@@ -315,72 +315,58 @@ export function useRelayClient(
       },
     };
 
-    async function start(): Promise<void> {
-      let host = profile.host;
-      let port = profile.relayPort;
+    function start(): void {
       let wsToken: string | ((options: { wake: boolean }) => Promise<ResolvedConnectToken>) | undefined = profile.connectToken;
       if (tailnetMode) {
-        try {
-          // A brokered profile resolves the target and a
-          // fresh handshake token from the broker on every connection
-          // (never reuses one); a profile with only the static
-          // fields dials `tailnetTarget` and keeps using its stored
-          // `connectToken`, same as before brokered profiles existed.
-          let target = profile.tailnetTarget;
-          if (isBrokeredProfile(profile)) {
-            const grant = await fetchConnectGrant(profile);
-            if (cancelled) return;
-            target = grantTarget(grant);
-            // Same anti-replay reasoning again, on the reconnection side: the grant fetched just
-            // now opens the first connection, and every attempt after it
-            // (the proxy spends a token's `jti` on the handshake, so
-            // resending this one loops on "reconnecting" forever) resolves
-            // its own.
-            let firstToken: string | undefined = grant.token;
-            wsToken = async ({ wake }) => {
-              if (firstToken !== undefined) {
-                const token = firstToken;
-                firstToken = undefined;
-                return token;
-              }
-              // `wake` comes from RelayClient: true when the user drove this
-              // attempt, false for a reconnect a timer scheduled.
-              const next = await fetchConnectGrant(profile, { wake });
-              // Every grant says where the relay is now. A recreated sandbox
-              // answers at a new tailnet address, and the sidecar started
-              // from the first grant would dial the old one forever — so a
-              // moved endpoint restarts it there, and this attempt dials
-              // whatever local port the restarted one listens on.
-              const moved = retargetTailnetSidecar(profile, grantTarget(next));
-              if (!moved) return next.token;
-              const local = await moved;
-              return { token: next.token, host: local.host, port: local.port };
-            };
-          }
-          if (!target) throw new Error("tailnet profile has no target to dial (no tailnetTarget and no broker)");
-          // Flagged synchronously with the call, before the first await:
-          // the reference is taken the moment `acquireTailnetSidecar`
-          // runs, so a cleanup landing while the join is still in flight
-          // has to see it.
-          const acquisition = acquireTailnetSidecar(profile, target);
-          acquiredSidecar = true;
-          const endpoint = await acquisition;
-          if (cancelled) return;
-          host = endpoint.host;
-          port = endpoint.port;
-        } catch (err) {
-          console.error("tailnet-sidecar failed to join the tailnet:", err);
-          // Same terminal signal as `onRevoked` below, but for the very
-          // first connection attempt — this catch runs before `RelayClient`
-          // even exists, so there's no reconnect loop to stop, just the
-          // same "tell the banner" step.
-          if (err instanceof BrokerRevokedError) markProfileRevoked(profile.id);
+        if (!isBrokeredProfile(profile) && !profile.tailnetTarget) {
+          console.error("tailnet profile has no target to dial (no tailnetTarget and no broker)");
+          setConnectingTailnet(false);
           return;
-        } finally {
-          if (!cancelled) setConnectingTailnet(false);
         }
+        // Every attempt, the first one included, goes through RelayClient's
+        // resolver: a grant, then the sidecar pointed at it. A failure
+        // anywhere in there (a 401 at launch, a control plane mid-deploy, a
+        // join that didn't come up) is then just a failed attempt, retried
+        // with RelayClient's backoff, and woken by the user coming back to
+        // the window — instead of a dead tab until the app restarts.
+        wsToken = async ({ wake }) => {
+          // A brokered profile gets a fresh grant on every attempt (the
+          // proxy spends a token's `jti` on its handshake, so none is ever
+          // reused); a profile with only the static fields dials
+          // `tailnetTarget` with its stored `connectToken`. `wake` comes from
+          // RelayClient: true when the user drove this attempt, false for a
+          // reconnect a timer scheduled.
+          const grant = isBrokeredProfile(profile) ? await fetchConnectGrant(profile, { wake }) : undefined;
+          // The tab went away while the grant was in flight: taking a
+          // reference now would leak it, since the cleanup already ran.
+          if (cancelled) throw new Error("connection attempt outlived its tab");
+          const target = grant ? grantTarget(grant) : profile.tailnetTarget!;
+          // Every grant says where the relay is now. A recreated sandbox
+          // answers at a new tailnet address, so a moved endpoint restarts
+          // the sidecar there, and a join that failed last time is started
+          // again (`retargetTailnetSidecar`). The first attempt takes this
+          // tab's reference, flagged synchronously with the call so a
+          // cleanup landing mid-join sees it.
+          let local: Promise<TailnetEndpoint> | undefined;
+          if (acquiredSidecar) {
+            local = retargetTailnetSidecar(profile, target);
+          } else {
+            local = acquireTailnetSidecar(profile, target);
+            acquiredSidecar = true;
+          }
+          if (!local) throw new Error("tailnet sidecar reference lost");
+          try {
+            const endpoint = await local;
+            return { token: grant ? grant.token : profile.connectToken, host: endpoint.host, port: endpoint.port };
+          } catch (err) {
+            console.error("tailnet-sidecar failed to join the tailnet:", err);
+            throw err;
+          } finally {
+            if (!cancelled) setConnectingTailnet(false);
+          }
+        };
       }
-      const client = new RelayClient(host, port, sessionId, callbacks, wsToken);
+      const client = new RelayClient(profile.host, profile.relayPort, sessionId, callbacks, wsToken);
       clientRef.current = client;
       // The claim may have been made before this client existed.
       client.setPresence(presenceRef.current);
@@ -389,7 +375,7 @@ export function useRelayClient(
     // Deferred by a tick, same trick as tailnetSidecar.ts's release delay
     // and for the same reason: React 18 StrictMode (dev) mounts this
     // effect, cleans it up, and mounts it again, synchronously, within one
-    // tick. `start()`'s first await is `fetchConnectGrant` — a broker call
+    // tick. The client's first connection attempt starts with `fetchConnectGrant` — a broker call
     // signed with a fresh timestamp that the control plane accepts exactly
     // once (its anti-replay check). Calling it straight from the
     // effect meant the doomed first mount's `start()` already ran past that
@@ -401,7 +387,7 @@ export function useRelayClient(
     // already finished, so the first mount's cleanup below cancels its
     // timer before `start()` is ever called at all — only the surviving
     // mount's `start()` runs, and only one signed request goes out.
-    const startTimer = setTimeout(() => void start(), 0);
+    const startTimer = setTimeout(start, 0);
 
     return () => {
       cancelled = true;

@@ -293,9 +293,9 @@ async function connectStep(profile: Profile, mode: SetupMode): Promise<void> {
   try {
     await acquisition;
   } catch (err) {
-    // `acquireTailnetSidecar` caches this exact rejection on the entry
-    // (tailnetSidecar.ts) until released — without this, `retryProfileSetup`
-    // would just reattach to the same dead promise forever.
+    // Give the reference back: `retryProfileSetup` acquires again, and the
+    // sidecar entry starts a failed join over for that next caller anyway
+    // (tailnetSidecar.ts).
     releaseTailnetSidecar(profile.id);
     heldSidecarProfileId = undefined;
     throw err;
