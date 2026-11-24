@@ -33,6 +33,9 @@ const EXCEPTION_EVENT = "$exception";
  * bug that throws in a loop costs a handful, not the month's allowance. */
 export const EXCEPTIONS_PER_DAY = 20;
 const EXCEPTIONS_PER_MINUTE = 5;
+/** Exceptions held while the notice is unanswered: a few, so they never
+ * crowd out the first run's own events in the shared buffer. */
+const MAX_HELD_EXCEPTIONS = 5;
 
 interface Held {
   name: EventName | typeof EXCEPTION_EVENT;
@@ -155,8 +158,11 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
     const at = deps.now();
     const pending = isPending(current);
     if (current !== "enabled" && !pending) return "dropped";
-    const heldToday = held.filter((item) => item.name === EXCEPTION_EVENT).length;
-    if (exceptionsToday(at) + heldToday >= EXCEPTIONS_PER_DAY) return "dropped";
+    const heldExceptions = held.filter((item) => item.name === EXCEPTION_EVENT).length;
+    if (exceptionsToday(at) + heldExceptions >= EXCEPTIONS_PER_DAY) return "dropped";
+    // Every refusal comes before anything is spent: one that is dropped
+    // here can still go out when it happens again.
+    if (pending && (held.length >= MAX_HELD || heldExceptions >= MAX_HELD_EXCEPTIONS)) return "dropped";
     if (!withinRate(EXCEPTION_EVENT, at)) return "dropped";
     reportedExceptions.add(report.fingerprint);
     if (current === "enabled") {
@@ -164,7 +170,6 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
       deliver(EXCEPTION_EVENT, report.properties, at);
       return "sent";
     }
-    if (held.length >= MAX_HELD) return "dropped";
     held.push({ name: EXCEPTION_EVENT, payload: report.properties, at });
     heldMarks.set(`exception:${report.fingerprint}`, () => countException(at));
     return "buffered";

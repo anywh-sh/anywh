@@ -314,6 +314,22 @@ describe("exception reports", () => {
     expect(yes.sent.map((e) => e.event)).toEqual(["$exception"]);
   });
 
+  it("held while the notice is unanswered, only a few, and one refused there can go out later", async () => {
+    const r = rig();
+    r.telemetry.setEnvDisabled(false);
+    const held = Array.from({ length: 8 }, (_, i) => {
+      r.advance(60_000);
+      return r.telemetry.trackException(report(`h${String(i)}`));
+    });
+    expect(held.filter((result) => result === "buffered")).toHaveLength(5);
+    expect(r.telemetry.track("app_active", {})).toBe("buffered");
+    r.telemetry.optIn();
+    r.advance(60_000);
+    expect(r.telemetry.trackException(report("h7")), "refused while held, not marked reported").toBe("sent");
+    await r.settle();
+    expect(r.sent.filter((e) => e.event === "$exception")).toHaveLength(6);
+  });
+
   it("are never sent without a key", () => {
     const r = rig({ key: undefined }, true);
     expect(r.telemetry.trackException(report("x"))).toBe("dropped");
