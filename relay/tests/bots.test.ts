@@ -406,7 +406,7 @@ test("a bot asks another bot: the question is the other bot's turn, and its repl
     const events = await answer;
     const user = events.at(-1)!.event as { text: string };
     assert.match(user.text, /^\[anywh-bot\] Bot "Bruno" answered your question\./);
-    assert.match(user.text, /Answer: echo: \[anywh-bot\] Bot "Ana" asks you:\n\nWhat shipped yesterday\?/);
+    assert.match(user.text, /<peer_answer>\necho: \[anywh-bot\] Bot "Ana" asks you:\n\n<peer_message>\nWhat shipped yesterday\?/);
   } finally {
     socket.close();
   }

@@ -101,7 +101,7 @@ test("a question reaches the other bot as a relay turn, and its reply comes back
     assert.equal(turns.length, 2);
     assert.equal(turns[1].roomId, "room-ana");
     assert.equal(turns[1].label, "peer_answer:Bruno");
-    assert.match(turns[1].text, /Answer: v0\.2\.90 and v0\.2\.91\./);
+    assert.match(turns[1].text, /<peer_answer>\nv0\.2\.90 and v0\.2\.91\.\n<\/peer_answer>/);
     assert.match(turns[1].text, /Question: What shipped yesterday\?/);
 
     assert.equal((await call("ana", "bot_ask", { to: "Bruno", question: "And today?" })).isError, false, "the pair is free again");
@@ -186,6 +186,33 @@ test("a hand-off becomes a task of the other bot, kept with where it came from, 
   });
 });
 
+test("a paused bot takes no questions or tasks from other bots, and bot_list says it is paused", async () => {
+  await withPeers(async ({ call, turns, store }) => {
+    store.update("bruno", (bot) => ({ ...bot, paused: true }));
+    const asked = await call("ana", "bot_ask", { to: "Bruno", question: "q" });
+    assert.equal(asked.isError, true);
+    assert.match(asked.text, /paused/);
+    assert.equal((await call("ana", "bot_handoff", { to: "Bruno", title: "t", details: "d" })).isError, true);
+    assert.equal(turns.length, 0);
+    assert.equal((JSON.parse((await call("ana", "bot_list", {})).text) as { bots: { paused?: boolean }[] }).bots[0].paused, true);
+  });
+});
+
+test("deleting the bot that holds a handed-off task tells the sender the task is gone", async () => {
+  await withPeers(async ({ call, turns, manager }) => {
+    await call("ana", "bot_handoff", { to: "Bruno", title: "t1", details: "d" });
+    await call("ana", "bot_handoff", { to: "Bruno", title: "t2", details: "d" });
+    await call("bruno", "task_update", { task: 2, status: "done" });
+    const before = turns.length;
+    assert.equal(manager.remove("bruno"), true);
+    const told = turns.slice(before);
+    assert.equal(told.length, 1, "only the open one");
+    assert.equal(told[0].roomId, "room-ana");
+    assert.equal(told[0].label, "peer_closed:1:Bruno");
+    assert.match(told[0].text, /was deleted/);
+  });
+});
+
 test("the person canceling a handed-off task tells the sender too; with the sender gone nobody is told", async () => {
   await withPeers(async ({ call, turns, manager }) => {
     await call("ana", "bot_handoff", { to: "Bruno", title: "t1", details: "d" });
@@ -194,6 +221,7 @@ test("the person canceling a handed-off task tells the sender too; with the send
     const told = turns.filter((turn) => turn.roomId === "room-ana");
     assert.equal(told.length, 1);
     assert.match(told[0].text, /canceled \(by the person\)/);
+    assert.doesNotMatch(told[0].text, /Last note/, "no note repeating who canceled it");
     manager.remove("ana");
     await call("bruno", "task_update", { task: 2, status: "done" });
     assert.equal(turns.filter((turn) => turn.roomId === "room-ana").length, 1);

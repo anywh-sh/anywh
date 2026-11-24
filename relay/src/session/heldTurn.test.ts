@@ -26,3 +26,11 @@ test("findings written after the last lookup are the answer, even with NO_REPLY 
   held.shouldRelease(text("NO_REPLY"));
   assert.equal(held.isNoReply(), false);
 });
+
+test("listing the other bots keeps a scheduled run silent; asking or handing off to one releases it", () => {
+  const mcp = (name: string) => tool({ kind: "mcp", server: "anywh-room", tool: name });
+  assert.equal(new HeldTurn(true).shouldRelease(mcp("bot_list")), false);
+  assert.equal(new HeldTurn(true).shouldRelease(mcp("bot_status")), false);
+  assert.equal(new HeldTurn(true).shouldRelease(mcp("bot_ask")), true);
+  assert.equal(new HeldTurn(true).shouldRelease(mcp("bot_handoff")), true);
+});

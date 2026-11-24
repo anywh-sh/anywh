@@ -6,7 +6,7 @@ import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
 import { isNoReply, markSilent, promptOffersSilence, ROOM_DIGEST_PREFIX } from "../../../protocol/silentEvents.js";
-import { botTurnKind } from "../../../protocol/botTurns.js";
+import { BOT_LOOKUP_TOOLS, botTurnKind } from "../../../protocol/botTurns.js";
 import { stripRelayNote } from "../../../protocol/relayNote.js";
 import { splitRoomCard } from "../../../protocol/roomCard.js";
 
@@ -368,5 +368,5 @@ function releasesSilentRun(name: string): boolean {
   if (name === "TodoWrite" || name === "Task" || name === "Agent") return true;
   // An edit or a new file is never hidden, as live (its `edit`/`write` subject).
   if (name === "Write" || name === "Edit" || name === "MultiEdit" || name === "NotebookEdit") return true;
-  return name.startsWith("mcp__anywh-room__") && name !== "mcp__anywh-room__bot_status";
+  return name.startsWith("mcp__anywh-room__") && !BOT_LOOKUP_TOOLS.has(name.slice("mcp__anywh-room__".length));
 }

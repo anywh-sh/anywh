@@ -32,6 +32,7 @@ import {
   type FinishedBackgroundJob,
   type WatchedJob,
 } from "../host/backgroundJobs.js";
+import { BOT_LOOKUP_TOOLS } from "../protocol/botTurns.js";
 import { promptDraft, turnEndedDraft, turnFailedDraft, type PushNotificationDraft } from "../push/events.js";
 import { isAnyoneLooking, leaseExpiry } from "../push/presence.js";
 import { ChoiceMachine } from "./choiceMachine.js";
@@ -318,13 +319,6 @@ export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarti
  * switching over to live events — this is what gives the "real-time shared
  * session" across devices.
  */
-/**
- * Events of a background-job report turn that was offered the `NO_REPLY`
- * escape, held back until the turn shows it will say something. It starts
- * out able to be silent and gives that up on the first sign of content: a
- * tool call, or text that can no longer spell `NO_REPLY`. At that point the
- * buffer is flushed in order and the turn continues live like any other.
- */
 /** How a bot's relay turn ended (`submitBotTurn`). `reply` is the turn's
  * last text as the model wrote it, when it got that far. */
 export interface BotTurnOutcome {
@@ -335,6 +329,13 @@ export interface BotTurnOutcome {
   reply?: string;
 }
 
+/**
+ * Events of a background-job report turn that was offered the `NO_REPLY`
+ * escape, held back until the turn shows it will say something. It starts
+ * out able to be silent and gives that up on the first sign of content: a
+ * tool call, or text that can no longer spell `NO_REPLY`. At that point the
+ * buffer is flushed in order and the turn continues live like any other.
+ */
 export class HeldTurn {
   readonly buffer: BroadcastMessage[] = [];
   released = false;
@@ -357,7 +358,7 @@ export class HeldTurn {
       this.sinceTool = [];
       const subject = event.subject;
       if (subject?.kind === "edit" || subject?.kind === "write") return true;
-      return subject?.kind === "mcp" && subject.server === "anywh-room" && subject.tool !== "bot_status" && subject.tool !== "bot_list";
+      return subject?.kind === "mcp" && subject.server === "anywh-room" && !BOT_LOOKUP_TOOLS.has(subject.tool);
     }
     if (event.type === "tool_started" || event.type === "plan" || event.type === "subagent" || event.type === "error") return true;
     if (event.type === "text_delta") {

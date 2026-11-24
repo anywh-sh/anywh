@@ -429,6 +429,13 @@ for (const [id, name, input] of [
   });
 }
 
+test("a scheduled run that only listed the other bots stays silent when read back, as it was live", () => {
+  withFixture("bs8", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantToolUse("t1", "mcp__anywh-room__bot_list", {}), toolResult("t1", '{"bots":[]}'), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bs8").map((m) => m.event);
+    assert.ok(!events.some((e) => e.type === "tool_started" && !isSilentEvent(e)), "the lookup is not shown");
+  });
+});
+
 test("a scheduled run that changed the bot's tasks is shown even if it ends with NO_REPLY, as it was live", () => {
   withFixture("bs2", [userLine("hi"), assistantText("ok"), userLine(BOT_SCHEDULE), assistantToolUse("t1", "mcp__anywh-room__task_create", { title: "Fix CI" }), toolResult("t1", '{"task":1}'), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
     const events = readHistoryFromTranscript(home, home, "bs2").map((m) => m.event);
