@@ -20,6 +20,8 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: () => Promise.resolve([]) }));
 
 const RETRY_AFTER_MS = 20 * 60_000;
 let refusing: boolean;
+/** What the broker says once the refusal has cleared. */
+let afterRefusal: "grant" | "asleep";
 let retryAt: Date;
 let grantCalls: number;
 
@@ -27,17 +29,20 @@ vi.mock("@/lib/profiles/tailnetBroker", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/profiles/tailnetBroker")>();
   return {
     ...actual,
-    fetchConnectGrant: vi.fn(() => {
+    fetchConnectGrant: vi.fn((profile: Profile) => {
       grantCalls += 1;
-      // The real 429 handling, fed the body ENG-100's control plane sends.
-      if (refusing) {
-        return Promise.reject(actual.refusedWith429(tailnetProfile.id, {
-          error: "resume_budget_exhausted",
-          retry_at: retryAt.toISOString(),
-          retry_after_ms: RETRY_AFTER_MS,
-        }),
+      // The real 429 handling, fed the body ENG-100's control plane sends,
+      // for as long as the budget is spent.
+      if (refusing && Date.now() < retryAt.getTime()) {
+        return Promise.reject(
+          actual.refusedWith429(profile.id, {
+            error: "resume_budget_exhausted",
+            retry_at: retryAt.toISOString(),
+            retry_after_ms: retryAt.getTime() - Date.now(),
+          }),
         );
       }
+      if (refusing && afterRefusal === "asleep") return Promise.reject(new actual.BrokerAsleepError());
       return Promise.resolve({ endpoint: { host: "100.64.0.9", port: 8443 }, token: `grant-${String(grantCalls)}` });
     }),
   };
@@ -118,6 +123,7 @@ beforeEach(() => {
   localStorage.clear();
   sockets = [];
   refusing = false;
+  afterRefusal = "grant";
   grantCalls = 0;
   retryAt = new Date(Date.now() + RETRY_AFTER_MS);
   vi.stubGlobal("WebSocket", FakeSocket);
@@ -158,5 +164,29 @@ describe("resume-budget refusal", () => {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     expect(grantCalls).toBe(callsAfterRefusal);
     expect(sockets.filter((s) => s.url.includes("?session="))).toHaveLength(chatSockets);
+  });
+
+  it("stops showing the time once it has passed, even when the next attempt finds the machine asleep", async () => {
+    // The retry after the refusal is a timer's (wake=false), so a sandbox
+    // that went to sleep meanwhile answers "asleep": not a throttle, and not
+    // a connection. A time in the past must not stay on screen.
+    retryAt = new Date(Date.now() + 1_500);
+    afterRefusal = "asleep";
+    setProfiles([{ ...tailnetProfile, id: "short-hold" }]);
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: en.shell.sidebar.newConversation }));
+    const chatSocket = await vi.waitFor(() => {
+      const socket = sockets.find((s) => s.url.includes("?session="));
+      expect(socket).toBeDefined();
+      return socket!;
+    });
+
+    refusing = true;
+    chatSocket.close();
+    const shown = en.chat.connection.wakeBudgetExhausted.split("{time}").join(formatClockTime(retryAt.getTime(), "en"));
+    expect(await screen.findByText(shown)).toBeInTheDocument();
+
+    await vi.waitFor(() => expect(screen.queryByText(shown)).not.toBeInTheDocument(), { timeout: 4000 });
   });
 });

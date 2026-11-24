@@ -47,6 +47,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { HistoryPageMessage } from "@/lib/relay/relay-types";
 import { useDict, useLocale } from "@/i18n";
 import { formatClockTime } from "@/lib/format/relativeTime";
+import { useWakeHold } from "@/hooks/profiles/useWakeHold";
 import { createRoom } from "@/lib/relay/roomClient";
 import { SessionTypeSelector, type SessionType } from "@/components/sala/SessionTypeSelector";
 
@@ -485,7 +486,6 @@ export function ChatPanel({
 
   const {
     connected,
-    throttled,
     cwd,
     cwdLocked,
     agentId,
@@ -618,11 +618,13 @@ export function ChatPanel({
   // goes to the relay; typing stays allowed.
   const live = connected && caughtUp && !resyncing;
   const { locale } = useLocale();
-  // Only the refusal it has words for: a resume-budget 429 says when the
-  // machine can be woken again, and nothing is attempted before then, so
-  // "reconnecting" would be a promise the app isn't keeping.
-  const wakeBlockedUntil =
-    !connected && throttled?.reason === "resume_budget_exhausted" && throttled.retryAt ? throttled.retryAt : null;
+  // A resume-budget 429 says when the machine can be woken again, and
+  // nothing is attempted before then, so "reconnecting" would be a promise
+  // the app isn't keeping. Read from the broker's own hold, which ends on
+  // the clock: once that time passes the line goes back to "reconnecting",
+  // whatever the next attempt runs into (the machine asleep, say).
+  const wakeHold = useWakeHold(profile.id);
+  const wakeBlockedUntil = connected ? null : wakeHold;
   // Stopping is something the relay has to hear, same as sending.
   const stopTurnWhenLive = useCallback(() => {
     if (live) stopTurn();

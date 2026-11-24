@@ -506,11 +506,6 @@ export interface RelayClientCallbacks {
    * whoever consumes this should stop showing "reconnecting" and offer to
    * remove the profile instead. */
   onRevoked?: () => void;
-  /** The broker is refusing this account's connections until a known time
-   * (a 429 with a retry hint — the resume budget, today): what to show
-   * instead of "reconnecting", since no attempt will be made before then.
-   * `null` once a socket opens again. */
-  onThrottled?: (refusal: { retryAt?: Date; reason?: string } | null) => void;
   /** The relay just announced a `WS_PROTOCOL_VERSION` this build doesn't
    * match — also terminal, same treatment as `onRevoked`: no automatic
    * reconnect follows (retrying would just hit the same mismatch again),
@@ -676,7 +671,6 @@ export class RelayClient {
         }
         if (err instanceof BrokerThrottledError) {
           console.error("connection token refused, backing off:", err);
-          this.callbacks.onThrottled?.({ retryAt: err.retryAt, reason: err.reason });
           // The broker's own hint when it gave one — it said when the
           // refusal clears, and both waiting less and waiting a minute past
           // the time the UI shows are wrong. The floor only applies to a
@@ -709,7 +703,6 @@ export class RelayClient {
 
     socket.addEventListener("open", () => {
       this.reconnectAttempt = 0;
-      this.callbacks.onThrottled?.(null);
       this.callbacks.onConnectionChange?.(true);
       if (this.pendingCwd !== null) {
         const path = this.pendingCwd;
