@@ -2,11 +2,13 @@ import type { ToolCallEntry } from "@/hooks/relay/useMessageLog";
 
 /** What a bot did with one of its own tools, as a line of its conversation:
  * the task list, its memory, its schedules — the things the person follows
- * outside the chat. `n` is the task's number, `text` what the line names. */
+ * outside the chat, and the other bots it reached. `n` is the task's number,
+ * `name` the other bot as the call named it, `text` what the line names. */
 export type BotActivity =
   | { kind: "created" | "updated" | "asked"; n: number; text?: string }
   | { kind: "delegated"; n?: number; text?: string }
-  | { kind: "remembered" | "forgot" | "soul" | "scheduled" | "scheduleChanged" | "scheduleRemoved" | "status"; text?: string };
+  | { kind: "askedBot" | "handedOff"; name: string; text?: string }
+  | { kind: "remembered" | "forgot" | "soul" | "scheduled" | "scheduleChanged" | "scheduleRemoved" | "status" | "peers"; text?: string };
 
 const ROOM_SERVER = "anywh-room";
 
@@ -65,6 +67,16 @@ export function botActivityOf(call: ToolCallEntry): BotActivity | undefined {
       return { kind: "scheduleRemoved" };
     case "bot_status":
       return { kind: "status" };
+    case "bot_list":
+      return { kind: "peers" };
+    case "bot_ask": {
+      const name = str(input.to);
+      return name === undefined ? undefined : { kind: "askedBot", name, ...(str(input.question) ? { text: str(input.question) } : {}) };
+    }
+    case "bot_handoff": {
+      const name = str(input.to);
+      return name === undefined ? undefined : { kind: "handedOff", name, ...(str(input.title) ? { text: str(input.title) } : {}) };
+    }
     default:
       return undefined;
   }

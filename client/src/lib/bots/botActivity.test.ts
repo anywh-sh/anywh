@@ -23,6 +23,14 @@ describe("botActivityOf", () => {
     expect(botActivityOf(call("schedule_create", { name: "Hourly", cron: "0 * * * *", prompt: "p" }))).toEqual({ kind: "scheduled", text: "Hourly" });
   });
 
+  it("reads the calls to other bots as lines naming the bot", () => {
+    expect(botActivityOf(call("bot_list", {}))).toEqual({ kind: "peers" });
+    expect(botActivityOf(call("bot_ask", { to: "Release", question: "What shipped?" }))).toEqual({ kind: "askedBot", name: "Release", text: "What shipped?" });
+    expect(botActivityOf(call("bot_handoff", { to: "Fixer", title: "Fix it", details: "d" }))).toEqual({ kind: "handedOff", name: "Fixer", text: "Fix it" });
+    expect(botActivityOf(call("bot_ask", { question: "q" })), "no bot named").toBeUndefined();
+    expect(botActivityOf(call("bot_ask", { to: "Release", question: "q" }, { isError: true }))).toBeUndefined();
+  });
+
   it("leaves everything else where the log draws it", () => {
     expect(botActivityOf(call("delegate", { name: "Fixer", task: "x" })), "a room's delegate, without a task").toBeUndefined();
     expect(botActivityOf(call("delegate", { name: "Fixer", task: "x", task_number: 2 }))).toEqual({ kind: "delegated", n: 2, text: "Fixer" });

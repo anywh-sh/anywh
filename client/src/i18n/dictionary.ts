@@ -2008,6 +2008,10 @@ export interface Dictionary {
       answer: string;
       answerFailed: string;
       workerAsks: string;
+      /** `{name}`: the bot that handed the task over. */
+      from: string;
+      /** The bot that handed the task over was deleted since. */
+      fromGone: string;
       status: { planned: string; working: string; needs_you: string; done: string; canceled: string };
       worker: { working: string; waiting: string; done: string; failed: string; stopped: string; gone: string };
     };
@@ -2028,6 +2032,12 @@ export interface Dictionary {
       status: string;
       messaged: string;
       stopped: string;
+      /** `bot_list`. */
+      peers: string;
+      /** `{name}`: the bot asked. */
+      askedBot: string;
+      /** `{name}`: the bot handed the task. */
+      handedOff: string;
     };
     turn: {
       /** `{name}`. */
@@ -2037,6 +2047,16 @@ export interface Dictionary {
       answer: string;
       /** `{n}`. */
       canceled: string;
+      /** `{name}`: another bot's question. */
+      peerAsk: string;
+      /** `{name}`: the answer to this bot's question. */
+      peerAnswer: string;
+      /** `{name}`: no answer is coming. */
+      peerNoAnswer: string;
+      /** `{name}`, `{n}`: a task another bot handed over. */
+      peerHandoff: string;
+      /** `{name}`, `{n}`: a task this bot handed over was closed. */
+      peerClosed: string;
     };
     /** The mascot picker: the ten characters and eight tones. */
     mascot: {

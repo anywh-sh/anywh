@@ -29,6 +29,14 @@ export const Question: Story = { args: { initialTask: 13 } };
 /** A task at work: what makes it done, its agent, its history. */
 export const Working: Story = { args: { initialTask: 12 } };
 
+/** A task another bot handed over: who it came from, under its title. */
+export const HandedOff: Story = { args: { initialTask: 15 } };
+
+/** A handed-over task whose sender was deleted since. */
+export const HandedOffSenderGone: Story = {
+  args: { initialTask: 15, bot: { ...storyBotView, tasks: storyBotView.tasks.map((task) => (task.from ? { ...task, from: { ...task.from, name: null } } : task)) } },
+};
+
 /** The bot's own conversation is waiting for the person. */
 export const ConversationWaits: Story = { args: { bot: { ...storyBotView, conversationNeedsYou: true } } };
 
