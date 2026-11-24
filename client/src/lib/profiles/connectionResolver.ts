@@ -1,5 +1,5 @@
-import { fetchConnectGrant, resolveTailnetTarget, type GrantOptions } from "@/lib/profiles/tailnetBroker";
-import { acquireTailnetSidecar, peekTailnetSidecar, releaseTailnetSidecar } from "@/lib/profiles/tailnetSidecar";
+import { fetchConnectGrant, grantTarget, resolveTailnetTarget, type GrantOptions } from "@/lib/profiles/tailnetBroker";
+import { acquireTailnetSidecar, peekTailnetSidecar, releaseTailnetSidecar, retargetTailnetSidecar } from "@/lib/profiles/tailnetSidecar";
 import { isBrokeredProfile, isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
 
 export interface ResolvedConnection {
@@ -38,8 +38,15 @@ export async function resolveConnection(profile: Profile, options?: GrantOptions
 
   const peeked = peekTailnetSidecar(profile.id);
   if (peeked) {
-    const [endpoint, token] = await Promise.all([peeked, resolveFreshToken(profile, options)]);
-    return { host: endpoint.host, port: endpoint.port, token };
+    if (!isBrokeredProfile(profile)) {
+      const endpoint = await peeked;
+      return { host: endpoint.host, port: endpoint.port, token: profile.connectToken };
+    }
+    const grant = await fetchConnectGrant(profile, options);
+    // The grant may name a new endpoint (the sandbox was recreated); the
+    // sidecar has to dial it before this call can reach anything.
+    const endpoint = await (retargetTailnetSidecar(profile, grantTarget(grant)) ?? peeked);
+    return { host: endpoint.host, port: endpoint.port, token: grant.token };
   }
 
   const plan = await resolveTailnetTarget(profile);
@@ -49,11 +56,6 @@ export async function resolveConnection(profile: Profile, options?: GrantOptions
   } finally {
     releaseTailnetSidecar(profile.id);
   }
-}
-
-async function resolveFreshToken(profile: Profile, options?: GrantOptions): Promise<string | undefined> {
-  if (!isBrokeredProfile(profile)) return profile.connectToken;
-  return (await fetchConnectGrant(profile, options)).token;
 }
 
 /** `fetch` headers carrying a connect token, when there is one — a direct

@@ -211,6 +211,11 @@ export async function reportTailnetKey(profile: Profile, nodeKey: string): Promi
   }
 }
 
+/** The `host:port` a grant tells the sidecar to dial inside the tailnet. */
+export function grantTarget(grant: ConnectGrant): string {
+  return `${grant.endpoint.host}:${String(grant.endpoint.port)}`;
+}
+
 export interface TailnetJoinPlan {
   target: string;
   /** Only set for a brokered profile — the grant's token, paired with this
@@ -225,11 +230,9 @@ export interface TailnetJoinPlan {
  * the relay — a fresh broker grant's endpoint for a brokered profile
  * (its tailnet address can move after the relay restarts or migrates, so
  * this is never cached), or the static `tailnetTarget`/`connectToken` pair
- * for a profile configured by hand with no broker. Only meaningful for
- * starting a *cold* join: an already-running sidecar keeps forwarding to
- * whatever target its first caller resolved (see `acquireTailnetSidecar`'s
- * doc comment) — a caller reusing that sidecar still needs its own fresh
- * token, separately, for whichever connection it's about to open.
+ * for a profile configured by hand with no broker. Handing a different
+ * target to an already-running sidecar restarts it there (see
+ * `acquireTailnetSidecar`).
  * Precondition: `isTailnetProfile(profile)` — this throws for a profile
  * with neither a broker nor a static target instead of returning one.
  */
@@ -239,5 +242,5 @@ export async function resolveTailnetTarget(profile: Profile): Promise<TailnetJoi
     return { target: profile.tailnetTarget, token: profile.connectToken };
   }
   const grant = await fetchConnectGrant(profile);
-  return { target: `${grant.endpoint.host}:${String(grant.endpoint.port)}`, token: grant.token };
+  return { target: grantTarget(grant), token: grant.token };
 }

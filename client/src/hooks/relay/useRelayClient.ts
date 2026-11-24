@@ -15,12 +15,13 @@ import {
   type PermissionMode,
   type PermissionModeOption,
   type RelayClientCallbacks,
+  type ResolvedConnectToken,
   type SetCwdErrorCode,
 } from "@/lib/relay/relayClient";
 import { getModelCatalogs } from "@/lib/composer/modelCatalog";
 import { isBrokeredProfile, isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
-import { acquireTailnetSidecar, releaseTailnetSidecar } from "@/lib/profiles/tailnetSidecar";
-import { BrokerRevokedError, fetchConnectGrant } from "@/lib/profiles/tailnetBroker";
+import { acquireTailnetSidecar, releaseTailnetSidecar, retargetTailnetSidecar } from "@/lib/profiles/tailnetSidecar";
+import { BrokerRevokedError, fetchConnectGrant, grantTarget } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
 
 /** A received `compact_boundary`, with a timestamp — the timestamp guarantees a
@@ -317,7 +318,7 @@ export function useRelayClient(
     async function start(): Promise<void> {
       let host = profile.host;
       let port = profile.relayPort;
-      let wsToken: string | ((options: { wake: boolean }) => Promise<string>) | undefined = profile.connectToken;
+      let wsToken: string | ((options: { wake: boolean }) => Promise<ResolvedConnectToken>) | undefined = profile.connectToken;
       if (tailnetMode) {
         try {
           // A brokered profile resolves the target and a
@@ -329,7 +330,7 @@ export function useRelayClient(
           if (isBrokeredProfile(profile)) {
             const grant = await fetchConnectGrant(profile);
             if (cancelled) return;
-            target = `${grant.endpoint.host}:${String(grant.endpoint.port)}`;
+            target = grantTarget(grant);
             // Same anti-replay reasoning again, on the reconnection side: the grant fetched just
             // now opens the first connection, and every attempt after it
             // (the proxy spends a token's `jti` on the handshake, so
@@ -344,7 +345,16 @@ export function useRelayClient(
               }
               // `wake` comes from RelayClient: true when the user drove this
               // attempt, false for a reconnect a timer scheduled.
-              return (await fetchConnectGrant(profile, { wake })).token;
+              const next = await fetchConnectGrant(profile, { wake });
+              // Every grant says where the relay is now. A recreated sandbox
+              // answers at a new tailnet address, and the sidecar started
+              // from the first grant would dial the old one forever — so a
+              // moved endpoint restarts it there, and this attempt dials
+              // whatever local port the restarted one listens on.
+              const moved = retargetTailnetSidecar(profile, grantTarget(next));
+              if (!moved) return next.token;
+              const local = await moved;
+              return { token: next.token, host: local.host, port: local.port };
             };
           }
           if (!target) throw new Error("tailnet profile has no target to dial (no tailnetTarget and no broker)");

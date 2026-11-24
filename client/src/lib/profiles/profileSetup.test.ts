@@ -46,10 +46,12 @@ vi.mock("@/lib/profiles/tailnetSidecar", () => ({
   acquireTailnetSidecar: acquireTailnetSidecarMock,
   releaseTailnetSidecar: releaseTailnetSidecarMock,
   peekTailnetSidecar: peekTailnetSidecarMock,
+  retargetTailnetSidecar: () => undefined,
 }));
 vi.mock("@/lib/profiles/tailnetBroker", () => ({
   resolveTailnetTarget: resolveTailnetTargetMock,
   fetchConnectGrant: fetchConnectGrantMock,
+  grantTarget: (grant: { endpoint: { host: string; port: number } }) => `${grant.endpoint.host}:${String(grant.endpoint.port)}`,
 }));
 vi.mock("@/lib/relay/relayClient", () => ({
   fetchSessions: fetchSessionsMock,

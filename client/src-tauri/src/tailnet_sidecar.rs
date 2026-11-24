@@ -32,6 +32,10 @@ pub struct TailnetSidecars(Mutex<HashMap<String, Running>>);
 struct Running {
     child: CommandChild,
     addr: String,
+    /// What this child dials inside the tailnet (`-target`). A brokered
+    /// profile's target can move (a recreated sandbox joins as a new node
+    /// with a new address), and the child can't be repointed, only replaced.
+    target: String,
 }
 
 /// The last timestamp `tailnet_sidecar_sign` handed out, so the next one is
@@ -209,7 +213,9 @@ pub async fn tailnet_sidecar_sign(
 /// manually configured profile) is what the tailnet hostname is set from —
 /// see `tailnet_hostname`. A cold start also captures the `NODE_KEY` line
 /// the Go side prints once `tsnet.Up()` returns, so the JS caller
-/// (`tailnetSidecar.ts`) can report it to the control plane.
+/// (`tailnetSidecar.ts`) can report it to the control plane. Joining a
+/// running sidecar only happens for the same `target`: a different one
+/// replaces it, and the replacement listens on a new local port.
 #[tauri::command]
 pub async fn tailnet_sidecar_start(
     app: tauri::AppHandle,
@@ -222,7 +228,21 @@ pub async fn tailnet_sidecar_start(
 ) -> Result<TailnetUpResult, String> {
     let mut running = state.0.lock().await;
     if let Some(existing) = running.get(&profile_id) {
-        return Ok(TailnetUpResult { addr: existing.addr.clone(), node_key: None });
+        if existing.target == target {
+            return Ok(TailnetUpResult { addr: existing.addr.clone(), node_key: None });
+        }
+        // A caller with a newer grant says the relay lives somewhere else
+        // now. The old child would keep dialing an address nobody answers
+        // at, so it goes, and a fresh one joins with the new target (the
+        // node identity lives in `-state-dir`, so this rejoin needs no
+        // auth key). Its exit event finds a different pid in the map and
+        // leaves the replacement alone.
+        if let Some(stale) = running.remove(&profile_id) {
+            eprintln!("[tailnet-sidecar] {profile_id}: target moved from {} to {target}, restarting", stale.target);
+            if let Err(err) = stale.child.kill() {
+                eprintln!("[tailnet-sidecar] {profile_id}: failed to kill the stale sidecar: {err}");
+            }
+        }
     }
 
     let state_dir = tailnet_state_dir(&app, &profile_id)?;
@@ -286,7 +306,7 @@ pub async fn tailnet_sidecar_start(
     };
 
     let pid = child.pid();
-    running.insert(profile_id.clone(), Running { child, addr: addr.clone() });
+    running.insert(profile_id.clone(), Running { child, addr: addr.clone(), target });
     // The child outlives this command, so someone has to keep reading its
     // output — an unread channel would both lose the log above and, once
     // full, block the sidecar on its own writes.

@@ -87,6 +87,27 @@ describe("RelayClient connect token", () => {
     expect(tokenOf(FakeWebSocket.instances[1])).toBe("grant-2");
   });
 
+  it("dials wherever the resolver says the relay is now, when it says", async () => {
+    // A tailnet sidecar restarted at a new endpoint listens on a new local
+    // port; the reconnect that learned of it has to dial that port.
+    const answers = [
+      { token: "grant-1", host: "127.0.0.1", port: 12345 },
+      { token: "grant-2", host: "127.0.0.1", port: 23456 },
+    ];
+    const resolve = vi.fn(() => Promise.resolve(answers.shift()!));
+    const client = new RelayClient("127.0.0.1", 0, "session-1", noopCallbacks, resolve);
+
+    client.connect();
+    await vi.runAllTimersAsync();
+    expect(new URL(FakeWebSocket.instances[0].url).port).toBe("12345");
+
+    FakeWebSocket.instances[0].close();
+    await vi.runAllTimersAsync();
+
+    expect(new URL(FakeWebSocket.instances[1].url).port).toBe("23456");
+    expect(tokenOf(FakeWebSocket.instances[1])).toBe("grant-2");
+  });
+
   it("keeps sending the same static token, for a profile whose token is a fixed credential", () => {
     // `Profile.connectToken` (a reverse proxy's static credential) is the
     // opposite case — nothing to refresh, and no async hop before dialing.

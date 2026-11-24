@@ -49,6 +49,33 @@ describe("tailnetSidecar", () => {
     expect(invokeMock).toHaveBeenCalledWith("tailnet_sidecar_stop", { profileId: id });
   });
 
+  it("restarts a held sidecar at a new target and hands out the new endpoint", async () => {
+    const { acquireTailnetSidecar, retargetTailnetSidecar, peekTailnetSidecar, releaseTailnetSidecar } = await import("@/lib/profiles/tailnetSidecar");
+    const id = "retarget";
+
+    expect(await acquireTailnetSidecar(profile(id), "100.64.0.1:8765")).toEqual({ host: "127.0.0.1", port: 12345 });
+    // Same target: nothing to do.
+    await retargetTailnetSidecar(profile(id), "100.64.0.1:8765");
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    invokeMock.mockImplementationOnce(() => Promise.resolve({ addr: "127.0.0.1:23456", nodeKey: "nodekey:moved" }));
+    const moved = await retargetTailnetSidecar(profile(id), "100.64.0.3:8765");
+
+    expect(invokeMock).toHaveBeenLastCalledWith("tailnet_sidecar_start", expect.objectContaining({ profileId: id, target: "100.64.0.3:8765" }));
+    expect(moved).toEqual({ host: "127.0.0.1", port: 23456 });
+    // Everyone peeking from now on dials the restarted one.
+    expect(await peekTailnetSidecar(id)).toEqual({ host: "127.0.0.1", port: 23456 });
+
+    releaseTailnetSidecar(id);
+    await vi.runAllTimersAsync();
+  });
+
+  it("retargets nothing for a profile nobody holds", async () => {
+    const { retargetTailnetSidecar } = await import("@/lib/profiles/tailnetSidecar");
+    expect(retargetTailnetSidecar(profile("never-held"), "100.64.0.3:8765")).toBeUndefined();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
   it("peeks nothing for a profile nobody has acquired", async () => {
     const { peekTailnetSidecar } = await import("@/lib/profiles/tailnetSidecar");
     expect(peekTailnetSidecar("never-acquired")).toBeUndefined();
