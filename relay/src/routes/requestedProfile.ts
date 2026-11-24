@@ -31,7 +31,10 @@ export type RequestedProfileError = "bad-home" | "unknown-profile";
 export function readRequestedProfile(url: URL, homeOverride: string | undefined): RequestedProfile | { error: RequestedProfileError } {
   const relayHome = resolve(homeOverride ?? homedir());
   const profileId = url.searchParams.get("profile")?.trim();
-  if (profileId) {
+  // This relay's own id is its own profile, not "another" one: otherwise its
+  // sign-ins would skip the own-account refresh and take a second login key
+  // for the same account.
+  if (profileId && profileId !== process.env.ANYWH_PROFILE) {
     const target = resolveProfileTarget(profileId);
     if (!target) return { error: "unknown-profile" };
     return { own: false, child: target, home: target.home ?? homedir(), env: envForTarget(process.env, target), key: `profile:${profileId}` };
