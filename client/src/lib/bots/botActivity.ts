@@ -81,3 +81,9 @@ export function botActivityOf(call: ToolCallEntry): BotActivity | undefined {
       return undefined;
   }
 }
+
+/** A dictionary template with its `{key}` slots filled in one pass: a value
+ * is put in as written, so a bot named `{n}` or `$&` stays its own name. */
+export function fillTemplate(template: string, values: Readonly<Record<string, string>>): string {
+  return template.replace(/\{(\w+)\}/g, (slot, key: string) => values[key] ?? slot);
+}

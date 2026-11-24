@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallEntry } from "@/hooks/relay/useMessageLog";
-import { botActivityOf } from "@/lib/bots/botActivity";
+import { botActivityOf, fillTemplate } from "@/lib/bots/botActivity";
 
 const call = (tool: string, input: Record<string, unknown>, over: Partial<ToolCallEntry> = {}): ToolCallEntry => ({
   kind: "tool-call",
@@ -37,5 +37,12 @@ describe("botActivityOf", () => {
     expect(botActivityOf(call("task_create", { title: "x" }, { isError: true, content: "too many" }))).toBeUndefined();
     expect(botActivityOf(call("task_update", { task: 1 }, { done: false }))).toBeUndefined();
     expect(botActivityOf({ ...call("remember", { text: "x" }), subject: { kind: "mcp", server: "other", tool: "remember" } })).toBeUndefined();
+  });
+});
+
+describe("fillTemplate", () => {
+  it("puts each value in as written, never reading slots or $-patterns inside a value", () => {
+    expect(fillTemplate("{name} handed you task #{n}", { name: "Bot {n} $& $'", n: "12" })).toBe("Bot {n} $& $' handed you task #12");
+    expect(fillTemplate("{missing} stays", {})).toBe("{missing} stays");
   });
 });

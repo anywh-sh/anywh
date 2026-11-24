@@ -8,6 +8,7 @@ import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { TaskStatusIcon } from "@/components/bots/BotPanel";
 import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { useDict, useLocale } from "@/i18n";
+import { fillTemplate } from "@/lib/bots/botActivity";
 import { answerTask, cancelTask } from "@/lib/bots/botClient";
 import { shortWhen } from "@/lib/bots/botStatusLine";
 import { isClosedTask, type BotTask, type BotView, type BotWorkerView } from "@/lib/bots/botTypes";
@@ -51,7 +52,7 @@ export function BotTaskDetail({ profile, bot, task, onBack, onOpenSession }: Bot
           {task.from && (
             <span className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground" data-testid="bot-task-from">
               <Forward className="size-3 shrink-0" aria-hidden />
-              {task.from.name === null ? dict.bots.task.fromGone : dict.bots.task.from.replace("{name}", task.from.name)}
+              {task.from.name === null ? dict.bots.task.fromGone : fillTemplate(dict.bots.task.from, { name: task.from.name })}
             </span>
           )}
         </div>

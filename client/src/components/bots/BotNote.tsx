@@ -1,11 +1,12 @@
 import { Ban, CalendarClock, CheckCheck, CircleSlash, Forward, MessageCircleQuestion, MessageSquareReply, Sparkles, type LucideIcon } from "lucide-react";
 import { useDict } from "@/i18n";
 import type { Dictionary } from "@/i18n/dictionary";
+import { fillTemplate } from "@/lib/bots/botActivity";
 
 /** What a relay turn's label says, as the note shows it. */
 function noteOf(label: string, schedule: boolean, dict: Dictionary): { Icon: LucideIcon; text: string } {
   const turn = dict.bots.turn;
-  if (schedule) return { Icon: CalendarClock, text: turn.schedule.replace("{name}", label) };
+  if (schedule) return { Icon: CalendarClock, text: fillTemplate(turn.schedule, { name: label }) };
   const answer = /^answer:(\d+)$/.exec(label);
   if (answer) return { Icon: MessageSquareReply, text: turn.answer.replace("{n}", answer[1]) };
   const cancel = /^cancel:(\d+)$/.exec(label);
@@ -14,14 +15,14 @@ function noteOf(label: string, schedule: boolean, dict: Dictionary): { Icon: Luc
   const peer = /^peer_(ask|answer|noanswer):(.+)$/s.exec(label);
   if (peer) {
     const [, kind, name] = peer;
-    if (kind === "ask") return { Icon: MessageCircleQuestion, text: turn.peerAsk.replace("{name}", name) };
-    if (kind === "answer") return { Icon: MessageSquareReply, text: turn.peerAnswer.replace("{name}", name) };
-    return { Icon: CircleSlash, text: turn.peerNoAnswer.replace("{name}", name) };
+    if (kind === "ask") return { Icon: MessageCircleQuestion, text: fillTemplate(turn.peerAsk, { name }) };
+    if (kind === "answer") return { Icon: MessageSquareReply, text: fillTemplate(turn.peerAnswer, { name }) };
+    return { Icon: CircleSlash, text: fillTemplate(turn.peerNoAnswer, { name }) };
   }
   const task = /^peer_(handoff|closed):(\d+):(.+)$/s.exec(label);
   if (task) {
     const [, kind, n, name] = task;
-    return { Icon: kind === "handoff" ? Forward : CheckCheck, text: (kind === "handoff" ? turn.peerHandoff : turn.peerClosed).replace("{name}", name).replace("{n}", n) };
+    return { Icon: kind === "handoff" ? Forward : CheckCheck, text: fillTemplate(kind === "handoff" ? turn.peerHandoff : turn.peerClosed, { name, n }) };
   }
   return { Icon: Sparkles, text: turn.created };
 }
