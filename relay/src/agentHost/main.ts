@@ -9,7 +9,8 @@
 // socket and agents. `--profile-from-env` opts in to reading ANYWH_PROFILE
 // explicitly — what `npm run start:agent-host` does, so the ANYWH_PROFILE in
 // relay/.env (loaded by --env-file) names the profile, as for `npm start`. Paths default from the profile, unless the profile's env file sets:
-//   ANYWH_AGENT_HOST_SOCKET    socket path (default $XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock)
+//   ANYWH_AGENT_HOST_SOCKET    socket path (default $XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock;
+//                              h-<profile>.sock under the tmpdir on macOS)
 //   ANYWH_AGENT_HOST_DIR       registry and logs (default ~/.anywh-sessions/<profile>-agent-host)
 //   RELAY_HOME_OVERRIDE        $HOME for the agents, as for the relay's own turns
 //   AGENT_BIN, EXTRA_PATH_DIRS as for the relay
