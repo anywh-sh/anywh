@@ -311,9 +311,13 @@ jobs:
             sidecarTarget: linux-arm64
           - platform: windows-latest
             sidecarTarget: win32-x64
+          # The Apple Silicon app ships the relay inside it (relayTree): a
+          # local profile on that Mac runs it with nothing to install. The
+          # Intel app stays remote-only.
           - platform: macos-15
             sidecarTarget: darwin-arm64
             rustTarget: aarch64-apple-darwin
+            relayTree: true
           # Cross-compiled from the same arm64 runner rather than a second
           # macos-13 (Intel) box — Xcode's clang is multi-arch out of the
           # box (`-arch x86_64`), and Cargo's `cc` crate passes that flag
@@ -388,6 +392,13 @@ jobs:
       - run: npm ci
         working-directory: client
 
+      # Before the stamp below, like build-relay: after it, package.json
+      # would disagree with its lockfile.
+      - name: Install the relay's dependencies (bundled relay)
+        if: matrix.relayTree
+        run: npm ci
+        working-directory: relay
+
       # Git keeps every manifest at the 0.0.0 placeholder; this is where the
       # tag's version goes in, before anything reads it (Tauri names and
       # stamps the bundle from tauri.conf.json, the frontend's APP_VERSION
@@ -451,6 +462,54 @@ jobs:
             echo "APPLE_API_KEY_PATH=$key_path"
           } >> "$GITHUB_ENV"
 
+      # The relay tree the app ships as a resource (tauri.relay.conf.json):
+      # the SEA binary build-relay also builds, plus a tmux of our own (a
+      # stock Mac has none). The app copies it to Application Support and
+      # runs each local profile from there under launchd.
+      - name: Build the bundled relay tree
+        if: matrix.relayTree
+        run: |
+          npm run build
+          node sea-build/build.mjs --target darwin-arm64
+          bash sea-build/build-tmux.sh sea-build/dist/darwin-arm64
+        working-directory: relay
+
+      # Checked on the oldest macOS runner by check-bundled-tmux.
+      - name: Keep the bundled tmux for its check
+        if: matrix.relayTree
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundled-tmux-darwin-arm64
+          path: relay/sea-build/dist/darwin-arm64/tmux
+          if-no-files-found: error
+
+      # Signed here, not by Tauri: the bundler copies resources without
+      # signing them (and notarization rejects an unsigned Mach-O inside the
+      # app), and it would sign an externalBin with the app's entitlements,
+      # which lack the JIT the relay's V8 needs. With the Apple secrets the
+      # tree gets the Developer ID in a keychain of its own; without them
+      # (a fork) it is signed ad hoc, like the unsigned app around it.
+      - name: Sign the bundled relay tree
+        if: matrix.relayTree
+        run: |
+          set -euo pipefail
+          tree=relay/sea-build/dist/darwin-arm64
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            bash relay/sea-build/sign-tree.sh "$tree" -
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/relay-signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/relay-signing.p12"
+          security import "$RUNNER_TEMP/relay-signing.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/relay-signing.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          bash relay/sea-build/sign-tree.sh "$tree" "$APPLE_SIGNING_IDENTITY"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -475,7 +534,7 @@ jobs:
           POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_CLI_PROJECT_ID }}
         with:
           projectPath: client
-          args: ${{ matrix.rustTarget && format('--target {0}', matrix.rustTarget) || '' }}
+          args: ${{ matrix.rustTarget && format('--target {0}', matrix.rustTarget) || '' }} ${{ matrix.relayTree && '--config src-tauri/tauri.relay.conf.json' || '' }}
           releaseId: ${{ needs.create-release.outputs.release_id }}
           # tauri-action's own latest.json is a read-merge-write against the
           # same release from every matrix leg, with no locking — legs that
@@ -693,8 +752,38 @@ jobs:
   # slowest one (Windows, ~4x slower than macOS arm64 in the dry run) had
   # uploaded its assets — a downloader in that window would find a release
   # missing most of its installers.
+  # The bundled tmux is built with the newest SDK; build-tmux.sh refuses
+  # newer-than-macOS-11 calls at compile time, and this runs it for real on
+  # the oldest macOS runner there is, before anything is published: it must
+  # load, keep a session with the relay's own flags, and find the terminfo
+  # it sets for the pane.
+  check-bundled-tmux:
+    needs: [build]
+    runs-on: macos-14
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundled-tmux-darwin-arm64
+          path: tmux-bin
+      - name: Run the bundled tmux
+        run: |
+          set -euo pipefail
+          tmux="$PWD/tmux-bin/tmux"
+          chmod +x "$tmux"
+          sw_vers -productVersion
+          "$tmux" -V
+          sock="anywh-check-$$"
+          "$tmux" -L "$sock" -f /dev/null new-session -d -s check -x 80 -y 24 \
+            "printf 'ready \\303\\251\\n'; sleep 30"
+          sleep 1
+          pane="$("$tmux" -L "$sock" capture-pane -p -t check)"
+          term="$("$tmux" -L "$sock" show-options -gv default-terminal)"
+          "$tmux" -L "$sock" kill-server
+          echo "$pane" | grep -q "ready é" || { echo "::error::the bundled tmux did not run a pane: $pane"; exit 1; }
+          infocmp "$term" > /dev/null || { echo "::error::this macOS has no terminfo for $term, the bundled tmux's pane TERM"; exit 1; }
+
   checksums:
-    needs: [create-release, build, build-relay]
+    needs: [create-release, build, build-relay, check-bundled-tmux]
     runs-on: ubuntu-latest
     steps:
       # Only needed for scripts/build-latest-json.mjs below — everything
