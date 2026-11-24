@@ -17,7 +17,9 @@ import { backgroundActivityProfileColor, type BackgroundActivityItem } from "@/h
 import { useBackgroundJobLog } from "@/hooks/useBackgroundJobLog";
 import { useElapsedSeconds } from "@/hooks/useElapsedSeconds";
 import { logTailLines } from "@/lib/format/backgroundActivity";
-import { useDict } from "@/i18n";
+import { useDict, useLocale } from "@/i18n";
+import { useWakeHold } from "@/hooks/profiles/useWakeHold";
+import { formatClockTime } from "@/lib/format/relativeTime";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { getGitStatus } from "@/lib/relay/gitClient";
 import { formatDurationLong, cn } from "@/lib/utils";
@@ -213,6 +215,8 @@ export function StatusBar({
   usageIndicator,
 }: StatusBarProps) {
   const dict = useDict();
+  const { locale } = useLocale();
+  const wakeHold = useWakeHold(profile?.id);
   const update = useAppUpdate();
   const ready = useReadyUpdate();
   const profileId = profile?.id ?? null;
@@ -373,7 +377,11 @@ export function StatusBar({
             aria-hidden="true"
             className={cn("size-1.5 rounded-full", connected ? "bg-diff-add" : "animate-pulse bg-destructive")}
           />
-          {connected ? dict.shell.statusBar.relayConnected : dict.shell.titleBar.reconnecting}
+          {connected
+            ? dict.shell.statusBar.relayConnected
+            : wakeHold
+              ? dict.shell.statusBar.wakePaused.split("{time}").join(formatClockTime(wakeHold.getTime(), locale))
+              : dict.shell.titleBar.reconnecting}
         </span>
       )}
       {ready ? (

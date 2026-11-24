@@ -79,6 +79,10 @@ export interface UseRelayClientOptions {
 
 export interface UseRelayClientResult {
   connected: boolean;
+  /** Set while the broker refuses this profile's connections until a known
+   * time (`RelayClientCallbacks.onThrottled`) — no reconnect is attempted
+   * before `retryAt`, so the UI says so instead of "reconnecting". */
+  throttled: { retryAt?: Date; reason?: string } | null;
   /** `true` while a tailnet-mode profile's sidecar is joining the tailnet,
    * before the relay `WebSocket` even starts connecting —
    * always `false` for a direct-mode profile, which has no such step. Purely
@@ -198,6 +202,7 @@ export function useRelayClient(
   options: UseRelayClientOptions = {},
 ): UseRelayClientResult {
   const [connected, setConnected] = useState(false);
+  const [throttled, setThrottled] = useState<{ retryAt?: Date; reason?: string } | null>(null);
   const [connectingTailnet, setConnectingTailnet] = useState(false);
   const [cwd, setCwdState] = useState<string | null>(null);
   const [cwdLocked, setCwdLocked] = useState(false);
@@ -245,6 +250,7 @@ export function useRelayClient(
     setFailedBackgroundJobs([]);
     setDraftState(null);
     setChoicePrompt(null);
+    setThrottled(null);
 
     const tailnetMode = isTailnetProfile(profile);
     setConnectingTailnet(tailnetMode);
@@ -292,6 +298,7 @@ export function useRelayClient(
       onConnectionChange: setConnected,
       onReconnecting: () => optionsRef.current.onReconnecting?.(),
       onRevoked: () => markProfileRevoked(profile.id),
+      onThrottled: setThrottled,
       onProtocolMismatch: setProtocolMismatch,
       onConversationReset: () => optionsRef.current.onConversationReset?.(),
       onHistoryPage: (page) => optionsRef.current.onHistoryPage?.(page),
@@ -506,6 +513,7 @@ export function useRelayClient(
 
   return {
     connected,
+    throttled,
     connectingTailnet,
     cwd,
     cwdLocked,

@@ -156,6 +156,7 @@ export const en: Dictionary = {
     },
     connection: {
       reconnecting: "Reconnecting…",
+      wakeBudgetExhausted: "Too many wake-ups. Try again at {time}.",
       sendBlocked: "Waiting for the connection to send",
       waitingForOlder: "Waiting for connection…",
     },
@@ -423,6 +424,7 @@ export const en: Dictionary = {
       clean: "clean",
       detachedHead: "No branch checked out — showing the current commit",
       appVersion: "anywh {version}",
+      wakePaused: "wake-ups paused until {time}",
       relayConnected: "relay connected",
       updateAvailable: "Update to {version}",
       updateReady: "Restart into {version}",
