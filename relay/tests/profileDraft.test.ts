@@ -68,6 +68,61 @@ test("validating and creating from a draft use its config folders, and the profi
   assert.equal((await post("/control/profiles", { label: "Again", draftId: draft.id })).status, 404);
 });
 
+test("a create that died after writing the .env can be retried: the draft is still one, and the retry resumes the file", async () => {
+  const draft = (await (await post("/control/profiles/draft", { label: "Half Done" })).json()) as { id: string };
+  const root = join(server.profilesDir, draft.id);
+  // What add-profile.sh leaves when it fails after the .env (systemctl
+  // enable failing under set -e, say): the whole file, written at once.
+  writeFileSync(
+    join(server.envDir, `${draft.id}.env`),
+    `RELAY_HOST=192.0.2.10\nCLAUDE_CONFIG_DIR=${root}/claude\nCODEX_HOME=${root}/codex\nKIMI_CODE_HOME=${root}/kimi\n`,
+  );
+  // Its .env is its own folders: not a collision with itself.
+  const validated = (await (await post("/control/profiles/validate", { draftId: draft.id })).json()) as { collidesWith?: string };
+  assert.equal(validated.collidesWith, undefined);
+  // Half created is not something to walk away from by dropping the folder.
+  assert.equal((await fetch(url(`/control/profiles/draft/${draft.id}`), { method: "DELETE" })).status, 404);
+
+  const created = await post("/control/profiles", { label: "Half Done", draftId: draft.id });
+  assert.equal(created.status, 200, await created.clone().text());
+  const env = readFileSync(join(server.envDir, `${draft.id}.env`), "utf8");
+  assert.match(env, /^RELAY_PORT=\d+$/m);
+  assert.equal(env.match(/^CLAUDE_CONFIG_DIR=/gm)?.length, 1);
+  assert.equal((await post("/control/profiles", { label: "Half Done", draftId: draft.id })).status, 404);
+});
+
+test("a deleted profile's folder keeps its accounts but is no draft: nothing signs into it or reuses its id", async () => {
+  const draft = (await (await post("/control/profiles/draft", { label: "Gone Soon" })).json()) as { id: string };
+  assert.equal((await post("/control/profiles", { label: "Gone Soon", draftId: draft.id })).status, 200);
+  assert.equal((await fetch(url(`/control/profiles/${draft.id}`), { method: "DELETE" })).status, 200);
+  await waitFor(() => !existsSync(join(server.envDir, `${draft.id}.env`)));
+
+  assert.ok(existsSync(join(server.profilesDir, draft.id, "claude")), "the accounts stay, as a legacy profile's $HOME does");
+  assert.equal((await post("/control/profiles/validate", { draftId: draft.id })).status, 404);
+  assert.equal((await fetch(url(`/control/profiles/draft/${draft.id}`), { method: "DELETE" })).status, 404);
+  const again = (await (await post("/control/profiles/draft", { label: "Gone Soon" })).json()) as { id: string };
+  assert.equal(again.id, `${draft.id}-2`);
+});
+
+test("a profile with a custom home never takes a pending draft's id", async () => {
+  const draft = (await (await post("/control/profiles/draft", { label: "Same Name" })).json()) as { id: string };
+  const home = mkdtempSync(join(tmpdir(), "anywh-custom-home-"));
+  try {
+    const created = await post("/control/profiles", { label: "Same Name", home });
+    assert.equal(created.status, 200, await created.clone().text());
+    assert.notEqual(((await created.json()) as { id: string }).id, draft.id);
+    // So the draft can still be dropped.
+    assert.equal((await fetch(url(`/control/profiles/draft/${draft.id}`), { method: "DELETE" })).status, 200);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+async function waitFor(check: () => boolean): Promise<void> {
+  for (let i = 0; i < 100 && !check(); i++) await new Promise((r) => setTimeout(r, 20));
+  assert.ok(check(), "condition never held");
+}
+
 test("a body naming a draft and a home at once is refused", async () => {
   assert.equal((await post("/control/profiles", { label: "Both", draftId: "x", home: "/tmp/x" })).status, 400);
 });

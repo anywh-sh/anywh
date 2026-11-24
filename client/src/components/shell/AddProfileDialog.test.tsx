@@ -20,6 +20,10 @@ interface RelayState {
   loggedIn: boolean;
   snapshotFound: boolean;
   applyFails: boolean;
+  /** What `POST /control/profiles` waits on before answering, and whether
+   * it then fails. */
+  createGate: Promise<void>;
+  createFails: boolean;
 }
 
 let relay: RelayState;
@@ -39,7 +43,7 @@ function fetchCalls(): [string, { body?: string }][] {
 }
 
 beforeEach(() => {
-  relay = { agents: ["claude", "codex"], loggedIn: true, snapshotFound: true, applyFails: false };
+  relay = { agents: ["claude", "codex"], loggedIn: true, snapshotFound: true, applyFails: false, createGate: Promise.resolve(), createFails: false };
   applied = null;
   createdWith = null;
   discarded = [];
@@ -75,7 +79,12 @@ beforeEach(() => {
       }
       if (url.pathname === "/control/profiles") {
         createdWith = JSON.parse(init?.body ?? "{}") as { label: string; home?: string; draftId?: string; sharing?: unknown; runtimeId?: string };
-        return Promise.resolve(jsonResponse({ id: "client-x", label: createdWith.label, host: "127.0.0.1", port: 8790, colorIndex: 2 }));
+        const label = createdWith.label;
+        return relay.createGate.then(() =>
+          relay.createFails
+            ? ({ ok: false, status: 500, json: () => Promise.resolve({ error: "failed to provision profile" }) } as Response)
+            : jsonResponse({ id: "client-x", label, host: "127.0.0.1", port: 8790, colorIndex: 2 }),
+        );
       }
       if (url.pathname === "/control/portability/apply") {
         if (relay.applyFails) {
@@ -206,6 +215,25 @@ describe("AddProfileDialog", () => {
     await fillAndContinue(user);
     await screen.findByText(/Account confirmed/);
     rerender(<AddProfileDialog open={false} onOpenChange={() => {}} activeProfile={activeProfile} />);
+    await waitFor(() => expect(discarded).toEqual(["client-x"]));
+  });
+
+  it("keeps the draft while the create runs, even if the dialog closes, and drops it only once that create failed", async () => {
+    let release!: () => void;
+    relay.createGate = new Promise((resolve) => (release = resolve));
+    relay.createFails = true;
+    const user = userEvent.setup();
+    const { rerender } = render(<AddProfileDialog open onOpenChange={() => {}} activeProfile={activeProfile} />);
+    await fillAndContinue(user);
+    await screen.findByText(/Account confirmed/);
+    await user.click(body().getByRole("button", { name: en.common.create }));
+    await waitFor(() => expect(createdWith).not.toBeNull());
+
+    rerender(<AddProfileDialog open={false} onOpenChange={() => {}} activeProfile={activeProfile} />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(discarded).toEqual([]);
+
+    release();
     await waitFor(() => expect(discarded).toEqual(["client-x"]));
   });
 

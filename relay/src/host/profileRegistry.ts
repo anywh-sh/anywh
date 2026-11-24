@@ -198,10 +198,13 @@ export async function findHomeOverrideCollision(homeOverride: string | undefined
  * agent whose config folder (its variable, else the folder under the
  * profile's home) is the same. A profile with its own config dirs never
  * collides with the real `$HOME`'s, which is the whole point of them. */
-export async function findProfileCollision(target: ProfileTarget, envDir: string = ENV_DIR): Promise<string | undefined> {
+export async function findProfileCollision(target: ProfileTarget, envDir: string = ENV_DIR, exceptId?: string): Promise<string | undefined> {
   const wanted = effectiveConfigDirs(normalizeHomeOverride(target.home), normalizeDirs(target.configDirs ?? {}));
   const registeredIds = registeredProfileIds(envDir);
   for (const id of listEnvIds(envDir)) {
+    // A draft whose create died after writing its .env is checked against
+    // everyone but itself: its own half-written file holds its own folders.
+    if (id === exceptId) continue;
     const env = readEnvFile(id, envDir);
     if (!env) continue;
     const theirs = effectiveConfigDirs(normalizeHomeOverride(env.RELAY_HOME_OVERRIDE), normalizeDirs(configDirsFromEnv(env)));
@@ -439,9 +442,11 @@ export function updateProfileMeta(
 
 /** `DELETE /control/profiles/:id` — removes the `.env` and the
  * `profiles.json` entry only. Deliberately never touches the profile's
- * `$HOME` or its `RELAY_SESSIONS_FILE`/transcripts: those are the actual
- * Claude account and conversation history, teardown undoes provisioning,
- * not the account. Stopping/disabling the systemd instance is the
+ * `$HOME`, its config root under `PROFILES_DIR` or its
+ * `RELAY_SESSIONS_FILE`/transcripts: those are the actual agent accounts
+ * and conversation history, teardown undoes provisioning, not the account.
+ * The config root's id stays taken (`takenProfileIds`), so a new profile
+ * never inherits a deleted one's accounts. Stopping/disabling the systemd instance is the
  * caller's job (`server.ts`), since that's a process concern, not a
  * registry one. */
 export function deleteProfileFiles(id: string, envDir: string = ENV_DIR): void {
@@ -459,12 +464,26 @@ export function deleteProfileFiles(id: string, envDir: string = ENV_DIR): void {
  * --config-root` also creates. */
 const CONFIG_ROOT_SUBDIRS = ["claude", "codex", "kimi", "rooms", "bots"] as const;
 
-function listDraftIds(profilesDir: string): string[] {
+function listConfigRootIds(profilesDir: string): string[] {
   try {
     return readdirSync(profilesDir).filter((name) => PROFILE_ID_PATTERN.test(name));
   } catch {
     return [];
   }
+}
+
+/** Written into a draft's config root by `createProfileDraft` and removed
+ * once `add-profile.sh` turned it into a profile. It is what makes a folder
+ * a draft: the folder of a deleted profile (kept, with its accounts and
+ * history, like a legacy profile's `$HOME`) has none, so it is never signed
+ * into or adopted again as if it were a new one. */
+const DRAFT_MARKER = ".anywh-draft";
+
+/** Every id a new profile or draft must not take: those with a `.env` and
+ * those with a folder under `PROFILES_DIR` (a draft, or a deleted profile's
+ * folder that still holds its accounts). */
+export function takenProfileIds(envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): string[] {
+  return [...new Set([...listProfileIds(envDir), ...listConfigRootIds(profilesDir)])];
 }
 
 /** Reserves an id and its config root for a profile that doesn't exist yet,
@@ -473,24 +492,39 @@ function listDraftIds(profilesDir: string): string[] {
  * /control/profiles` runs `add-profile.sh --config-root` on it. 0700, as the
  * script makes it: it is about to hold credentials. */
 export function createProfileDraft(label: string, envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): { id: string; root: string } {
-  const id = slugify(label, [...listProfileIds(envDir), ...listDraftIds(profilesDir)]);
+  const id = slugify(label, takenProfileIds(envDir, profilesDir));
   const root = profileConfigRoot(id, profilesDir);
   mkdirSync(root, { recursive: true, mode: 0o700 });
   chmodSync(root, 0o700);
   for (const sub of CONFIG_ROOT_SUBDIRS) mkdirSync(join(root, sub), { recursive: true });
+  writeFileSync(join(root, DRAFT_MARKER), "");
   return { id, root };
 }
 
-/** Whether `id` is a draft: a config root with no profile behind it. */
-export function isProfileDraft(id: string, envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): boolean {
-  return isValidProfileId(id) && !existsSync(envFileFor(id, envDir)) && existsSync(profileConfigRoot(id, profilesDir));
+/** Whether `id` is a draft: a config root reserved by `createProfileDraft`
+ * that no create has finished yet. One whose create died after writing its
+ * `.env` still is (see `isHalfCreatedDraft`), so the create can be retried. */
+export function isProfileDraft(id: string, _envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): boolean {
+  return isValidProfileId(id) && existsSync(join(profileConfigRoot(id, profilesDir), DRAFT_MARKER));
+}
+
+/** A draft whose `add-profile.sh` died after writing its `.env`: the retry
+ * resumes that file instead of being refused because it exists. */
+export function isHalfCreatedDraft(id: string, envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): boolean {
+  return isProfileDraft(id, envDir, profilesDir) && existsSync(envFileFor(id, envDir));
+}
+
+/** The draft is a profile now: its folder stops being one. */
+export function finishProfileDraft(id: string, profilesDir: string = PROFILES_DIR): void {
+  rmSync(join(profileConfigRoot(id, profilesDir), DRAFT_MARKER), { force: true });
 }
 
 /** Drops a draft the user walked away from, signed-in accounts included.
- * Refuses anything that already became a profile: deleting that is
- * `DELETE /control/profiles/:id`'s job, with its own safeguards. */
+ * Refuses anything with a `.env`: a profile, or a half-created one, which
+ * the profile list shows and `DELETE /control/profiles/:id` removes with
+ * its own safeguards. */
 export function discardProfileDraft(id: string, envDir: string = ENV_DIR, profilesDir: string = PROFILES_DIR): boolean {
-  if (!isProfileDraft(id, envDir, profilesDir)) return false;
+  if (!isProfileDraft(id, envDir, profilesDir) || existsSync(envFileFor(id, envDir))) return false;
   rmSync(profileConfigRoot(id, profilesDir), { recursive: true, force: true });
   return true;
 }
@@ -505,6 +539,6 @@ export function resolveProfileTarget(id: string, envDir: string = ENV_DIR, profi
     const configDirs = configDirsFromEnv(env);
     return { ...(env.RELAY_HOME_OVERRIDE ? { home: env.RELAY_HOME_OVERRIDE } : {}), configDirs };
   }
-  if (existsSync(profileConfigRoot(id, profilesDir))) return { configDirs: configDirsForRoot(profileConfigRoot(id, profilesDir)) };
+  if (isProfileDraft(id, envDir, profilesDir)) return { configDirs: configDirsForRoot(profileConfigRoot(id, profilesDir)) };
   return undefined;
 }

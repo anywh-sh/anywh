@@ -111,6 +111,8 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
   const pendingDraft = useRef<string | null>(null);
   const hostRef = useRef(activeProfile);
   hostRef.current = activeProfile;
+  const openRef = useRef(open);
+  openRef.current = open;
   function dropPendingDraft(): void {
     const id = pendingDraft.current;
     pendingDraft.current = null;
@@ -233,12 +235,17 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
     if (!trimmedLabel || !validation) return;
     let signInTarget: McpSignInTarget | null = null;
     setCreating(true);
+    // A draft left over from before switching to a custom home goes before
+    // the create, not after: the new profile must never be able to take its id.
+    if (!account.draftId) dropPendingDraft();
+    // The create holds the draft from here: closing the dialog meanwhile
+    // must not drop the folders it is turning into a profile.
+    const claimedDraft = account.draftId && pendingDraft.current === account.draftId ? account.draftId : null;
+    if (claimedDraft) pendingDraft.current = null;
+    let profileCreated = false;
     try {
       const created = await createProfile(activeProfile.host, activeProfile.relayPort, trimmedLabel, { ...account, sharing }, runtimeId);
-      // It is a profile now: closing the dialog must not drop its folders.
-      // A draft left over from before switching to a custom home still goes.
-      if (account.draftId && pendingDraft.current === account.draftId) pendingDraft.current = null;
-      else dropPendingDraft();
+      profileCreated = true;
       // Before the dialog closes, never after: a profile in the switcher is
       // one the user can send a message to, and a turn that runs before the
       // instructions land runs without them.
@@ -269,6 +276,12 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
       onOpenChange(false);
       if (signInTarget) onMcpSignInNeeded?.(signInTarget);
     } catch (err) {
+      // Still a draft: the dialog owns it again, and drops it now if it was
+      // closed while the create ran.
+      if (claimedDraft && !profileCreated) {
+        pendingDraft.current = claimedDraft;
+        if (!openRef.current) dropPendingDraft();
+      }
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setApplying(false);

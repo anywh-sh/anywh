@@ -15,14 +15,16 @@ import {
   discardProfileDraft,
   envFileFor,
   findProfileCollision,
+  finishProfileDraft,
+  isHalfCreatedDraft,
   isProfileDraft,
   profileConfigRoot,
   isValidProfileId,
-  listProfileIds,
   listProfiles,
   profileSessionsFile,
   resolveProfileTarget,
   slugify,
+  takenProfileIds,
   updateProfileMeta,
   type HostProfile,
 } from "../host/profileRegistry.js";
@@ -160,6 +162,11 @@ function withLastUsedAgent(profile: HostProfile, ownPort: number, ownStore: Sess
   return lastUsed ? { ...profile, lastUsedAgentId: lastUsed } : profile;
 }
 
+/** Drafts a `POST /control/profiles` is turning into profiles right now.
+ * Dropping one then would delete its signed-in folders under the running
+ * `add-profile.sh`, which recreates them empty: a profile signed out. */
+const draftsBeingCreated = new Set<string>();
+
 export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
   if (req.method === "GET" && req.url?.startsWith("/control/profiles")) {
     res.setHeader("Content-Type", "application/json");
@@ -191,6 +198,22 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
           res.end(JSON.stringify({ error: "draft not found" }));
           return;
         }
+        if (draftId !== undefined && draftsBeingCreated.has(draftId)) {
+          res.writeHead(409);
+          res.end(JSON.stringify({ error: "draft is being created" }));
+          return;
+        }
+        if (draftId !== undefined) draftsBeingCreated.add(draftId);
+        // Released when the script exits, or with the response for the
+        // refusals before it runs — not when a caller hangs up mid-create,
+        // which leaves the script running.
+        let scriptStarted = false;
+        const releaseDraft = (): void => {
+          if (draftId !== undefined) draftsBeingCreated.delete(draftId);
+        };
+        res.once("close", () => {
+          if (!scriptStarted) releaseDraft();
+        });
         // Spelled out, never inherited: probed from this relay, a profile
         // that names no home must still read the real $HOME's accounts, not
         // this relay's own config dirs.
@@ -221,7 +244,7 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
           res.end(JSON.stringify({ error: "not logged in" }));
           return;
         }
-        const collidesWith = await findProfileCollision(target);
+        const collidesWith = await findProfileCollision(target, undefined, draftId);
         if (collidesWith) {
           res.writeHead(409);
           res.end(JSON.stringify({ error: "home already registered", collidesWith }));
@@ -229,10 +252,14 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
         }
 
         // A draft already reserved its id (its config root is named after
-        // it); otherwise the id comes from the label, as it always did.
-        const id = draftId ?? slugify(body.label, listProfileIds());
+        // it); otherwise the id comes from the label, as it always did —
+        // never a draft's, whose folder would outlive the profile taking it.
+        const id = draftId ?? slugify(body.label, takenProfileIds());
 
         const args = [id, "--label", body.label, "--mode", "prod"];
+        // A retry of a create that died after writing the .env: without
+        // --resume the script refuses because the file exists.
+        if (draftId !== undefined && isHalfCreatedDraft(draftId)) args.push("--resume");
         if (homeOverride) args.push("--home", homeOverride);
         if (draftId !== undefined) {
           args.push("--config-root", profileConfigRoot(draftId));
@@ -253,17 +280,21 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
         // text and becomes a filename and a systemd instance name — a
         // shell would let a stray space or `/` in that text break out of
         // the intended single argument.
+        scriptStarted = true;
         const child = spawn(ADD_PROFILE_SCRIPT, args, { stdio: ["ignore", "pipe", "pipe"] });
         let stdout = "";
         let stderr = "";
         child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
         child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
         child.on("error", (error) => {
+          releaseDraft();
           console.error("[relay] failed to run add-profile.sh:", error);
           res.writeHead(500);
           res.end(JSON.stringify({ error: "failed to provision profile" }));
         });
         child.on("close", (code) => {
+          if (draftId !== undefined && code === 0) finishProfileDraft(draftId);
+          releaseDraft();
           if (code !== 0) {
             console.error("[relay] add-profile.sh exited with code", code, stderr || stdout);
             res.writeHead(500);
@@ -331,6 +362,11 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Access-Control-Allow-Origin", "*");
     const id = decodeURIComponent(req.url.slice("/control/profiles/draft/".length).split("?")[0]);
+    if (draftsBeingCreated.has(id)) {
+      res.writeHead(409);
+      res.end(JSON.stringify({ error: "draft is being created" }));
+      return true;
+    }
     // A sign-in still running into the draft would write its config file
     // back after the folder is gone.
     if (isProfileDraft(id)) await endProfileLogins(id);
@@ -370,7 +406,7 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
         res.end(JSON.stringify({ error: `failed to check ${runtime.def.identity.id} auth status` }));
         return;
       }
-      const collidesWith = await findProfileCollision(target);
+      const collidesWith = await findProfileCollision(target, undefined, draftId);
       res.end(JSON.stringify(collidesWith ? { ...status, collidesWith } : status));
     });
     return true;
@@ -428,6 +464,9 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
     // stop this very process mid-request. Best-effort: a profile created
     // with `add-profile.sh --mode dev` was never a systemd instance, so a
     // failure here doesn't block cleaning up the registry below.
+    // A sign-in still running into the profile's folders would keep
+    // writing an account there after it is gone from the list.
+    void endProfileLogins(id);
     const finishDelete = () => {
       try {
         deleteProfileFiles(id);
