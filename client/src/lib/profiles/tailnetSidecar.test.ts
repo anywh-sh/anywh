@@ -92,6 +92,24 @@ describe("tailnetSidecar", () => {
     await vi.runAllTimersAsync();
   });
 
+  it("starts a failed join again for the next caller instead of handing out the cached rejection", async () => {
+    const { acquireTailnetSidecar, retargetTailnetSidecar, peekTailnetSidecar, releaseTailnetSidecar } = await import("@/lib/profiles/tailnetSidecar");
+    const id = "failed-join";
+
+    invokeMock.mockImplementationOnce(() => Promise.reject(new Error("tsnet up: 401")));
+    await expect(acquireTailnetSidecar(profile(id), "100.64.0.1:8765")).rejects.toThrow("401");
+    // Nothing to dial while it is down; a one-off caller acquires instead.
+    expect(peekTailnetSidecar(id)).toBeUndefined();
+
+    // Same target, but the last start failed, so this one starts it again.
+    expect(await retargetTailnetSidecar(profile(id), "100.64.0.1:8765")).toEqual({ host: "127.0.0.1", port: 12345 });
+    expect(invokeMock.mock.calls.filter(([cmd]) => cmd === "tailnet_sidecar_start")).toHaveLength(2);
+    expect(await peekTailnetSidecar(id)).toEqual({ host: "127.0.0.1", port: 12345 });
+
+    releaseTailnetSidecar(id);
+    await vi.runAllTimersAsync();
+  });
+
   it("retargets nothing for a profile nobody holds", async () => {
     const { retargetTailnetSidecar } = await import("@/lib/profiles/tailnetSidecar");
     expect(retargetTailnetSidecar(profile("never-held"), "100.64.0.3:8765")).toBeUndefined();
