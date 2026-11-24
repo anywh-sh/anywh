@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarClock, LayoutGrid, Lock, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -115,7 +115,17 @@ export function NewBotForm({
     if (agents.length > 0 && !agents.includes(agentId)) setAgentId(agents[0]);
   }, [agents, agentId]);
 
-  const ready = name.trim() !== "" && soul.trim() !== "" && !busy;
+  const gated = lacksFeature(relay, "bots");
+  const ready = name.trim() !== "" && soul.trim() !== "" && !busy && !gated;
+  const rootRef = useRef<HTMLFieldSetElement>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Disabling the form while it creates drops focus to the body (a disabled
+  // control can't hold it); once a failed attempt unlocks it, focus goes back
+  // to Create, so the next Tab stays in the dialog.
+  useEffect(() => {
+    if (error !== null && !busy) createButtonRef.current?.focus();
+  }, [error, busy]);
 
   const create = async (): Promise<void> => {
     if (!ready) return;
@@ -138,20 +148,37 @@ export function NewBotForm({
     }
   };
 
+  // ⌘/Ctrl+Enter creates from anywhere in the dialog, not only from inside
+  // the form: WebKit doesn't focus a button, switch or select it clicks, and a
+  // click on blank space focuses the dialog itself, so after either the
+  // keydown lands outside any handler the form could put on its own element.
+  // Listened on the window but scoped to the dialog the form sits in (or the
+  // form, drawn without one): once the dialog closes, focus is back on what
+  // opened it, so a keypress during the closing animation creates nothing.
+  const createRef = useRef(create);
+  createRef.current = create;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.defaultPrevented || event.isComposing || event.repeat) return;
+      const root = rootRef.current;
+      const scope = root?.closest('[role="dialog"]') ?? root;
+      if (!scope || !(event.target instanceof Node) || !scope.contains(event.target)) return;
+      event.preventDefault();
+      void createRef.current();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   return (
-    <div
-      className="flex flex-col"
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-          event.preventDefault();
-          void create();
-        }
-      }}
-    >
+    // While the bot is being created nothing in the form can change under it:
+    // a disabled fieldset disables every control inside, the header's close
+    // and the footer's buttons included (Escape still closes the dialog).
+    <fieldset ref={rootRef} disabled={busy} className="m-0 flex min-w-0 flex-col border-0 p-0">
       <DialogHeader className="h-[52px] border-b-0 bg-transparent py-0 pl-5">
         <DialogTitle className="font-display text-[17px] font-semibold tracking-[-0.01em]">{copy.title}</DialogTitle>
       </DialogHeader>
-      {lacksFeature(relay, "bots") ? (
+      {gated ? (
         <div className="px-5 pb-5">
           <div className="border border-border">
             <BotsRelayGate profile={profile} relayVersion={relay.version} />
@@ -247,11 +274,13 @@ export function NewBotForm({
         <Button variant="ghost" onClick={closeNewBot}>
           {dict.common.cancel}
         </Button>
-        <Button loading={busy} disabled={!ready} onClick={() => void create()}>
-          {busy ? copy.creating : copy.create}
+        {/* The label stays the same while it loads, so the button keeps its
+            width; faded while busy, since nothing in the form can be used then. */}
+        <Button ref={createButtonRef} loading={busy} disabled={!ready} onClick={() => void create()} className="data-loading:disabled:opacity-50">
+          {copy.create}
           <KbdShortcut keys={shortcutKeys("↵")} size="sm" className="[&_kbd]:border-background/25 [&_kbd]:bg-transparent [&_kbd]:text-background/75" />
         </Button>
       </div>
-    </div>
+    </fieldset>
   );
 }

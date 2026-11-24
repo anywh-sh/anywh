@@ -1490,7 +1490,6 @@ export const en: Dictionary = {
       scheduleOn: "{when} · on",
       fromTemplate: "Start from a template",
       create: "Create",
-      creating: "Creating…",
       failed: "The bot could not be created.",
       noHost: "This machine's agent host is not running, so a bot cannot start now.",
     },
