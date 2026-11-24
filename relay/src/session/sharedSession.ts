@@ -325,6 +325,16 @@ export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarti
  * tool call, or text that can no longer spell `NO_REPLY`. At that point the
  * buffer is flushed in order and the turn continues live like any other.
  */
+/** How a bot's relay turn ended (`submitBotTurn`). `reply` is the turn's
+ * last text as the model wrote it, when it got that far. */
+export interface BotTurnOutcome {
+  silenced: boolean;
+  failed: boolean;
+  limited?: boolean;
+  stopped?: boolean;
+  reply?: string;
+}
+
 export class HeldTurn {
   readonly buffer: BroadcastMessage[] = [];
   released = false;
@@ -347,7 +357,7 @@ export class HeldTurn {
       this.sinceTool = [];
       const subject = event.subject;
       if (subject?.kind === "edit" || subject?.kind === "write") return true;
-      return subject?.kind === "mcp" && subject.server === "anywh-room" && subject.tool !== "bot_status";
+      return subject?.kind === "mcp" && subject.server === "anywh-room" && subject.tool !== "bot_status" && subject.tool !== "bot_list";
     }
     if (event.type === "tool_started" || event.type === "plan" || event.type === "subagent" || event.type === "error") return true;
     if (event.type === "text_delta") {
@@ -1607,14 +1617,14 @@ export class SharedSession implements SessionDriverHost {
    * silence, and allowed to look things up before answering `NO_REPLY`), or
    * a note (its creation, the person's answer to a task). `onSettled` says
    * how it ended. */
-  submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: { silenced: boolean; failed: boolean; limited?: boolean }) => void }): void {
+  submitBotTurn(text: string, turn: { kind: "bot_schedule" | "bot_note"; label: string; onSettled?: (outcome: BotTurnOutcome) => void }): void {
     this.clearSuggestion();
     const schedule = turn.kind === "bot_schedule";
     // Exactly once, however the turn ends: also when it is dropped from the
     // queue or fails before it starts (loading the history), which would
     // otherwise leave a schedule marked as running.
     let settled = false;
-    const settle = (outcome: { silenced: boolean; failed: boolean; limited?: boolean }): void => {
+    const settle = (outcome: BotTurnOutcome): void => {
       if (settled) return;
       settled = true;
       turn.onSettled?.(outcome);
@@ -1628,7 +1638,14 @@ export class SharedSession implements SessionDriverHost {
             ...(schedule ? { silenceOffered: true, toolsAllowed: true } : {}),
             // A usage limit is the agent's plan running out, not the bot
             // failing: the bot waits for the reset instead.
-            onSettled: (silenced, failed, failureClass) => settle({ silenced, failed: failed === true, ...(failureClass === "usage-limit" ? { limited: true } : {}) }),
+            onSettled: (silenced, failed, failureClass, end) =>
+              settle({
+                silenced,
+                failed: failed === true,
+                ...(failureClass === "usage-limit" ? { limited: true } : {}),
+                ...(end?.stopped ? { stopped: true } : {}),
+                ...(end?.reply !== undefined ? { reply: end.reply } : {}),
+              }),
           });
         } catch (error) {
           console.error(`[relay] bot turn "${turn.label}" failed before it started:`, error);
@@ -1706,7 +1723,7 @@ export class SharedSession implements SessionDriverHost {
       toolsAllowed?: boolean;
       /** Runs once the turn is over, with whether it was silenced, whether
        * it failed, and how the agent read the failure when its def says. */
-      onSettled?: (silenced: boolean, failed?: boolean, failureClass?: TurnFailureClass) => void;
+      onSettled?: (silenced: boolean, failed?: boolean, failureClass?: TurnFailureClass, end?: { stopped: boolean; reply?: string }) => void;
     },
     /** Follow a turn already running in the agent host instead of sending one. */
     follow = false,
@@ -1989,7 +2006,7 @@ export class SharedSession implements SessionDriverHost {
       else this.choiceMachine.flushDeferredApprovals(turnId);
       // Before the idle `turn_state` goes out, so a client that sees the turn
       // end already has the failure tray the turn's outcome decided.
-      synthetic?.onSettled?.(silenced, turnError !== undefined, turnFailureClass);
+      synthetic?.onSettled?.(silenced, turnError !== undefined, turnFailureClass, { stopped: turnStopped, ...(planChoiceText !== undefined ? { reply: planChoiceText } : {}) });
       this.turnStartedAt = null;
       // A sign-in or sign-out landed during the turn: its daemon still holds
       // the old credentials.

@@ -380,3 +380,34 @@ test("canceling a task stops its agent and tells the bot", async () => {
     socket.close();
   }
 });
+
+test("a bot asks another bot: the question is the other bot's turn, and its reply comes back as the asker's next turn", async () => {
+  const ana = await createBot({ name: "Ana" });
+  const bruno = await createBot({ name: "Bruno", soul: "I watch releases and say what shipped." });
+  const idle = (id: string) => async () => !((await (await fetch(`${base}/bots`)).json()) as { bots: { id: string; busy: boolean }[] }).bots.find((each) => each.id === id)?.busy;
+  await waitFor(idle(ana.id), 20_000, "Ana's kickoff to end");
+  await waitFor(idle(bruno.id), 20_000, "Bruno's kickoff to end");
+  const socket = await connectSession(relay.port, ana.roomId);
+  try {
+    const listed = await botTurn(socket, `who ${marker("bot_list", {})}`);
+    const peers = (JSON.parse(listed.last) as { bots: { name: string; purpose: string | null }[] }).bots;
+    assert.ok(peers.some((peer) => peer.name === "Bruno" && peer.purpose === "I watch releases and say what shipped."), listed.last);
+    assert.ok(!peers.some((peer) => peer.name === "Ana"), "never itself");
+
+    // The answer is a turn of Ana's own, marked as Bruno's answer, carrying
+    // what Bruno's turn said (the fake echoes the question it got).
+    const answer = collectUntil(
+      socket,
+      (message) => message.type === "agent_event" && (message.event as { type: string; synthetic?: string; label?: string }).synthetic === "bot_note" && (message.event as { label?: string }).label === "peer_answer:Bruno",
+      30_000,
+    );
+    const asked = await botTurn(socket, `ask ${marker("bot_ask", { to: "bruno", question: "What shipped yesterday?" })}`);
+    assert.equal(asked.results[0].isError, false, asked.results[0].content);
+    const events = await answer;
+    const user = events.at(-1)!.event as { text: string };
+    assert.match(user.text, /^\[anywh-bot\] Bot "Bruno" answered your question\./);
+    assert.match(user.text, /Answer: echo: \[anywh-bot\] Bot "Ana" asks you:\n\nWhat shipped yesterday\?/);
+  } finally {
+    socket.close();
+  }
+});
