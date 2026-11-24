@@ -521,10 +521,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # The Tauri CLI's own config-merge variable: the official identifier
-          # comes from the repository variable, not from tauri.conf.json (see
-          # the guard in create-release, which keeps this from being empty).
-          TAURI_CONFIG: '{"identifier":"${{ vars.ANYWH_APP_IDENTIFIER }}"}'
+          # The official identifier comes from the repository variable, not
+          # from tauri.conf.json (see the guard in create-release, which keeps
+          # this from being empty). client/scripts/tauri.mjs hands it to the
+          # CLI as --config: a bare TAURI_CONFIG here reached the compiled
+          # binary but not the bundler, so 0.2.x shipped a macOS Info.plist
+          # with the development id (ENG-95).
+          ANYWH_APP_IDENTIFIER: ${{ vars.ANYWH_APP_IDENTIFIER }}
           # Compiled into the frontend by Vite. Unlike the identifier this one
           # is optional: a release built without the secret ships with the
           # telemetry module inert, which is also what a fork or a local
@@ -540,6 +543,10 @@ jobs:
           POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_CLI_PROJECT_ID }}
         with:
           projectPath: client
+          # Pinned rather than auto-detected: the identifier above only
+          # reaches the bundler through this script, which also keeps it on
+          # the Apple Silicon leg next to that leg's own relay --config.
+          tauriScript: npm run tauri
           args: ${{ matrix.rustTarget && format('--target {0}', matrix.rustTarget) || '' }} ${{ matrix.relayTree && '--config src-tauri/tauri.relay.conf.json' || '' }}
           releaseId: ${{ needs.create-release.outputs.release_id }}
           # tauri-action's own latest.json is a read-merge-write against the
@@ -552,6 +559,24 @@ jobs:
           # not an input at all, so it was ignored and every leg kept racing
           # on latest.json (a delete of an already-deleted asset is a 404).
           includeUpdaterJson: false
+
+      # The identity check the build itself never made: WebKit keys the app's
+      # storage (the profile list) by the bundle's CFBundleIdentifier, so a
+      # plist that disagrees with the binary silently moves users onto
+      # another data directory. A failure here leaves the release a draft —
+      # the checksums job that publishes it needs every leg.
+      - name: Check the bundle identifier (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          ANYWH_APP_IDENTIFIER: ${{ vars.ANYWH_APP_IDENTIFIER }}
+        run: |
+          plist="client/src-tauri/target/${{ matrix.rustTarget }}/release/bundle/macos/anywh.app/Contents/Info.plist"
+          actual=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")
+          if [ "$actual" != "$ANYWH_APP_IDENTIFIER" ]; then
+            echo "::error::$plist has CFBundleIdentifier '$actual', expected '$ANYWH_APP_IDENTIFIER'"
+            exit 1
+          fi
+          echo "CFBundleIdentifier: $actual"
 
   # Ships the relay as a tarball with node_modules already compiled — separate
   # from the client's `build` matrix above because it packages a Node

@@ -33,6 +33,11 @@ mod updater;
 // the frontend treats its absence as "not set".
 #[cfg(not(target_os = "ios"))]
 mod telemetry;
+// Carries macOS WebKit storage over from the identifier the 0.2.x releases
+// shipped in their Info.plist — see the module docs. Built for tests on every
+// platform, since the logic itself is plain filesystem work.
+#[cfg(any(target_os = "macos", test))]
+mod webkit_migration;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -80,6 +85,11 @@ pub fn run_with(
     context: tauri::Context,
     extend: impl FnOnce(tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry>,
 ) {
+    // Before the builder: the windows declared in tauri.conf.json, and with
+    // them WebKit's data store, are created while the app is built.
+    #[cfg(target_os = "macos")]
+    webkit_migration::run(&context.config().identifier);
+
     let builder = tauri::Builder::default();
 
     // Must come before every other plugin: the whole job of this one is to

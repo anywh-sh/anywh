@@ -5,38 +5,25 @@
 // on purpose: the identifier of the official build belongs to whoever
 // signs and publishes it, so the build environment supplies it (the release
 // workflow, or the private iOS build). It is also what names the app's data
-// directory on desktop, so an official build without it would start with an
-// empty profile list — release.yml refuses to run without it.
+// directory on desktop (and, on macOS, the bundle id WebKit keys its storage
+// by), so an official build without it would start with an empty profile
+// list — release.yml refuses to run without it.
 //
-// TAURI_CONFIG is the CLI's own merge-patch channel, and it is also what
-// `tauri ios init` and the Rust build read, so one variable covers `dev`,
-// `build` and `ios init` alike. A TAURI_CONFIG already in the environment is
-// kept and the identifier is merged over it.
+// The identifier reaches the CLI as `--config` (what the bundler, and so the
+// macOS Info.plist, reads) and as TAURI_CONFIG (what the Rust build reads);
+// see scripts/tauriArgs.mjs for why both. A TAURI_CONFIG already in the
+// environment is kept and the identifier is merged over it.
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { withEnvConfig } from "./tauriArgs.mjs";
+import { applyIdentifier } from "./tauriArgs.mjs";
 
-const identifier = process.env.ANYWH_APP_IDENTIFIER?.trim();
-if (identifier) {
-  // Becomes a bundle id and a file name on some platforms; refuse anything
-  // that isn't a plain reverse-DNS string rather than pass it on.
-  if (!/^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$/.test(identifier)) {
-    console.error(`ANYWH_APP_IDENTIFIER is not a valid identifier: ${JSON.stringify(identifier)}`);
-    process.exit(1);
-  }
-  let existing = {};
-  if (process.env.TAURI_CONFIG) {
-    try {
-      existing = JSON.parse(process.env.TAURI_CONFIG);
-    } catch {
-      console.error("TAURI_CONFIG is set but is not valid JSON");
-      process.exit(1);
-    }
-  }
-  process.env.TAURI_CONFIG = JSON.stringify({ ...existing, identifier });
+const shaped = applyIdentifier(process.argv.slice(2), process.env);
+if ("error" in shaped) {
+  console.error(shaped.error);
+  process.exit(1);
 }
 
 const require = createRequire(import.meta.url);
 const cli = require.resolve("@tauri-apps/cli/tauri.js");
-const result = spawnSync(process.execPath, [cli, ...withEnvConfig(process.argv.slice(2), process.env.TAURI_CONFIG)], { stdio: "inherit", env: process.env });
+const result = spawnSync(process.execPath, [cli, ...shaped.args], { stdio: "inherit", env: shaped.env });
 process.exit(result.status ?? 1);
