@@ -6,6 +6,7 @@ import { applyEnvFileContent } from "../host/envFile.js";
 import { isCreateProfileBody, isPatchProfileBody } from "../protocol/guards.js";
 import { readJsonBody, readOptionalJsonBody } from "../protocol/httpBody.js";
 import { resolveShipped } from "../host/paths.js";
+import { stopProfileService } from "../host/profileServices.js";
 import { homedir } from "node:os";
 import { effectiveConfigDirs, type ProfileTarget } from "../host/agentConfigDirs.js";
 import { applyProfileSharing, SEPARATE_EVERYTHING } from "../host/profileSharing.js";
@@ -40,17 +41,6 @@ import { endProfileLogins } from "../ws/agentLogin.js";
 // `dist/` (tsc build, two levels below the repo root) or the macOS SEA
 // binary (`infra/` shipped flat next to it) alike.
 const ADD_PROFILE_SCRIPT = resolveShipped(import.meta.url, "../../../infra/systemd/add-profile.sh", "infra/systemd/add-profile.sh");
-
-// Same seam as `AGENT_BIN` (runtimes/executables.ts) — defaults to the bare
-// command name (works wherever `systemctl --user` is genuinely available),
-// overridable so a test never has to shell out to the REAL systemd user
-// session, which has no notion of "this is just a test": a real incident
-// (2026-09-07) had an integration test's `DELETE /control/profiles/:id`
-// call disable+stop the operator's actual live `anywh-relay@trabalho`
-// service, SIGKILLing a real in-flight `claude` conversation. `AGENT_BIN`
-// already gets this treatment for the same reason; this route's `spawn`
-// needed the identical override, not a mock of `spawn` itself.
-const SYSTEMCTL_BIN = process.env.SYSTEMCTL_BIN ?? "systemctl";
 
 // What a body that names no runtime means. Every client shipped before the
 // runtime became a choice sends exactly that, and every one of them meant
@@ -96,36 +86,22 @@ function agentHostDataDirOf(id: string): string {
   return agentHostDataDir(id, { ...env, ANYWH_SESSIONS_ROOT: env.ANYWH_SESSIONS_ROOT ?? process.env.ANYWH_SESSIONS_ROOT });
 }
 
-function runSystemctl(args: readonly string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolveRun) => {
-    const child = spawn(SYSTEMCTL_BIN, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
-    child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
-    child.on("error", (error) => resolveRun({ code: null, stdout, stderr: String(error) }));
-    child.on("close", (code) => resolveRun({ code, stdout, stderr }));
-  });
-}
-
 /**
  * Stops a deleted profile's agent host, then removes its data directory —
  * agent specs (which can carry MCP secrets) and logs — so a profile created
  * again under the same id does not bring the old agents back. Removed only
  * when all of these hold, kept (and logged) otherwise:
- *   - `systemctl disable --now` succeeded and the unit is no longer active;
+ *   - its service (systemd unit or launchd job) stopped and is no longer
+ *     running;
  *   - the profile was not created again while the host was draining;
  *   - the directory carries the marker file of THIS profile's host, and
  *     nothing a host does not write — so a mistyped or shared
  *     ANYWH_AGENT_HOST_DIR can never make a delete remove something else.
  */
 async function removeAgentHost(id: string, dir: string): Promise<void> {
-  const unit = `anywh-agent-host@${id}`;
   const keep = (reason: string): void => console.error(`[relay] agent host data of ${id} kept (${reason}): ${dir}`);
-  const disabled = await runSystemctl(["--user", "disable", "--now", unit]);
-  if (disabled.code !== 0) return keep(`stopping ${unit} failed: ${disabled.stderr.trim() || `exit ${String(disabled.code)}`}`);
-  const state = (await runSystemctl(["--user", "is-active", unit])).stdout.trim();
-  if (["active", "activating", "deactivating", "reloading", "refreshing"].includes(state)) return keep(`${unit} is still ${state}`);
+  const stop = await stopProfileService("agent-host", id);
+  if (!stop.stopped) return keep(stop.detail ?? "its service did not stop");
   if (existsSync(envFileFor(id))) return keep("the profile was created again meanwhile");
   if (!isAbsolute(dir)) return keep("not an absolute path");
   let owner: string;
@@ -460,10 +436,10 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
     }
 
     // The caller is responsible for never sending this to the profile it's
-    // deleting — `systemctl --user disable --now` would
-    // stop this very process mid-request. Best-effort: a profile created
-    // with `add-profile.sh --mode dev` was never a systemd instance, so a
-    // failure here doesn't block cleaning up the registry below.
+    // deleting — stopping its service would stop this very process
+    // mid-request. Best-effort: a profile created with
+    // `add-profile.sh --mode dev` was never a service, so a failure here
+    // doesn't block cleaning up the registry below.
     // A sign-in still running into the profile's folders would keep
     // writing an account there after it is gone from the list.
     void endProfileLogins(id);
@@ -480,10 +456,9 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
     const hostData = agentHostDataDirOf(id);
     // The relay first, as before; then the response; then the agent host,
     // whose stop drains (up to about a minute) — the caller does not wait
-    // on it. One unit per call: `systemctl disable` given several fails as
-    // a whole when one does not exist (a machine set up before the host).
-    void runSystemctl(["--user", "disable", "--now", `anywh-relay@${id}`]).then((result) => {
-      if (result.code !== 0) console.error("[relay] systemctl disable for", `anywh-relay@${id}`, "exited", result.code, result.stderr.trim());
+    // on it.
+    void stopProfileService("relay", id).then((result) => {
+      if (!result.stopped) console.error(`[relay] stopping the relay of ${id}: ${result.detail}`);
       finishDelete();
       void removeAgentHost(id, hostData);
     });
