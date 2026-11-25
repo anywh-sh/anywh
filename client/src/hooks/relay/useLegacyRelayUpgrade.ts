@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { APP_VERSION } from "@/lib/install/appVersion";
-import { BrewUpgradeError, localInstallPossible, upgradeBrewRelay } from "@/lib/install/localRelay";
+import { appShipsRelay, BrewUpgradeError, localInstallPossible, upgradeBrewRelay } from "@/lib/install/localRelay";
 import { currentPlatform } from "@/lib/platform/platform";
 import { isLoopbackHost } from "@/lib/profiles/loopback";
 import { isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
@@ -139,6 +139,10 @@ interface Entry {
   /** The machine the relay says it runs on (`/host-info`). */
   hostname?: string;
   version?: string;
+  /** A Homebrew relay on this Mac whose app ships its own relay: its update
+   * moves the profile to the app's relay, which the app keeps current from
+   * then on (`relay_brew_upgrade`). */
+  toAppRelay?: boolean;
   /** The run in progress, if any: a run that is no longer this one (called
    * off, or replaced) stops at its next step. */
   run?: symbol;
@@ -340,7 +344,7 @@ export function useLegacyRelayUpgrade(
     if (entry.checked === where) return;
     entry.checked = where;
     getHostInfo(profile).then(
-      (info) => {
+      async (info) => {
         if (entry.checked !== where || running(entry.state)) return;
         if (!needsLegacyUpgrade(info, appVersion)) {
           // The profile now points at a relay that needs nothing (edited to
@@ -350,13 +354,18 @@ export function useLegacyRelayUpgrade(
           entry.kind = undefined;
           entry.hostname = undefined;
           entry.version = undefined;
+          entry.toAppRelay = undefined;
           if (entry.state.phase !== "hidden") setState(profile.id, { phase: "hidden" });
           return;
         }
+        const kind = legacyUpgradeKind(info) ?? undefined;
+        const toAppRelay = runsHomebrewRelayHere(profile, kind) && (await appShipsRelay());
+        if (entry.checked !== where || running(entry.state)) return;
         entry.platform = info.platform;
-        entry.kind = legacyUpgradeKind(info) ?? undefined;
+        entry.kind = kind;
         entry.hostname = info.hostname;
         entry.version = info.version;
+        entry.toAppRelay = toAppRelay;
         if (entry.state.phase === "hidden" || entry.state.phase === "done" || entry.state.phase === "failed") {
           if (recentlyNotPublished(profile.id, info.version, appVersion)) entry.noticeDismissed = true;
           setState(profile.id, { phase: "available" });
@@ -409,7 +418,8 @@ export function useLegacyRelayUpgrade(
   // A Homebrew relay never updates itself, on this Mac or another: the
   // update is offered again with every release, and the notice must not
   // promise otherwise. Only the installer's relay keeps itself up to date
-  // after this one update.
-  const eachTime = entry.kind === "homebrew";
+  // after this one update — and a Homebrew one this Mac's app moves to its
+  // own relay, which updates with the app.
+  const eachTime = entry.kind === "homebrew" && entry.toAppRelay !== true;
   return { state, noticeDismissed: entry.noticeDismissed, relayVersion: entry.version, eachTime, start, dismiss };
 }

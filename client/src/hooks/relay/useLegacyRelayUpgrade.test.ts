@@ -11,6 +11,8 @@ const native = vi.hoisted(() => ({
   /** What the native command rejects with, as `relay_brew_upgrade` does. */
   brewError: null as { code: string; detail?: string } | null,
   onBrew: (): void => undefined,
+  /** Whether this app ships its own relay (`relay_bundled`). */
+  bundled: false,
 }));
 vi.mock("@/lib/platform/platform", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/platform/platform")>()), currentPlatform: () => native.platform }));
 vi.mock("@/lib/install/localRelay", async (importOriginal) => {
@@ -18,6 +20,7 @@ vi.mock("@/lib/install/localRelay", async (importOriginal) => {
   return {
     ...original,
     localInstallPossible: () => native.tauri,
+    appShipsRelay: () => Promise.resolve(native.bundled),
     upgradeBrewRelay: (relayHostname?: string) => {
       native.brewHosts.push(relayHostname);
       native.brewRuns++;
@@ -115,7 +118,7 @@ beforeEach(() => {
   resetLegacyRelayUpgrades();
   localStorage.clear();
   counted.length = 0;
-  Object.assign(native, { platform: "linux", tauri: false, brewRuns: 0, brewHosts: [], brewError: null, onBrew: () => undefined });
+  Object.assign(native, { platform: "linux", tauri: false, brewRuns: 0, brewHosts: [], brewError: null, onBrew: () => undefined, bundled: false });
   relay = { version: "0.2.40", busy: new Set(), terminalOutput: `ANYWH done ok\r\n${UPGRADE_EXIT_MARKER}=0\r\n`, versionAfter: "0.2.50", commands: [] };
   vi.stubGlobal("WebSocket", FakeSocket);
   vi.stubGlobal(
@@ -361,6 +364,27 @@ describe("a Homebrew relay on this Mac", () => {
     const newer = renderHook(() => useLegacyRelayUpgrade(local, { appVersion: "0.2.51", timing: fast }));
     await waitFor(() => expect(newer.result.current.state.phase).toBe("available"));
     expect(newer.result.current.noticeDismissed).toBe(false);
+  });
+
+  it("is offered with every release while the app ships no relay of its own", async () => {
+    const { result } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    expect(result.current.eachTime).toBe(true);
+  });
+
+  it("moves once to the app's own relay when the app ships one, which keeps itself current from then on", async () => {
+    native.bundled = true;
+    // The app's relay answers on the app's version.
+    native.onBrew = () => {
+      relay.version = "0.2.50";
+    };
+    const { result } = mountLocal();
+    await waitFor(() => expect(result.current.state.phase).toBe("available"));
+    expect(result.current.eachTime).toBe(false);
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    expect(native.brewRuns).toBe(1);
+    expect(relay.commands).toEqual([]);
   });
 
   it("the quiet spell ends", () => {

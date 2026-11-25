@@ -203,8 +203,17 @@ function toBrewUpgradeError(raw: unknown): BrewUpgradeError {
   return new BrewUpgradeError("failed", raw instanceof Error ? raw.message : String(raw));
 }
 
+/** Whether this desktop app ships its own relay (the Apple Silicon macOS
+ * release). False outside Tauri, and in a dev or Intel build. */
+export function appShipsRelay(): Promise<boolean> {
+  if (!inTauri()) return Promise.resolve(false);
+  return invoke<boolean>("relay_bundled").catch(() => false);
+}
+
 /** Upgrades the Homebrew relay on this Mac and restarts its service
- * (`brew upgrade anywh-relay` + `brew services restart`). Rejects with a
+ * (`brew upgrade anywh-relay` + `brew services restart`) — or, when the app
+ * ships its own relay (`appShipsRelay`), moves the profile to it and
+ * uninstalls the formula, once. Rejects with a
  * `BrewUpgradeError`. `relayHostname` is the host name the relay gave
  * (`/host-info`): the native side refuses (`other_machine`) when it is not
  * this machine's. */
