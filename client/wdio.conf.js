@@ -25,10 +25,21 @@ function newestMtime(dir) {
 // `tauri dev`/`tauri build` — this is an opt-in, e2e-only binary.
 const appBinaryPath = resolve(import.meta.dirname, "src-tauri/target/debug/anywh");
 
-/** A port on 127.0.0.1 nothing listens on, below every OS's ephemeral range. */
+// Ports the e2e uses at a fixed number: updateDownload.spec.js's
+// manifest server (`updateDownloadE2EFixtures.port`, compiled into
+// tauri.e2e.conf.json) and the seeded profile's port. A port picked at run
+// time must never be one of them.
+const UPDATE_MANIFEST_PORT = 31864;
+const SEED_PORT = 47866;
+const FIXED_E2E_PORTS = new Set([UPDATE_MANIFEST_PORT, SEED_PORT]);
+
+/** A port on 127.0.0.1 nothing listens on, below every OS's ephemeral range,
+ * in 30000-32767: apart from the 20000-29999 the room and plan-usage relay
+ * fixtures pick from, and never one of `FIXED_E2E_PORTS`. */
 async function freeFixturePort() {
   for (let attempt = 0; attempt < 50; attempt++) {
-    const port = 20000 + Math.floor(Math.random() * 12000);
+    const port = 30000 + Math.floor(Math.random() * 2768);
+    if (FIXED_E2E_PORTS.has(port)) continue;
     const free = await new Promise((resolveFree) => {
       const probe = createServer();
       probe.once("error", () => resolveFree(false));
@@ -77,7 +88,7 @@ const e2eHome = (process.env.ANYWH_E2E_HOME ??= mkdtempSync(join(tmpdir(), "anyw
 // The seeded profile's port: one nothing listens on. 8765 is the relay's
 // default, which is exactly where a developer's own relay answers — no spec
 // needs a live relay there, and none may reach a real one.
-export const e2eSeedPort = 47866;
+export const e2eSeedPort = SEED_PORT;
 export const firstRunE2EFixtures = {
   home: e2eHome,
   installDir: join(e2eHome, "install"),
@@ -101,7 +112,7 @@ mkdirSync(firstRunE2EFixtures.installDir, { recursive: true });
 // were signed with its (discarded) private half. The port sits below every
 // OS's ephemeral range for the same reason as `updateE2EFixtures.port`.
 export const updateDownloadE2EFixtures = {
-  port: 31864,
+  port: UPDATE_MANIFEST_PORT,
   // Written by the fixture artifact (a shell script standing in for the next
   // release's binary) when the title-bar button relaunches into it.
   relaunchMarker: resolve(tmpdir(), "anywh-e2e-relaunched.marker"),
