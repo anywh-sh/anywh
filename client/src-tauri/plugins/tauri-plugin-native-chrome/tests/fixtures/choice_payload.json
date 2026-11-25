@@ -1,0 +1,50 @@
+{
+  "choice": {
+    "stepKey": "prompt-1:0",
+    "banner": {
+      "label": "Pending question",
+      "text": "Should the relay retry per test or the whole job?",
+      "openLabel": "Open the pending question"
+    },
+    "kicker": "Retry",
+    "position": "1 of 2",
+    "question": "Should the relay retry per test or the whole job?",
+    "multiSelect": false,
+    "options": [
+      { "label": "Per test, at most twice", "description": "Hides only the flaky one.", "selected": true },
+      { "label": "The whole job", "description": "A real failure can slip through.", "selected": false },
+      { "label": "No retry", "description": null, "selected": false }
+    ],
+    "optionsDimmed": false,
+    "custom": {
+      "text": "",
+      "placeholder": "Or write your own answer…",
+      "label": "Write a custom answer",
+      "secret": false
+    },
+    "canGoBack": false,
+    "canAnswer": true,
+    "status": null,
+    "submitLabel": "Next",
+    "skipLabel": "Skip",
+    "strings": {
+      "close": "Close",
+      "previous": "Previous question"
+    },
+    "theme": {
+      "background": "#111111",
+      "sidebar": "#161616",
+      "elevated": "#1c1c1c",
+      "card": "#202020",
+      "foreground": "#eeeeee",
+      "muted": "#999999",
+      "faint": "#666666",
+      "border": "#2a2a2a",
+      "primary": "#e0642a",
+      "primaryForeground": "#ffffff",
+      "destructive": "#dc6f5c",
+      "tint": "#eceae4",
+      "success": "#e0642a"
+    }
+  }
+}

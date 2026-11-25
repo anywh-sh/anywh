@@ -87,4 +87,8 @@ impl<R: Runtime> NativeChrome<R> {
   pub fn set_scroll_to_end(&self, payload: ScrollToEndRequest) -> crate::Result<()> {
     self.0.run_mobile_plugin("setScrollToEnd", payload).map_err(Into::into)
   }
+
+  pub fn set_choice(&self, payload: ChoiceRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setChoice", payload).map_err(Into::into)
+  }
 }

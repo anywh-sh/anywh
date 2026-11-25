@@ -11,6 +11,7 @@ const COMMANDS: &[&str] = &[
   "blur_composer",
   "set_composer_elapsed",
   "set_scroll_to_end",
+  "set_choice",
   "read_attachment",
   "register_for_push",
   "set_visible_session",

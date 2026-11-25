@@ -72,6 +72,13 @@ pub(crate) async fn set_scroll_to_end<R: Runtime>(app: AppHandle<R>, payload: Sc
     app.native_chrome().set_scroll_to_end(payload)
 }
 
+/// The pending question: a row in the composer that opens a native sheet.
+/// `choice: None` takes both away.
+#[command]
+pub(crate) async fn set_choice<R: Runtime>(app: AppHandle<R>, payload: ChoiceRequest) -> Result<()> {
+    app.native_chrome().set_choice(payload)
+}
+
 /// Asks iOS for an APNs device token and resolves once the system hands it
 /// back (or fails). Idempotent: calling it again just re-registers.
 #[command]
