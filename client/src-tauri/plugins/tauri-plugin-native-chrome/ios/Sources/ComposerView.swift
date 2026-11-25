@@ -20,17 +20,20 @@ private enum ThumbnailCache {
   }
 }
 
-/// The native composer: one glass surface holding the banners, the attachment
-/// chips and the `[attach] [text] [send | stop]` row. A pill with one line, a
-/// continuous rounded rectangle once it grows.
+/// The native composer: one glass surface holding the pending question's row,
+/// the banners, the attachment chips and the `[attach] [text] [send | stop]`
+/// row. A pill with one line, a continuous rounded rectangle once it grows.
 struct ComposerView: View {
   @ObservedObject var store: ComposerStore
+  @ObservedObject var choice: ChoiceStore
 
   var body: some View {
     if let args = store.args {
       let theme = args.theme
-      let expanded = store.multiline || args.editBanner != nil || args.typo != nil || !args.attachments.isEmpty || args.uploading
+      let expanded =
+        store.multiline || args.editBanner != nil || args.typo != nil || !args.attachments.isEmpty || args.uploading || choice.args != nil
       VStack(alignment: .leading, spacing: 6) {
+        if let pending = choice.args { choiceRow(pending, theme) }
         if let banner = args.editBanner { editBanner(banner, theme) }
         if let typo = args.typo { typoBanner(typo, theme) }
         if !args.attachments.isEmpty || args.uploading { chips(args, theme) }
@@ -132,6 +135,49 @@ struct ComposerView: View {
   }
 
   // MARK: Banners
+
+  /// The pending question, one line of it: tapping opens the question sheet.
+  /// Kept this small on purpose, so typing a message instead of answering
+  /// leaves the conversation in view above the keyboard.
+  private func choiceRow(_ pending: ChoiceSheetArgs, _ theme: ShellTheme) -> some View {
+    Button {
+      choice.onOpen()
+    } label: {
+      HStack(spacing: 10) {
+        Circle()
+          .fill(Color(hex: theme.primary))
+          .frame(width: 7, height: 7)
+        VStack(alignment: .leading, spacing: 1) {
+          HStack(spacing: 6) {
+            Text(pending.banner.label)
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(Color(hex: theme.primary))
+            if let position = pending.position {
+              Text(position)
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(Color(hex: theme.muted))
+            }
+          }
+          .lineLimit(1)
+          Text(pending.banner.text)
+            .font(.system(size: 14.5))
+            .foregroundStyle(Color(hex: theme.foreground))
+            .lineLimit(1)
+        }
+        Spacer(minLength: 0)
+        Image(systemName: "chevron.up")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(Color(hex: theme.muted))
+      }
+      .padding(.leading, 12)
+      .padding(.trailing, 14)
+      .frame(minHeight: 48)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(pending.banner.openLabel)
+    .accessibilityValue(pending.banner.text)
+  }
 
   private func editBanner(_ banner: ComposerEditBanner, _ theme: ShellTheme) -> some View {
     HStack(alignment: .top, spacing: 8) {

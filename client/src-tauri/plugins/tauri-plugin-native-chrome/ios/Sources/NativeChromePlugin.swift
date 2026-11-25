@@ -15,6 +15,9 @@ import WebKit
 ///   `UIEditMenuInteraction` — the only public API that shows a system-style
 ///   menu imperatively from an arbitrary point, which is required because the
 ///   content is a web view and the long-press is detected in JS.
+/// - `setChoice`: a pending question (an agent's question or an approval), as
+///   a row inside the composer that opens a native sheet. The web side owns
+///   the answer being built; the sheet reports taps and typing back.
 ///
 /// UIKit work always hops to the main actor with `Task { @MainActor in }`
 /// (plain GCD does not prove isolation to the Swift 6 compiler). The class is
@@ -31,6 +34,8 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
   @MainActor private let bubbleMenu = BubbleMenuController()
   @MainActor private let composerStore = ComposerStore()
   @MainActor private var composer: ComposerController?
+  @MainActor private let choiceStore = ChoiceStore()
+  @MainActor private var choiceSheet: ChoiceSheetController?
   @MainActor private var shell: CanvasDrawerController?
   @MainActor private var lastTheme = ShellTheme.fallback
 
@@ -66,8 +71,13 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     for _ in 0..<50 where webview.window == nil {
       try? await Task.sleep(nanoseconds: 100_000_000)
     }
-    let composer = ComposerController(store: composerStore, presenter: { [weak self] in self?.manager.viewController })
+    let presenter: () -> UIViewController? = { [weak self] in self?.manager.viewController }
+    let composer = ComposerController(store: composerStore, choice: choiceStore, presenter: presenter)
     self.composer = composer
+    let choiceSheet = ChoiceSheetController(store: choiceStore, presenter: presenter)
+    choiceSheet.willPresent = { [weak composer] in composer?.blur() }
+    self.choiceSheet = choiceSheet
+    wireChoice()
     guard let controller = CanvasDrawerController(webview: webview, topBar: topBarStore, drawer: drawerStore, composer: composer) else {
       NSLog("[native-chrome] web view never joined a window; native shell disabled")
       return
@@ -138,6 +148,31 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     }
     composer.onAttach = attach
     store.onPastedImages = attach
+  }
+
+  /// Routes what the question sheet reports to events for the web side.
+  @MainActor
+  private func wireChoice() {
+    let store = choiceStore
+    store.onToggle = { [weak self] index in try? self?.trigger("choiceToggleOption", data: ChoiceToggleEvent(index: index)) }
+    store.onCustomTextChange = { [weak self] text in try? self?.trigger("choiceCustomTextChange", data: ChoiceTextEvent(text: text)) }
+    store.onPrevious = { [weak self] in self?.trigger("choicePrevious", data: JSObject()) }
+    store.onSubmit = { [weak self] in self?.trigger("choiceSubmit", data: JSObject()) }
+    store.onSkip = { [weak self] in self?.trigger("choiceSkip", data: JSObject()) }
+  }
+
+  @objc func setChoice(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ChoiceArgs.self)
+    Task { @MainActor in
+      // Before the shell is up the store still takes it, so the composer's
+      // row shows as soon as the composer does.
+      if let sheet = self.choiceSheet {
+        sheet.apply(args.choice)
+      } else {
+        self.choiceStore.apply(args.choice)
+      }
+      invoke.resolve()
+    }
   }
 
   @objc func setContextTarget(_ invoke: Invoke) throws {

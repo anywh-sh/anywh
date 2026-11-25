@@ -55,10 +55,10 @@ final class ComposerController {
   /// Fires with the files chosen in the Photos / Files pickers.
   var onAttach: ([AttachedFile]) -> Void = { _ in }
 
-  init(store: ComposerStore, presenter: @escaping () -> UIViewController?) {
+  init(store: ComposerStore, choice: ChoiceStore, presenter: @escaping () -> UIViewController?) {
     self.store = store
     self.presenter = presenter
-    self.host = UIHostingController(rootView: ComposerView(store: store))
+    self.host = UIHostingController(rootView: ComposerView(store: store, choice: choice))
     self.arrowHost = UIHostingController(rootView: ScrollToEndButton(store: store))
     store.onAttachPhotos = { [weak self] in self?.presentPicker(photos: true) }
     store.onAttachFiles = { [weak self] in self?.presentPicker(photos: false) }
