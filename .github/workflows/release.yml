@@ -785,12 +785,14 @@ jobs:
   # missing most of its installers.
   # The bundled tmux is built with the newest SDK; build-tmux.sh refuses
   # newer-than-macOS-11 calls at compile time, and this runs it for real on
-  # the oldest macOS runner there is, before anything is published: it must
+  # the oldest macOS runner GitHub still offers, before anything is published: it must
   # load, keep a session with the relay's own flags, and find the terminfo
-  # it sets for the pane.
+  # it sets for the pane. (macos-14 was the oldest until GitHub retired its
+  # image, which cancelled this job before it ran and held the v0.2.69
+  # release in draft.)
   check-bundled-tmux:
     needs: [build]
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/download-artifact@v4
         with:
