@@ -477,7 +477,19 @@ put_back() {
   done
   brew services start anywh-relay >/dev/null 2>&1
 }
+answers() { (exec 3<>"/dev/tcp/${host:-127.0.0.1}/$port") 2>/dev/null; }
 if ! brew services stop anywh-relay; then echo "Error: couldn't stop the Homebrew relay" >&2; exit 1; fi
+# Cut off from here on (the app quit, the run's time limit), Homebrew's
+# relay comes back rather than leaving the Mac with none.
+trap 'put_back; exit 1' TERM HUP INT
+# The old relay drains its turns before letting go of the port; the new one
+# must not take its answer for its own.
+left="$tries"
+while answers; do
+  left=$((left - 1))
+  if [ "$left" -le 0 ]; then put_back; echo "Error: the Homebrew relay didn't let go of port $port" >&2; exit 1; fi
+  sleep 0.2
+done
 if ! bash "$add_profile" default --resume --mode prod; then
   put_back
   echo "Error: couldn't move the profile to the app's relay" >&2
@@ -485,7 +497,7 @@ if ! bash "$add_profile" default --resume --mode prod; then
 fi
 answered=0
 while [ "$tries" -gt 0 ]; do
-  if (exec 3<>"/dev/tcp/${host:-127.0.0.1}/$port") 2>/dev/null; then answered=1; break; fi
+  if answers; then answered=1; break; fi
   tries=$((tries - 1))
   sleep 0.2
 done
@@ -494,6 +506,7 @@ if [ "$answered" -ne 1 ]; then
   echo "Error: the app's relay didn't answer on ${host:-127.0.0.1}:$port" >&2
   exit 1
 fi
+trap - TERM HUP INT
 brew uninstall anywh-relay >/dev/null 2>&1 || echo "warning: couldn't uninstall the Homebrew relay; its service stays stopped" >&2
 exit 0
 "#;
@@ -1585,12 +1598,13 @@ mod tests {
     }
 
     /// The move to the app's relay, run by a real shell against stand-ins
-    /// for `brew`, `launchctl` and the app's `add-profile.sh`, with a real
-    /// port for the moved relay to answer on (or not).
+    /// for `brew`, `launchctl` and the app's `add-profile.sh` (which, like
+    /// the real one, brings up a relay on the profile's port, or doesn't).
     #[test]
     #[cfg(unix)]
     fn a_homebrew_relay_moves_to_the_apps_relay_and_is_put_back_when_that_fails() {
         use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::process::CommandExt;
         if std::path::Path::new("/opt/homebrew/bin/brew").exists() || std::path::Path::new("/usr/local/bin/brew").exists() {
             // A real Homebrew would come first on PATH; never run it here.
             return;
@@ -1611,30 +1625,44 @@ mod tests {
         script("launchctl", &format!("echo \"launchctl $1\" >> '{}'\nexit 0\n", log.display()));
         let add_profile = script(
             "add-profile.sh",
-            &format!("echo \"add-profile $* managed=$ANYWH_RELAY_MANAGED_BY_APP launchd=$ANYWH_LAUNCHD_DIR\" >> '{}'\nexit \"${{FAKE_ADD_PROFILE_EXIT:-0}}\"\n", log.display()),
+            &format!(
+                concat!(
+                    "echo \"add-profile $* managed=$ANYWH_RELAY_MANAGED_BY_APP launchd=$ANYWH_LAUNCHD_DIR\" >> '{}'\n",
+                    "if [ -n \"${{FAKE_SLEEP:-}}\" ]; then sleep \"$FAKE_SLEEP\"; fi\n",
+                    "if [ -n \"${{FAKE_LISTEN:-}}\" ]; then python3 -c 'import socket,sys,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind((\"127.0.0.1\", int(sys.argv[1]))); s.listen(); time.sleep(3)' \"$FAKE_LISTEN\" </dev/null >/dev/null 2>&1 & sleep 0.5; fi\n",
+                    "exit \"${{FAKE_ADD_PROFILE_EXIT:-0}}\"\n",
+                ),
+                log.display()
+            ),
         );
-        let run = |port: u16, add_profile_exit: &str| {
+        let free_port = || std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let command = |port: u16, fake: &[(&str, String)]| {
             std::fs::remove_file(&log).ok();
             std::fs::write(env_dir.join("default.env"), format!("RELAY_HOST=127.0.0.1\nRELAY_PORT={port}\n")).unwrap();
-            let output = std::process::Command::new("bash")
+            let mut command = std::process::Command::new("bash");
+            command
                 .args(["-c", BREW_MIGRATE_SCRIPT, "brew-migrate"])
                 .arg(&add_profile)
                 .arg(&launchd)
                 .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
                 .env("ANYWH_ENV_DIR", &env_dir)
                 .env("LAUNCHCTL_BIN", bin.join("launchctl"))
-                .env("ANYWH_RELAY_READY_TRIES", "2")
-                .env("FAKE_ADD_PROFILE_EXIT", add_profile_exit)
-                .output()
-                .unwrap();
+                .env("ANYWH_RELAY_READY_TRIES", "5");
+            for (key, value) in fake {
+                command.env(key, value);
+            }
+            command
+        };
+        let run = |port: u16, fake: &[(&str, String)]| {
+            let output = command(port, fake).output().unwrap();
             let outcome = brew_outcome(output.status.code(), &String::from_utf8_lossy(&output.stdout), &String::from_utf8_lossy(&output.stderr));
             (outcome, std::fs::read_to_string(&log).unwrap_or_default())
         };
+        let put_back = |calls: &str| calls.contains("launchctl bootout\nlaunchctl bootout\n") && calls.ends_with("brew services start anywh-relay\n") && !calls.contains("uninstall");
 
-        // The app's relay answers: the formula goes.
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let open = listener.local_addr().unwrap().port();
-        let (outcome, calls) = run(open, "0");
+        // The app's relay comes up on the profile's port: the formula goes.
+        let port = free_port();
+        let (outcome, calls) = run(port, &[("FAKE_LISTEN", port.to_string())]);
         assert_eq!(outcome, Ok(()));
         assert_eq!(
             calls,
@@ -1645,16 +1673,34 @@ mod tests {
         );
 
         // The profile could not be moved: Homebrew's service comes back.
-        let (outcome, calls) = run(open, "1");
+        let (outcome, calls) = run(free_port(), &[("FAKE_ADD_PROFILE_EXIT", "1".into())]);
         assert_eq!(outcome, Err(BrewUpgradeError::with_detail("failed", "Error: couldn't move the profile to the app's relay".into())));
-        assert!(calls.ends_with("brew services start anywh-relay\n") && !calls.contains("uninstall"), "{calls}");
-        drop(listener);
+        assert!(put_back(&calls), "{calls}");
 
         // Moved, but nothing answers: its jobs go and Homebrew's come back.
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let (outcome, calls) = run(closed, "0");
+        let closed = free_port();
+        let (outcome, calls) = run(closed, &[]);
         assert_eq!(outcome, Err(BrewUpgradeError::with_detail("failed", format!("Error: the app's relay didn't answer on 127.0.0.1:{closed}"))));
-        assert!(calls.contains("launchctl bootout\nlaunchctl bootout\n") && calls.ends_with("brew services start anywh-relay\n") && !calls.contains("uninstall"), "{calls}");
+        assert!(put_back(&calls), "{calls}");
+
+        // The old relay still holds the port: nothing is moved onto it.
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let (outcome, calls) = run(held.local_addr().unwrap().port(), &[]);
+        assert!(matches!(&outcome, Err(e) if e.detail.as_deref().is_some_and(|d| d.contains("didn't let go"))), "{outcome:?}");
+        assert!(!calls.contains("add-profile") && put_back(&calls), "{calls}");
+        drop(held);
+
+        // Cut off mid-move (the app quit): Homebrew's relay comes back.
+        let mut child = command(free_port(), &[("FAKE_SLEEP", "5".into())]).process_group(0).spawn().unwrap();
+        let started = (0..50).any(|_| {
+            std::thread::sleep(Duration::from_millis(100));
+            std::fs::read_to_string(&log).is_ok_and(|calls| calls.contains("add-profile"))
+        });
+        assert!(started, "the move never reached add-profile");
+        std::process::Command::new("kill").args(["-TERM", "--", &format!("-{}", child.id())]).status().unwrap();
+        child.wait().unwrap();
+        let calls = std::fs::read_to_string(&log).unwrap();
+        assert!(put_back(&calls), "{calls}");
 
         std::fs::remove_dir_all(&dir).ok();
     }
