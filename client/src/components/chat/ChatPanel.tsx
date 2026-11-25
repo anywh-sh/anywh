@@ -30,6 +30,7 @@ import { Composer } from "@/components/chat/Composer";
 import { NativeTopBarMenu } from "@/components/chat/NativeTopBarMenu";
 import { NativeComposer, type NativeComposerHandle } from "@/components/chat/NativeComposer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
+import { NativeChoiceSheet } from "@/components/chat/NativeChoiceSheet";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
 import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
@@ -357,8 +358,9 @@ export function ChatPanel({
   const messageLogRef = useRef<MessageLogHandle>(null);
   // iOS: the "jump to end" arrow is native, the log tells us when to show it.
   const [scrollToEndVisible, setScrollToEndVisible] = useState(false);
-  // iOS: the web stack floating above the native composer (cwd row,
-  // `ChoiceCard`). Its height pads the log and lifts the native arrow above it.
+  // iOS: the web stack floating above the native composer (the cwd row; a
+  // pending question is native, see `NativeChoiceSheet`). Its height pads the
+  // log and lifts the native arrow above it.
   const floatingStackRef = useRef<HTMLDivElement>(null);
   const [floatingStackHeight, setFloatingStackHeight] = useState(0);
   const nativeBottomInset = useNativeBottomInset();
@@ -1168,12 +1170,14 @@ export function ChatPanel({
         <MessageLogSkeleton />
       )}
 
-      {/* iOS: the composer is native (and so is the strip under it). What stays
-       * web — the cwd row and `ChoiceCard` — floats above that strip, out of
-       * normal flow, so the log keeps scrolling visibly beneath it. `bottom`
-       * follows the inset the native side publishes (`--native-bottom-inset`),
-       * keyboard included; the CSS variable jumps to its final value while the
-       * keyboard animates natively, so a short transition covers the gap. */}
+      {/* iOS: the composer is native (and so is the strip under it, and a
+       * pending question: a row inside the composer that opens a native sheet,
+       * see `NativeChoiceSheet`). What stays web — the cwd row — floats above
+       * that strip, out of normal flow, so the log keeps scrolling visibly
+       * beneath it. `bottom` follows the inset the native side publishes
+       * (`--native-bottom-inset`), keyboard included; the CSS variable jumps
+       * to its final value while the keyboard animates natively, so a short
+       * transition covers the gap. */}
       <div
         ref={floatingStackRef}
         className={cn(isIOS() ? "absolute inset-x-0 z-20 flex flex-col gap-2 px-3.5 pb-2" : "contents")}
@@ -1230,7 +1234,8 @@ export function ChatPanel({
               </div>
             )}
 
-            {choicePrompt && (
+            {/* Not with the native composer: there the question is native too. */}
+            {choicePrompt && (renderComposer || !isIOS()) && (
               <ChoiceCard
                 promptId={choicePrompt.promptId}
                 questions={choicePrompt.questions}
@@ -1266,6 +1271,7 @@ export function ChatPanel({
                   agents={hostAgents}
                   onChangeAgent={setAgent}
                 />
+                <NativeChoiceSheet prompt={choicePrompt} disabled={!live} onAnswer={answerChoice} />
                 <NativeComposer
                   ref={composerRef}
                   disabled={!live}
