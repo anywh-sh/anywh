@@ -162,7 +162,8 @@ if [[ -e "$ENV_FILE" ]]; then
   done < "$ENV_FILE"
 fi
 
-LABEL="${LABEL:-$ID}"
+# No default label here: the registry write below keeps an existing
+# profile's own label when none is given, and names a new one after its id.
 
 # Same host as this machine's other profiles, if any — every profile on one
 # machine reaches the outside world the same way. Omitting this defaults
@@ -367,8 +368,9 @@ while (used.has(colorIndex)) colorIndex++;
 const now = new Date().toISOString();
 const existing = data.profiles.find((p) => p.id === id);
 const entry = {
+  ...existing,
   id,
-  label,
+  label: label || (existing && existing.label) || id,
   colorIndex: existing ? existing.colorIndex : colorIndex,
   createdAt: existing ? existing.createdAt : now,
   updatedAt: now,

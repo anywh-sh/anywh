@@ -47,6 +47,19 @@ test("re-recording a profile keeps its colorIndex and createdAt, updates the lab
   });
 });
 
+test("re-recording with no label keeps the profile's own label and the fields it does not write", () => {
+  withFile((path) => {
+    writeFileSync(path, JSON.stringify({ version: 1, profiles: [{ id: "default", label: "Personal", colorIndex: 3, createdAt: "2026-01-01T00:00:00.000Z", agentPreference: { mode: "fixed", fixedAgentId: "claude" } }] }));
+    recordProfile(path, "default", "", new Date("2026-02-01T00:00:00Z"));
+    assert.deepEqual(read(path).profiles, [
+      { id: "default", label: "Personal", colorIndex: 3, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-02-01T00:00:00.000Z", agentPreference: { mode: "fixed", fixedAgentId: "claude" } },
+    ]);
+    // A new profile with no label is named after its id.
+    recordProfile(path, "work", "");
+    assert.equal(read(path).profiles.find((p) => p.id === "work")?.label, "work");
+  });
+});
+
 test("a missing or corrupt file starts an empty registry", () => {
   withFile((path) => {
     recordProfile(path, "a", "A");
