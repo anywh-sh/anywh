@@ -72,6 +72,20 @@ test("--resume keeps the keys it doesn't write, config dirs included — the app
   });
 });
 
+test("--resume with no --label keeps the profile's label and the app's own fields in profiles.json", () => {
+  withHome((home, envDir) => {
+    addProfile(home, envDir, ["default", "--label", "Personal"]);
+    const registryPath = join(dirname(envDir), "profiles.json");
+    const registry = JSON.parse(readFileSync(registryPath, "utf8")) as { profiles: Record<string, unknown>[] };
+    registry.profiles[0].agentPreference = { mode: "fixed", fixedAgentId: "claude" };
+    writeFileSync(registryPath, JSON.stringify(registry));
+    addProfile(home, envDir, ["default", "--resume"]);
+    const [entry] = (JSON.parse(readFileSync(registryPath, "utf8")) as { profiles: Record<string, unknown>[] }).profiles;
+    assert.equal(entry.label, "Personal");
+    assert.deepEqual(entry.agentPreference, { mode: "fixed", fixedAgentId: "claude" });
+  });
+});
+
 test("a --resume refused for naming another config root leaves no folder behind", () => {
   withHome((home, envDir) => {
     addProfile(home, envDir, ["work", "--config-root", join(home, "cfg")]);

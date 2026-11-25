@@ -25,18 +25,19 @@ if (envFilePath) {
 
 // One binary, three programs (a second SEA would ship a second Node):
 // `anywh-relay agent-host --profile <id>` runs the agent host instead of the
-// relay, and `anywh-relay record-profile <profiles.json> <id> <label>` is
-// add-profile.sh's registry write on a Mac that has no `node` of its own.
+// relay, and `anywh-relay record-profile <profiles.json> <id> [label]` is
+// add-profile.sh's registry write on a Mac that has no `node` of its own (an
+// empty label keeps an existing profile's own).
 if (process.argv[2] === "agent-host") {
   process.argv.splice(2, 1);
   require("../dist/agentHost/main.js");
 } else if (process.argv[2] === "record-profile") {
   const [path, id, label] = process.argv.slice(3);
-  if (!path || !id || !label) {
-    console.error("usage: anywh-relay record-profile <profiles.json> <id> <label>");
+  if (!path || !id) {
+    console.error("usage: anywh-relay record-profile <profiles.json> <id> [label]");
     process.exit(2);
   }
-  require("../dist/host/recordProfile.js").recordProfile(path, id, label);
+  require("../dist/host/recordProfile.js").recordProfile(path, id, label ?? "");
 } else {
   require("../dist/server.js");
 }
