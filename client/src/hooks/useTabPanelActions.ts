@@ -86,7 +86,7 @@ export function useTabPanelActions({
   return useMemo<TabPanelActions>(
     () => ({
       onTurnActiveChange: (tabId, active) => tabsState.setRunning(tabId, active),
-      onOpenSession: (profile, sessionId, title) => tabsState.openTab(profile.id, sessionId, title, false, false),
+      onOpenSession: (profile, sessionId, title, agentOf) => tabsState.openTab(profile.id, sessionId, title, false, false, false, agentOf),
       onBackgroundJobsChange: (tabId, jobs, failedJobs) => {
         tabsState.setHasBackgroundJob(tabId, jobs.length > 0);
         setBackgroundActivityByTab((prev) => ({ ...prev, [tabId]: { turn: prev[tabId]?.turn ?? null, jobs, failedJobs } }));
@@ -119,8 +119,10 @@ export function useTabPanelActions({
         // made on another device, which must not move the row, and a session
         // not listed yet is stamped "now" by the cache on its own.
         // A bot's conversation is listed with the bots, never among the
-        // conversations (the relay leaves it out of the list the same way).
-        if (tab.bot || botByRoom(tab.id)) return;
+        // conversations, and an agent of a room (a bot's or a room's) is
+        // reached through its room (the relay leaves both out of the list the
+        // same way).
+        if (tab.bot || tab.agentOf !== undefined || botByRoom(tab.id)) return;
         upsertCachedSession(tab.profileId, tab.id, title, undefined, tab.room, pending);
       },
       onActivity: (tab) => {

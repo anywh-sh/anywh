@@ -60,8 +60,10 @@ export function useBotActions({ activeProfile, tabsState, onNavigated, openPane 
         latest.current.tabsState.openTab(profile().id, bot.roomId, bot.name, false, false, true);
         latest.current.onNavigated();
       },
-      onOpenAgent: (_bot, agentId, title) => {
-        latest.current.tabsState.openTab(profile().id, agentId, title);
+      onOpenAgent: (bot, agentId, title) => {
+        // The tab remembers whose agent it is: it stays out of the
+        // conversation list, and the bot stays lit in the sidebar.
+        latest.current.tabsState.openTab(profile().id, agentId, title, false, false, false, bot.roomId);
         latest.current.onNavigated();
       },
       onNewBot: (start, source) => {

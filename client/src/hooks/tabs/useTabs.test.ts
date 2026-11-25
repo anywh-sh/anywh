@@ -523,3 +523,49 @@ describe("useTabs — new bot", () => {
     expect(result.current.tabs.find((tab) => tab.id === "room-c")).toMatchObject({ bot: true });
   });
 });
+
+describe("useTabs — an agent of a room", () => {
+  it("remembers whose agent a tab opened from a room is, across a restart", () => {
+    const first = renderHook(() => useTabs());
+    act(() => first.result.current.openTab("p1", "worker-1", "Fix flaky test", false, false, false, "room-b"));
+    act(() => first.result.current.openTab("p1", "chat-1", "A chat"));
+    expect(first.result.current.tabs.find((t) => t.id === "worker-1")?.agentOf).toBe("room-b");
+    cleanup();
+
+    const second = renderHook(() => useTabs());
+    const persisted = second.result.current.getPersistedTabs();
+    expect(persisted?.tabs).toEqual([
+      { id: "worker-1", profileId: "p1", title: "Fix flaky test", agentOf: "room-b" },
+      { id: "chat-1", profileId: "p1", title: "A chat" },
+    ]);
+    act(() => second.result.current.restoreTabs(persisted!.tabs, persisted!.activeTabId));
+    expect(second.result.current.tabs.find((t) => t.id === "worker-1")?.agentOf).toBe("room-b");
+    expect(second.result.current.tabs.find((t) => t.id === "chat-1")?.agentOf).toBeUndefined();
+  });
+
+  it("a tab already open becomes the room's agent when it is opened from the room", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => result.current.openTab("p", "worker-1", "Fix flaky test"));
+    expect(result.current.tabs[0].agentOf).toBeUndefined();
+    act(() => result.current.openTab("p", "worker-1", "Fix flaky test", false, false, false, "room-b"));
+    expect(result.current.tabs).toHaveLength(1);
+    expect(result.current.tabs[0].agentOf).toBe("room-b");
+  });
+
+  it("a room's own tabs are never an agent's: not its principal, not a room, not a bot", () => {
+    const { result } = renderHook(() => useTabs());
+    // The principal shares the room's id.
+    act(() => result.current.openTab("p", "room-b", "Vigia", false, false, true, "room-b"));
+    expect(result.current.tabs[0]).toMatchObject({ id: "room-b", bot: true });
+    expect(result.current.tabs[0].agentOf).toBeUndefined();
+    // Whatever opened as a room or a bot keeps being one, even asked as an agent.
+    act(() => result.current.openTab("p", "room-c", "Profile page", false, true, false, "room-b"));
+    act(() => result.current.openTab("p", "room-d", "Docs", false, false, true, "room-b"));
+    expect(result.current.tabs.find((t) => t.id === "room-c")?.agentOf).toBeUndefined();
+    expect(result.current.tabs.find((t) => t.id === "room-d")?.agentOf).toBeUndefined();
+    // And a tab that is one is not turned into an agent by being opened again.
+    act(() => result.current.openTab("p", "room-c", "Profile page", false, false, false, "room-b"));
+    expect(result.current.tabs.find((t) => t.id === "room-c")).toMatchObject({ room: true });
+    expect(result.current.tabs.find((t) => t.id === "room-c")?.agentOf).toBeUndefined();
+  });
+});

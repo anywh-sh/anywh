@@ -3,10 +3,12 @@ import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
+import { listedSessionIds, savedTabs } from "./helpers/savedState";
 import { seedShellProfile, SHELL_TEST_PROFILE } from "./helpers/seedProfile";
 import { en } from "@/i18n/en";
 import { resetBotsStore } from "@/lib/bots/botsStore";
 import type { BotSummary } from "@/lib/bots/botTypes";
+import type { RoomAgent } from "@/lib/relay/roomClient";
 
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }),
@@ -28,6 +30,13 @@ const vigia: BotSummary = {
   lastRunFailed: false,
   createdAt: 1,
 };
+
+const roomSummary = { counts: { working: 1, awaiting_user: 0, queued: 0, waiting: 0, done: 0, blocked: 0, failed: 0, stopped: 0 }, needsYou: 0, live: 1, liveLimit: 10 };
+
+const vigiaPrincipal: RoomAgent = { agentId: "room-vigia", role: "principal", title: "Vigia", runtime: "claude", model: null, createdBy: "user", state: "waiting", queuedMessages: 0, needsYou: [], subtasksRunning: 0, connectors: [] };
+
+/** An agent the bot started: a worker of the bot's room, at work. */
+const vigiaWorker: RoomAgent = { agentId: "worker-1", role: "worker", parentId: "room-vigia", title: "Fix flaky test", runtime: "claude", model: null, createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, connectors: [] };
 
 beforeEach(() => {
   localStorage.clear();
@@ -113,6 +122,101 @@ describe("bots in the sidebar", () => {
     expect(screen.getByRole("tab", { name: /CI check/ }).querySelector("[data-mascot-state]")).not.toBeNull();
     expect(screen.getByText("A conversation")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^CI check/ })).not.toBeInTheDocument();
+  });
+
+  describe("an agent working for a bot", () => {
+    /** Every reader of the bot's room channel (its sidebar tree, its panel). */
+    const roomChannels = () => relay.sockets.filter((socket) => new URL(socket.url).pathname === "/rooms/room-vigia/watch" && socket.readyState === 1);
+
+    /** The conversation socket of `session`, once the app opened it. */
+    async function sessionSocket(session: string) {
+      await waitFor(() => {
+        if (!relay.sockets.some((socket) => socket.url.includes(`session=${session}`) && socket.readyState === 1)) throw new Error(`no socket for ${session} yet`);
+      });
+      return relay.sockets.find((socket) => socket.url.includes(`session=${session}`))!;
+    }
+
+    /** Opens Vigia and waits for its room channel: what feeds its tree and panel. */
+    async function openVigia(user: ReturnType<typeof userEvent.setup>) {
+      renderApp();
+      const watch = await watchSocket();
+      act(() => {
+        watch.emitMessage({ type: "session_list_snapshot", sessions: [{ id: "chat-1", title: "A conversation", lastActiveAt: Date.now() }] });
+        watch.emitMessage({ type: "bots_state", bots: [vigia] });
+      });
+      await user.click(await screen.findByRole("button", { name: "Vigia" }));
+      await waitFor(() => expect(roomChannels().length).toBeGreaterThan(0));
+    }
+
+    /** Opens Vigia and, from its tree, the agent at work for it: the tab the
+     * agent's conversation lives in, with its socket open. */
+    async function openAgentOfVigia(user: ReturnType<typeof userEvent.setup>) {
+      await openVigia(user);
+      act(() => {
+        for (const socket of roomChannels()) socket.emitMessage({ type: "room_snapshot", roomId: "room-vigia", agents: [vigiaPrincipal, vigiaWorker], summary: roomSummary });
+      });
+      await user.click(await screen.findByRole("button", { name: new RegExp(vigiaWorker.title ?? "") }));
+      return sessionSocket("worker-1");
+    }
+
+    it("never joins the conversation list, even when its tab gets a title", async () => {
+      const user = userEvent.setup();
+      const agentSocket = await openAgentOfVigia(user);
+      act(() => {
+        agentSocket.emitMessage({ type: "session_title", title: "Fix flaky test" });
+      });
+      // The title reaches the tab (the path that used to list it)...
+      await waitFor(() => expect(screen.getByRole("tab", { name: /Fix flaky test/ })).toBeInTheDocument());
+      // ...but the agent stays with the bot: only its tree row names it, never
+      // a row of the conversation list (the relay leaves it out the same way).
+      const bots = screen.getByTestId("sidebar-bots");
+      expect(screen.getByText("A conversation")).toBeInTheDocument();
+      // Rows only: the tab's own close button carries the title too.
+      const listed = screen.queryAllByRole("button", { name: /Fix flaky test/ }).filter((row) => row.dataset.slot === "row-button" && !bots.contains(row));
+      expect(listed).toHaveLength(0);
+      expect(listedSessionIds()).not.toContain("worker-1");
+      // And the tab remembers whose agent it is, for the sidebar and a restart.
+      expect(savedTabs()).toContainEqual(expect.objectContaining({ id: "worker-1", agentOf: "room-vigia" }));
+    });
+
+    it("is the bot's too when opened from a card in the bot's conversation", async () => {
+      const user = userEvent.setup();
+      await openVigia(user);
+      const botSocket = await sessionSocket("room-vigia");
+      act(() => {
+        botSocket.emitMessage({
+          type: "agent_event",
+          event: { type: "user_message", text: "Agents reported back", synthetic: "room_digest", room: { kind: "reports", reports: [{ agentId: "worker-1", title: "Fix flaky test", status: "done", at: Date.now() }] } },
+        });
+      });
+      await user.click(await screen.findByRole("button", { name: /Open Fix flaky test/ }));
+      const agentSocket = await sessionSocket("worker-1");
+      act(() => {
+        agentSocket.emitMessage({ type: "session_title", title: "Fix flaky test" });
+      });
+      await waitFor(() => expect(screen.getByRole("tab", { name: /Fix flaky test/ })).toBeInTheDocument());
+      expect(savedTabs()).toContainEqual(expect.objectContaining({ id: "worker-1", agentOf: "room-vigia" }));
+      expect(listedSessionIds()).not.toContain("worker-1");
+    });
+
+    it("is the bot's too when opened from one of its tasks, in the bot's panel", async () => {
+      localStorage.setItem("anywh:right-panel-open", "true");
+      const user = userEvent.setup();
+      await openVigia(user);
+      const task = { n: 12, title: "Fix the flaky relay test", status: "working", notes: [], workers: [{ agentId: "worker-1", title: "Fix flaky test", state: "working", startedAt: Date.now() }], createdAt: 1, updatedAt: 1 };
+      act(() => {
+        for (const socket of roomChannels()) socket.emitMessage({ type: "room_bot", bot: { ...vigia, conversationNeedsYou: false, tasks: [task], schedules: [] } });
+      });
+      await user.click(await screen.findByText("Fix the flaky relay test"));
+      await user.click(within(await screen.findByTestId("bot-task-detail")).getByRole("button", { name: /Fix flaky test/ }));
+      const agentSocket = await sessionSocket("worker-1");
+      act(() => {
+        agentSocket.emitMessage({ type: "session_title", title: "Fix flaky test" });
+      });
+      await waitFor(() => expect(screen.getByRole("tab", { name: /Fix flaky test/ })).toBeInTheDocument());
+      expect(savedTabs()).toContainEqual(expect.objectContaining({ id: "worker-1", agentOf: "room-vigia" }));
+      expect(listedSessionIds()).not.toContain("worker-1");
+    });
   });
 
   it("a bot's conversation open before the bots are known becomes the bot's tab once they are", async () => {
