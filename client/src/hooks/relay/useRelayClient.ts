@@ -23,6 +23,7 @@ import { isBrokeredProfile, isTailnetProfile, type Profile } from "@/lib/profile
 import { acquireTailnetSidecar, releaseTailnetSidecar, retargetTailnetSidecar, type TailnetEndpoint } from "@/lib/profiles/tailnetSidecar";
 import { fetchConnectGrant, grantTarget } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
+import type { TurnFailureClass } from "@/lib/relay/agent-event";
 
 /** A received `compact_boundary`, with a timestamp — the timestamp guarantees a
  * fresh reference on every occurrence (even with repeated `trigger`/`preTokens`),
@@ -48,7 +49,7 @@ export interface PendingChoice {
 export interface UseRelayClientOptions {
   onEvent?: (event: AgentEvent) => void;
   onTurnComplete?: (stopped: boolean, durationMs?: number) => void;
-  onTurnError?: (message: string) => void;
+  onTurnError?: (message: string, failureClass?: TurnFailureClass) => void;
   onCaughtUp?: () => void;
   onSetCwdError?: (code: SetCwdErrorCode) => void;
   onSessionTitle?: (title: string) => void;
@@ -270,7 +271,7 @@ export function useRelayClient(
         optionsRef.current.onEvent?.(event);
       },
       onTurnComplete: (stopped, durationMs) => optionsRef.current.onTurnComplete?.(stopped, durationMs),
-      onTurnError: (message) => optionsRef.current.onTurnError?.(message),
+      onTurnError: (message, failureClass) => optionsRef.current.onTurnError?.(message, failureClass),
       onCaughtUp: () => optionsRef.current.onCaughtUp?.(),
       onCwdState: (newCwd, locked) => {
         setCwdState(newCwd);

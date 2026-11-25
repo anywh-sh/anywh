@@ -139,7 +139,7 @@ type Action =
    * `RelayClientCallbacks.onEvent`'s doc comment) — these two actions
    * reconstruct the same event shape `applyAgentEvent` expects, so live
    * dispatch and history replay share one code path. */
-  | { type: "TURN_ERROR"; message: string }
+  | { type: "TURN_ERROR"; message: string; failureClass?: TurnFailureClass }
   | { type: "TURN_COMPLETE"; stopped: boolean; durationMs?: number }
   | { type: "RESET" }
   /** Initial tail received via `history_page` — swaps
@@ -170,6 +170,21 @@ const initialState: MessageLogState = {
 function lastIndexWhere<T>(items: T[], test: (item: T) => boolean): number {
   for (let i = items.length - 1; i >= 0; i -= 1) if (test(items[i])) return i;
   return -1;
+}
+
+/** A turn that failed for a lost login: the CLI says so twice — once as the
+ * assistant's own text ("Not logged in · Please run /login"), then as the
+ * turn's error. The error is the one that offers the way back in, so the
+ * echo of it, in this turn, goes. Any other text stays. */
+function withoutEchoedAuthText(entries: LogEntry[], event: { message: string; failureClass?: TurnFailureClass }): LogEntry[] {
+  if (event.failureClass !== "auth") return entries;
+  const message = event.message.trim();
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry.kind === "user") return entries;
+    if (entry.kind === "text" && entry.text.trim() === message) return [...entries.slice(0, i), ...entries.slice(i + 1)];
+  }
+  return entries;
 }
 
 /** Index where the current turn's entries begin: just past the last user
@@ -440,7 +455,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       return {
         ...state,
         entries: [
-          ...dropPending(state.entries),
+          ...withoutEchoedAuthText(dropPending(state.entries), event),
           event.failureClass ? { kind: "error", id: newId(), message: event.message, failureClass: event.failureClass } : { kind: "error", id: newId(), message: event.message },
         ],
         streamingText: [],
@@ -513,7 +528,10 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
       return applyAgentEvent(state, action.event);
 
     case "TURN_ERROR":
-      return applyAgentEvent(state, { type: "error", message: action.message });
+      return applyAgentEvent(
+        state,
+        action.failureClass ? { type: "error", message: action.message, failureClass: action.failureClass } : { type: "error", message: action.message },
+      );
 
     case "TURN_COMPLETE":
       return applyAgentEvent(state, { type: "turn_ended", stopped: action.stopped, ...(action.durationMs !== undefined ? { durationMs: action.durationMs } : {}) });
@@ -605,7 +623,7 @@ export interface UseMessageLogResult {
    * `addUserMessage`/`sendMessage` in `ChatPanel.onSend`. */
   editUserMessage: (id: string, text: string) => void;
   handleEvent: (event: AgentEvent) => void;
-  handleTurnError: (message: string) => void;
+  handleTurnError: (message: string, failureClass?: TurnFailureClass) => void;
   handleTurnComplete: (stopped?: boolean, durationMs?: number) => void;
   reset: () => void;
   /** Hydrates the log with the initial tail received via `history_page`
@@ -652,7 +670,7 @@ export function useMessageLog(): UseMessageLogResult {
     addUserMessage: (text, images) => dispatch({ type: "USER_MESSAGE", text, images, sentAt: Date.now() }),
     editUserMessage: (id, text) => dispatch({ type: "EDIT_USER_MESSAGE", id, text, sentAt: Date.now() }),
     handleEvent: (event) => dispatch({ type: "AGENT_EVENT", event }),
-    handleTurnError: (message) => dispatch({ type: "TURN_ERROR", message }),
+    handleTurnError: (message, failureClass) => dispatch(failureClass ? { type: "TURN_ERROR", message, failureClass } : { type: "TURN_ERROR", message }),
     handleTurnComplete: (stopped, durationMs) => dispatch({ type: "TURN_COMPLETE", stopped: stopped === true, durationMs }),
     reset: () => dispatch({ type: "RESET" }),
     hydrate: (page) => dispatch({ type: "HYDRATE", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore }),

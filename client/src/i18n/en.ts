@@ -163,8 +163,9 @@ export const en: Dictionary = {
     agentSignedOut: {
       message: "{agent} isn't signed in on this profile.",
       connect: "Connect",
-      reconnect: "Sign {agent} back in",
+      reconnect: "Connect {agent}",
       sendBlocked: "Connect {agent} to send messages",
+      turnFailed: "{agent} isn't signed in on this machine, so it couldn't answer. Connect it, then send your message again.",
     },
     log: {
       loading: "Loading conversation…",

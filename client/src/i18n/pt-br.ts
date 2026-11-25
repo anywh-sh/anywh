@@ -163,8 +163,9 @@ export const ptBr: Dictionary = {
     agentSignedOut: {
       message: "O {agent} não está conectado neste perfil.",
       connect: "Conectar",
-      reconnect: "Conectar o {agent} de novo",
+      reconnect: "Conectar o {agent}",
       sendBlocked: "Conecte o {agent} para enviar mensagens",
+      turnFailed: "O {agent} não está conectado nesta máquina e não pôde responder. Conecte-o e envie a mensagem de novo.",
     },
     log: {
       loading: "Carregando conversa…",

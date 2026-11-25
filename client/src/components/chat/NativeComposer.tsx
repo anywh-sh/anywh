@@ -42,7 +42,19 @@ export type NativeComposerHandle = ComposerHandle & {
 
 export interface NativeComposerProps extends Pick<
   ComposerProps,
-  "onSend" | "disabled" | "turnInFlight" | "turnStartedAt" | "onStop" | "pendingImages" | "uploadingImage" | "onAddFiles" | "onRemoveImage" | "modelCatalog" | "onChangeDraft"
+  | "onSend"
+  | "disabled"
+  | "sendBlockedReason"
+  | "onBlockedSend"
+  | "turnInFlight"
+  | "turnStartedAt"
+  | "onStop"
+  | "pendingImages"
+  | "uploadingImage"
+  | "onAddFiles"
+  | "onRemoveImage"
+  | "modelCatalog"
+  | "onChangeDraft"
 > {
   /** Localized warning shown above the field while a message is being edited, else `null`. */
   editBannerText: string | null;
@@ -62,7 +74,7 @@ export interface NativeComposerProps extends Pick<
  * draft, the upload); native only draws and captures input.
  */
 export const NativeComposer = forwardRef<NativeComposerHandle, NativeComposerProps>(function NativeComposer(props, ref) {
-  const { pendingImages, uploadingImage, turnInFlight, turnStartedAt, disabled, editBannerText } = props;
+  const { pendingImages, uploadingImage, turnInFlight, turnStartedAt, disabled, editBannerText, sendBlockedReason } = props;
   const id = useId();
   const dict = useDict();
   const themeVersion = useThemeVersion();
@@ -104,6 +116,7 @@ export const NativeComposer = forwardRef<NativeComposerHandle, NativeComposerPro
         theme,
         hidden: modalOpen,
         disabled: disabled ?? false,
+        blockedReason: sendBlockedReason ?? null,
         isEmpty,
         turnInFlight,
         uploading: uploadingImage,
@@ -112,7 +125,7 @@ export const NativeComposer = forwardRef<NativeComposerHandle, NativeComposerPro
         typo,
         thumbnailFor,
       }),
-    [dict, theme, modalOpen, disabled, isEmpty, turnInFlight, uploadingImage, pendingImages, editBannerText, typo, thumbnailFor],
+    [dict, theme, modalOpen, disabled, sendBlockedReason, isEmpty, turnInFlight, uploadingImage, pendingImages, editBannerText, typo, thumbnailFor],
   );
   const lastSentRef = useRef<string | null>(null);
   useEffect(() => {
@@ -209,6 +222,14 @@ export const NativeComposer = forwardRef<NativeComposerHandle, NativeComposerPro
       composerSubmit: ({ text: raw }) => {
         const text = raw.trim();
         textRef.current = raw;
+        // Blocked (the agent has no login): the payload already greys the
+        // send button out, so this only guards a submit already in flight.
+        // The text stays in the field, and the attempt is the cue to check
+        // the reason again.
+        if (propsRef.current.sendBlockedReason !== undefined) {
+          propsRef.current.onBlockedSend?.();
+          return;
+        }
         const decision = decideSubmit({
           text,
           attachmentCount: propsRef.current.pendingImages.length,

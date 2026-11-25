@@ -12,7 +12,7 @@ import { ToolCallCard } from "@/components/chat/ToolCallCard";
 import { WorkBlock } from "@/components/chat/activity/WorkBlock";
 import { buildTimeline, type TimelineItem } from "@/lib/format/activity";
 import { OpenState, OpenStateContext } from "@/lib/format/openState";
-import { ErrorMessage } from "@/components/chat/ErrorMessage";
+import { ErrorMessage, type ReconnectAction } from "@/components/chat/ErrorMessage";
 import { cn } from "@/lib/utils";
 import { nextScrollToEndVisible } from "@/lib/platform/scrollToEndVisibility";
 import { useDict, type Dictionary } from "@/i18n";
@@ -95,7 +95,7 @@ interface MessageLogProps {
   trailing?: ReactNode;
   /** Signs the session's agent back in, on a turn that failed for a lost
    * login. The caller memoizes it, like `trailing`. */
-  reconnect?: { label: string; onClick: () => void };
+  reconnect?: ReconnectAction;
 }
 
 export interface MessageLogHandle {
@@ -126,7 +126,7 @@ interface UserActionHandlers {
   cwd: string | null;
   /** Signs the session's agent back in, for a turn that failed for a lost
    * login. Absent where the app can't offer it. */
-  reconnect?: { label: string; onClick: () => void };
+  reconnect?: ReconnectAction;
 }
 
 function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions: UserActionHandlers, attributionByToolUseId: Record<string, AttributionState>, dict: Dictionary) {

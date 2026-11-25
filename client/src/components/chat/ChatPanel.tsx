@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { agentName, useHostAgents } from "@/components/chat/AgentModelEffortButton";
 import { AgentLoginDialog, type AgentLoginTarget } from "@/components/shell/AgentLoginDialog";
 import { useAgentSignedOut } from "@/hooks/planUsage/useAgentSignedOut";
+import { useCatalogSignedOut } from "@/hooks/relay/useCatalogSignedOut";
 import { requestPlanUsageRefresh } from "@/lib/planUsage/signedOutAgents";
 import { Button } from "@/components/ui/button";
 import { trackError, trackFeature, trackPromptSent, trackSessionStarted } from "@/lib/telemetry/instrument";
@@ -589,9 +590,9 @@ export function ChatPanel({
           lastAssistantText: lastTextEntry?.kind === "text" ? lastTextEntry.text : null,
         });
       }),
-    onTurnError: (message) =>
+    onTurnError: (message, failureClass) =>
       whenResynced(() => {
-        logRef.current.handleTurnError(message);
+        logRef.current.handleTurnError(message, failureClass);
         setTurnStartedAt(null);
       }),
     // A turn in progress is SESSION state, not sender state — without this,
@@ -805,27 +806,53 @@ export function ChatPanel({
   // a new element on every `ChatPanel` render.
   // Signing the session's agent back in, from the chat that needs it: a
   // strip above the composer while the profile's agent has no login, and the
-  // same action on a turn that failed for one. Desktop only for now: iOS
-  // reads no plan usage, so it would never know.
-  const agentSignedOut = useAgentSignedOut(profile.id, agentId) && !isIOS();
+  // same action on a turn that failed for one. The desktop knows from the
+  // plan usage watch `App` keeps; iOS reads no plan usage, so it asks the
+  // relay's agent list instead, while the chat is connected.
+  const planUsageSignedOut = useAgentSignedOut(profile.id, agentId);
+  const catalogLogin = useCatalogSignedOut(profile, agentId, isIOS() && live);
+  const agentSignedOut = isIOS() ? catalogLogin.signedOut : planUsageSignedOut;
+  const recheckCatalogLogin = catalogLogin.recheck;
   // Sending is blocked on this reading, so it has to be current: read the
-  // login again when the strip appears, and on each blocked send.
+  // login again when the strip appears, on each blocked send, and after a
+  // sign-in.
   const recheckLogin = useCallback(() => {
-    if (agentId) requestPlanUsageRefresh(profile.id, agentId);
-  }, [profile.id, agentId]);
+    if (!agentId) return;
+    if (isIOS()) recheckCatalogLogin();
+    else requestPlanUsageRefresh(profile.id, agentId);
+  }, [profile.id, agentId, recheckCatalogLogin]);
   useEffect(() => {
-    if (agentSignedOut) recheckLogin();
+    // The agent list was read just now; only the plan usage reading can be stale.
+    if (agentSignedOut && !isIOS()) recheckLogin();
   }, [agentSignedOut, recheckLogin]);
+  // A turn that failed for a lost login is news the agent list may not have
+  // had when it was read: read it again (iOS; the desktop's watch re-reads).
+  const lastAuthErrorId = useMemo(() => {
+    const last = log.entries[log.entries.length - 1];
+    return last?.kind === "error" && last.failureClass === "auth" ? last.id : null;
+  }, [log.entries]);
+  useEffect(() => {
+    if (lastAuthErrorId !== null && isIOS()) recheckCatalogLogin();
+  }, [lastAuthErrorId, recheckCatalogLogin]);
   const [agentLoginOpen, setAgentLoginOpen] = useState(false);
   const agentLoginTarget = useMemo<AgentLoginTarget | null>(() => (agentId ? { profile, runtimeId: agentId } : null), [profile, agentId]);
   const agentDisplayName = agentId ? agentName(dict.chat.composer.agentNames, agentId) : "";
   const reconnect = useMemo(
     () =>
-      isIOS() || !agentId
-        ? undefined
-        : { label: dict.chat.agentSignedOut.reconnect.split("{agent}").join(agentDisplayName), onClick: () => setAgentLoginOpen(true) },
+      agentId
+        ? {
+            label: dict.chat.agentSignedOut.reconnect.split("{agent}").join(agentDisplayName),
+            explanation: dict.chat.agentSignedOut.turnFailed.split("{agent}").join(agentDisplayName),
+            onClick: () => setAgentLoginOpen(true),
+          }
+        : undefined,
     [agentId, agentDisplayName, dict],
   );
+  const sendBlockedReason = agentSignedOut
+    ? dict.chat.agentSignedOut.sendBlocked.split("{agent}").join(agentDisplayName)
+    : !live
+      ? dict.chat.connection.sendBlocked
+      : undefined;
 
   const hasLaunchedInBackground = backgroundJobs.length > 0 || subagents.length > 0;
   const logTrailing = useMemo(
@@ -1257,7 +1284,9 @@ export function ChatPanel({
                   onScrollToEnd={() => messageLogRef.current?.scrollToEnd()}
                   scrollToEndVisible={scrollToEndVisible && showingLog}
                   accessoryHeight={floatingStackHeight}
-              />
+                  sendBlockedReason={agentSignedOut ? sendBlockedReason : undefined}
+                  onBlockedSend={agentSignedOut ? recheckLogin : undefined}
+                />
               </>
             ) : (
               <Composer
@@ -1289,13 +1318,7 @@ export function ChatPanel({
                 onChangeDraft={setDraft}
                 onSend={handleSend}
                 className={showingIdle ? "shadow-lift" : undefined}
-                sendBlockedReason={
-                  agentSignedOut
-                    ? dict.chat.agentSignedOut.sendBlocked.split("{agent}").join(agentDisplayName)
-                    : !live
-                      ? dict.chat.connection.sendBlocked
-                      : undefined
-                }
+                sendBlockedReason={sendBlockedReason}
                 onBlockedSend={agentSignedOut ? recheckLogin : undefined}
                 placeholder={roomMode ? dict.sala.newSession.placeholderRoom : undefined}
                 infoStart={
@@ -1322,7 +1345,7 @@ export function ChatPanel({
        * (terminalSession.ts) and there's nothing for the file tree to list
        * without one — same gate the keyboard shortcuts don't have (they
        * already no-op on a group with no active tab, which subsumes this). */}
-      <AgentLoginDialog open={agentLoginOpen} onOpenChange={setAgentLoginOpen} target={agentLoginTarget} />
+      <AgentLoginDialog open={agentLoginOpen} onOpenChange={setAgentLoginOpen} target={agentLoginTarget} onSignedIn={recheckLogin} />
 
       {panelTogglesSlot && files && terminal
         ? createPortal(
