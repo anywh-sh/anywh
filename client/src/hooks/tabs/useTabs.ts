@@ -29,6 +29,11 @@ export interface Tab {
   /** The tab is a bot's conversation (its room's principal): a chat, with
    * the bot's task list as its side panel. */
   bot?: boolean;
+  /** The tab is a chat with an agent of a room (a worker of a bot's, or of a
+   * room's): `id` is the agent's own session, this is the room's id. The
+   * agent belongs to its room — its row is in the room's tree, never in the
+   * conversation list, and the room stays selected while the tab is active. */
+  agentOf?: string;
 }
 
 /** One column of the split — up to `MAX_GROUPS` side by side (see the
@@ -60,6 +65,7 @@ interface PersistedTab {
   title: string | null;
   room?: boolean;
   bot?: boolean;
+  agentOf?: string;
 }
 
 interface PersistedTabs {
@@ -195,6 +201,13 @@ function asBotTab(tab: Tab): Tab {
   const { room: _room, ...rest } = tab;
   void _room;
   return { ...rest, bot: true };
+}
+
+/** The tab as a chat with an agent of room `roomId`. A room's own tabs (its
+ * canvas, a bot's conversation) are never an agent's. */
+function asAgentTab(tab: Tab, roomId: string): Tab {
+  if (tab.room === true || tab.bot === true || tab.agentOf === roomId) return tab;
+  return { ...tab, agentOf: roomId };
 }
 
 function findGroupOfTab(groups: TabGroup[], tabId: string): TabGroup | undefined {
@@ -339,7 +352,7 @@ export function useTabs() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-    const persistedTabs: PersistedTab[] = state.tabs.map((tab) => ({ id: tab.id, profileId: tab.profileId, title: tab.title, ...(tab.room ? { room: true } : {}), ...(tab.bot ? { bot: true } : {}) }));
+    const persistedTabs: PersistedTab[] = state.tabs.map((tab) => ({ id: tab.id, profileId: tab.profileId, title: tab.title, ...(tab.room ? { room: true } : {}), ...(tab.bot ? { bot: true } : {}), ...(tab.agentOf !== undefined ? { agentOf: tab.agentOf } : {}) }));
     localStorage.setItem(TABS_KEY, JSON.stringify(persistedTabs));
     const focusedGroup = state.groups.find((group) => group.id === state.focusedGroupId);
     if (focusedGroup?.activeTabId) localStorage.setItem(ACTIVE_TAB_KEY, focusedGroup.activeTabId);
@@ -352,22 +365,28 @@ export function useTabs() {
     localStorage.setItem(TAB_LAYOUT_KEY, JSON.stringify(layout));
   }, [state]);
 
-  const openTab = useCallback((profileId: string, id: string, title: string | null = null, isNew = false, room = false, bot = false) => {
+  /** `agentOf`: the room whose agent this session is, when it is opened from
+   * that room (its tree, its panel, its cards) — the tab remembers it. */
+  const openTab = useCallback((profileId: string, id: string, title: string | null = null, isNew = false, room = false, bot = false, agentOf?: string) => {
     hydratedRef.current = true;
+    // The room's own id is its principal's, which is never an agent of it.
+    const ofRoom = agentOf !== undefined && agentOf !== id && !room && !bot ? agentOf : undefined;
     setState((prev) => {
       const existingGroup = findGroupOfTab(prev.groups, id);
       if (existingGroup) {
+        // Opened as a bot, a tab already open becomes the bot's (it may have
+        // opened before the bots were known, even as a room's canvas); opened
+        // from a room, it becomes that room's agent.
+        const mark = bot ? asBotTab : ofRoom !== undefined ? (tab: Tab) => asAgentTab(tab, ofRoom) : undefined;
         return {
           ...prev,
-          // Opened as a bot, a tab already open becomes the bot's (it may have
-          // opened before the bots were known, even as a room's canvas).
-          tabs: bot ? prev.tabs.map((tab) => (tab.id === id ? asBotTab(tab) : tab)) : prev.tabs,
+          tabs: mark ? prev.tabs.map((tab) => (tab.id === id ? mark(tab) : tab)) : prev.tabs,
           groups: prev.groups.map((group) => (group.id === existingGroup.id ? { ...group, activeTabId: id } : group)),
           focusedGroupId: existingGroup.id,
         };
       }
 
-      const tabs = [...prev.tabs, { id, profileId, title, hasUnreadCompletion: false, isRunning: false, hasBackgroundJob: false, isNew, ...(room ? { room: true } : {}), ...(bot ? { bot: true } : {}) }];
+      const tabs = [...prev.tabs, { id, profileId, title, hasUnreadCompletion: false, isRunning: false, hasBackgroundJob: false, isNew, ...(room ? { room: true } : {}), ...(bot ? { bot: true } : {}), ...(ofRoom !== undefined ? { agentOf: ofRoom } : {}) }];
       const groups = prev.groups.map((group) => (group.id === prev.focusedGroupId ? { ...group, tabIds: [...group.tabIds, id], activeTabId: id } : group));
       return normalize({ tabs, groups, focusedGroupId: prev.focusedGroupId });
     });
@@ -603,6 +622,7 @@ export function useTabs() {
         isNew: false,
         ...(persisted.room === true ? { room: true } : {}),
         ...(persisted.bot === true ? { bot: true } : {}),
+        ...(typeof persisted.agentOf === "string" ? { agentOf: persisted.agentOf } : {}),
       }));
       const layout = getPersistedLayout(persistedTabs, activeTabId ?? tabs[tabs.length - 1]?.id ?? null);
       return normalize({ tabs, groups: layout.groups, focusedGroupId: layout.focusedGroupId });

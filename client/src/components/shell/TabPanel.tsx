@@ -69,8 +69,9 @@ export interface TabPanelActions {
   /** A new-session tab opened a room: `tab` is now the room, `roomId` its id. */
   onRoomCreated: (tab: Tab, profile: Profile, roomId: string, title: string) => void;
   /** Opens (or focuses) another session of the profile as a tab: a room's
-   * agent, from its panel. */
-  onOpenSession: (profile: Profile, sessionId: string, title: string | null) => void;
+   * agent, from its panel. `agentOf` is the room it is an agent of, when it is
+   * opened from one — the tab keeps it. */
+  onOpenSession: (profile: Profile, sessionId: string, title: string | null, agentOf?: string) => void;
 }
 
 interface TabChatProps {
@@ -103,11 +104,13 @@ const TabChat = memo(function TabChat({
   actions,
 }: TabChatProps) {
   const noPanes = isCompact || isIOS();
-  // Outside a room panel a card opens the agent as a tab. `actions` is stable
-  // (see the note on `TabPanelActions`), so this is too.
+  // Outside a room panel a card opens the agent as a tab, of the room this
+  // conversation belongs to (a bot's, or the one another agent works in).
+  // `actions` is stable (see the note on `TabPanelActions`), so this is too.
+  const roomOfTab = tab.bot === true || tab.room === true ? tab.id : tab.agentOf;
   const cardActions = useMemo(
-    () => ({ openAgent: (agentId: string) => actions.onOpenSession(profile, agentId, null) }),
-    [actions, profile],
+    () => ({ openAgent: (agentId: string) => actions.onOpenSession(profile, agentId, null, roomOfTab) }),
+    [actions, profile, roomOfTab],
   );
   // A bot's task named in its conversation opens in its side panel — the
   // dock's pane on desktop, the compact bar's sheet elsewhere (it listens).
@@ -192,7 +195,7 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
         none: dock.panes.includes("none") ? <DockEmptyState /> : undefined,
         agent: dock.panes.includes("agent") ? roomPanes?.agent : undefined,
         about: dock.panes.includes("about") ? roomPanes?.about : undefined,
-        bot: dock.panes.includes("bot") && tab.bot ? <BotPanel profile={profile} roomId={tab.id} onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)} /> : undefined,
+        bot: dock.panes.includes("bot") && tab.bot ? <BotPanel profile={profile} roomId={tab.id} onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title, tab.id)} /> : undefined,
         terminal: dock.panes.includes("terminal") && !background ? (
           <TerminalPanelSlot
             profile={profile}
@@ -336,7 +339,7 @@ export const TabPanel = memo(function TabPanel({
           onActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
           onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
           onGone={() => actions.onDeleted(tab)}
-          onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
+          onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title, tab.id)}
           dock={roomDock}
         />
       </>
@@ -360,7 +363,7 @@ export const TabPanel = memo(function TabPanel({
     if (!tab.bot) return chat;
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <BotCompactBar profile={profile} roomId={tab.id} onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)} />
+        <BotCompactBar profile={profile} roomId={tab.id} onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title, tab.id)} />
         <div className="min-h-0 flex-1">{chat}</div>
       </div>
     );

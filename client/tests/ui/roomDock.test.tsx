@@ -4,6 +4,7 @@ import { act, cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
+import { listedSessionIds, savedTabs } from "./helpers/savedState";
 import { seedShellProfile } from "./helpers/seedProfile";
 import { en } from "@/i18n/en";
 import type { RoomAgent } from "@/lib/relay/roomClient";
@@ -157,5 +158,27 @@ describe("a room's panes in the session dock", () => {
     await user.click(screen.getByRole("tab", { name: /Profile page/ }));
     expect(socketsOf("room-1")).toHaveLength(1);
     expect(pane("agent")?.querySelector('aside[data-panel="principal"]')).not.toBeNull();
+  }, 20_000);
+
+  it("opens an agent of the room as a tab that keeps whose agent it is, and stays out of the conversation list", async () => {
+    const user = await openRoom();
+    await openOrchestrator(user);
+    await vi.waitFor(() => expect(pane("agent")).not.toBeNull());
+    // A click on a worker's card selects it; its bar opens the conversation.
+    await user.click(await screen.findByRole("button", { name: /Stop the spinner/ }));
+    await user.click(await screen.findByRole("button", { name: en.sala.card.actions.open }));
+    // Strictly: a missing pane would read as `undefined`, which is not null.
+    await vi.waitFor(() => expect(pane("agent")?.querySelector('aside[data-panel="agent"]') ?? null).not.toBeNull());
+    await user.click(await within(pane("agent")!).findByRole("button", { name: en.sala.panel.agent.openInTab }));
+    await vi.waitFor(() => expect(savedTabs()).toContainEqual(expect.objectContaining({ id: "worker-1", agentOf: "room-1" })));
+    await vi.waitFor(() => expect(socketsOf("worker-1").length).toBeGreaterThan(0));
+    // The relay never lists a room's agents on their own, so a title arriving
+    // for the tab must not list it either (the tab shows it: the handler ran).
+    act(() => socketsOf("worker-1").forEach((socket) => socket.emitMessage({ type: "session_title", title: "Spinner stopped" })));
+    await screen.findByRole("tab", { name: /Spinner stopped/ });
+    expect(listedSessionIds()).not.toContain("worker-1");
+    // The room is still the room's own tab, not an agent's.
+    expect(savedTabs()).toContainEqual(expect.objectContaining({ id: "room-1", room: true }));
+    expect(savedTabs().find((tab) => tab.id === "room-1")?.agentOf).toBeUndefined();
   }, 20_000);
 });

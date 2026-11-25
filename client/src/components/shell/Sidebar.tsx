@@ -34,6 +34,9 @@ export interface SidebarProps {
   sessionsError: boolean;
   onRetrySessions: () => void;
   selectedSession: string | null;
+  /** The room the focused tab is an agent of, when it is one (a bot's agent
+   * keeps its bot selected). */
+  selectedAgentOf: string | null;
   runningSessions: Set<string>;
   backgroundJobSessions: Set<string>;
   onSelectSession: (session: MergedSession) => void;
@@ -73,6 +76,7 @@ export const Sidebar = memo(function Sidebar({
   sessionsError,
   onRetrySessions,
   selectedSession,
+  selectedAgentOf,
   runningSessions,
   backgroundJobSessions,
   onSelectSession,
@@ -121,7 +125,7 @@ export const Sidebar = memo(function Sidebar({
         // The bots keep their natural height, up to a share of the column;
         // past it they scroll and the conversations keep the rest.
         <div className="flex max-h-[45%] min-h-0 shrink-0 flex-col" data-testid="sidebar-bots">
-          <BotsSection profile={activeProfile} selectedSession={selectedSession} {...botActions} />
+          <BotsSection profile={activeProfile} selectedSession={selectedSession} selectedAgentOf={selectedAgentOf} {...botActions} />
         </div>
       )}
       <div className="flex min-h-0 flex-1 flex-col">

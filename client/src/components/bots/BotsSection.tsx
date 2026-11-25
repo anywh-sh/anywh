@@ -38,6 +38,9 @@ interface BotsSectionProps extends BotsSectionActions {
   /** The active tab's session id: the bot whose conversation (or agent) it
    * is opens its tree. */
   selectedSession: string | null;
+  /** The room the active tab is an agent of, when it is one: that bot stays
+   * selected with it, since the agent is part of the bot's session. */
+  selectedAgentOf: string | null;
 }
 
 /**
@@ -45,13 +48,15 @@ interface BotsSectionProps extends BotsSectionActions {
  * what is going on in one line. The bot in focus opens a short tree under
  * its row: its conversation, then the agents at work for it.
  */
-export const BotsSection = memo(function BotsSection({ profile, selectedSession, ...actions }: BotsSectionProps) {
+export const BotsSection = memo(function BotsSection({ profile, selectedSession, selectedAgentOf, ...actions }: BotsSectionProps) {
   const dict = useDict();
   const bots = useBots(profile.id);
   // The bot whose tree is open: the one last picked, kept while one of its
   // agents is the active tab.
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const selectedBot = bots.find((bot) => bot.roomId === selectedSession);
+  // The bot the active tab belongs to: its own conversation, or one of its
+  // agents. It is the one lit, and its tree is the one open.
+  const selectedBot = bots.find((bot) => bot.roomId === selectedSession || bot.roomId === selectedAgentOf);
   const expanded = selectedBot?.id ?? expandedId;
   const relay = useRelayFeatures(profile, "bots");
 
@@ -97,7 +102,7 @@ export const BotsSection = memo(function BotsSection({ profile, selectedSession,
           <div key={bot.id}>
             <BotRow
               bot={bot}
-              selected={bot.roomId === selectedSession}
+              selected={bot.id === selectedBot?.id}
               onSelect={() => {
                 setExpandedId(bot.id);
                 actions.onSelectBot(bot);
