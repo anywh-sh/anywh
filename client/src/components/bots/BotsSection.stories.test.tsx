@@ -6,7 +6,7 @@ import * as stories from "./BotsSection.stories";
 import { en } from "@/i18n/en";
 import { resetBotsStore } from "@/lib/bots/botsStore";
 
-const { States, Empty } = composeStories(stories);
+const { States, Empty, AgentOpen } = composeStories(stories);
 
 describe("Bots sidebar section stories", () => {
   afterEach(() => {
@@ -35,4 +35,11 @@ describe("Bots sidebar section stories", () => {
     expect(onNewBot).toHaveBeenLastCalledWith("templates");
   });
 
+  it("AgentOpen keeps the bot of the active agent selected, and only that one", () => {
+    render(<AgentOpen />);
+    expect(screen.getByRole("button", { name: "Vigia" })).toHaveAttribute("data-selected", "true");
+    expect(screen.getByRole("button", { name: "Revisor" })).not.toHaveAttribute("data-selected");
+    // Its tree is open under it, though the agent itself is not its conversation.
+    expect(screen.getByRole("button", { name: en.bots.conversation })).not.toHaveAttribute("data-selected");
+  });
 });

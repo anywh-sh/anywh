@@ -217,6 +217,31 @@ describe("bots in the sidebar", () => {
       expect(savedTabs()).toContainEqual(expect.objectContaining({ id: "worker-1", agentOf: "room-vigia" }));
       expect(listedSessionIds()).not.toContain("worker-1");
     });
+
+    it("keeps the bot's row selected while the agent is the active tab", async () => {
+      const user = userEvent.setup();
+      await openAgentOfVigia(user);
+      // The agent is part of the bot's session: its row is the one lit, and
+      // the bot's own row stays lit with it (not only on "Conversation").
+      const bots = screen.getByTestId("sidebar-bots");
+      expect(within(bots).getByRole("button", { name: new RegExp(vigiaWorker.title ?? "") })).toHaveAttribute("data-selected", "true");
+      expect(within(bots).getByRole("button", { name: "Vigia" })).toHaveAttribute("data-selected", "true");
+      expect(within(bots).getByRole("button", { name: en.bots.conversation })).not.toHaveAttribute("data-selected");
+    });
+
+    it("keeps the bot's row selected, and its tree open, after a restart", async () => {
+      localStorage.setItem("anywh:tabs", JSON.stringify([{ id: "worker-1", profileId: SHELL_TEST_PROFILE.id, title: "Fix flaky test", agentOf: "room-vigia" }]));
+      renderApp();
+      const watch = await watchSocket();
+      act(() => {
+        watch.emitMessage({ type: "bots_state", bots: [vigia] });
+      });
+      // No click this run: the tab says whose agent it is.
+      const bots = await screen.findByTestId("sidebar-bots");
+      await waitFor(() => expect(within(bots).getByRole("button", { name: "Vigia" })).toHaveAttribute("data-selected", "true"));
+      await waitFor(() => expect(roomChannels().length).toBeGreaterThan(0));
+      expect(within(bots).getByRole("button", { name: en.bots.conversation })).toBeInTheDocument();
+    });
   });
 
   it("a bot's conversation open before the bots are known becomes the bot's tab once they are", async () => {

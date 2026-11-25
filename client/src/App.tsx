@@ -576,6 +576,7 @@ function AppShell() {
     sessionsError,
     onRetrySessions: reloadSessions,
     selectedSession: activeTabId,
+    selectedAgentOf: activeTab?.agentOf ?? null,
     runningSessions,
     backgroundJobSessions,
     onSelectSession,
