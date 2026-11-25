@@ -11,6 +11,10 @@ export interface ComposerModelInput {
   hidden: boolean;
   /** Relay disconnected, etc. */
   disabled: boolean;
+  /** Why nothing can be sent right now (the agent has no login), already
+   * localized, or `null`. The text can still be typed; the reason takes the
+   * placeholder's place, since the native field has no tooltip to carry it. */
+  blockedReason: string | null;
   /** Whether the text field holds no text at all. */
   isEmpty: boolean;
   turnInFlight: boolean;
@@ -60,8 +64,8 @@ export function buildComposerPayload(input: ComposerModelInput): NativeComposerP
 
   return {
     hidden: input.hidden,
-    placeholder: copy.placeholder,
-    canSend: !input.disabled && !input.uploading && (!input.isEmpty || input.pendingImages.length > 0),
+    placeholder: input.blockedReason ?? copy.placeholder,
+    canSend: !input.disabled && input.blockedReason === null && !input.uploading && (!input.isEmpty || input.pendingImages.length > 0),
     turnInFlight: input.turnInFlight,
     attachEnabled: !input.uploading,
     uploading: input.uploading,

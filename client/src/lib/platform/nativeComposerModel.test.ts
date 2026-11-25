@@ -33,6 +33,7 @@ function build(over: Partial<ComposerModelInput> = {}) {
     theme,
     hidden: false,
     disabled: false,
+    blockedReason: null,
     isEmpty: true,
     turnInFlight: false,
     uploading: false,
@@ -45,6 +46,15 @@ function build(over: Partial<ComposerModelInput> = {}) {
 }
 
 describe("buildComposerPayload", () => {
+  describe("placeholder", () => {
+    it("is the composer's own copy normally", () => {
+      expect(build().placeholder).toBe(en.chat.composer.placeholder);
+    });
+    it("says why while sending is blocked, since the native field has no tooltip", () => {
+      expect(build({ blockedReason: "Connect Claude Code to send messages" }).placeholder).toBe("Connect Claude Code to send messages");
+    });
+  });
+
   describe("canSend", () => {
     it("is false for an empty field with nothing attached", () => {
       expect(build().canSend).toBe(false);
@@ -57,6 +67,9 @@ describe("buildComposerPayload", () => {
     });
     it("is false when disconnected, whatever is typed", () => {
       expect(build({ disabled: true, isEmpty: false, pendingImages: [image("/a.png")] }).canSend).toBe(false);
+    });
+    it("is false while sending is blocked (the agent has no login), whatever is typed", () => {
+      expect(build({ blockedReason: "Connect Claude Code to send messages", isEmpty: false, pendingImages: [image("/a.png")] }).canSend).toBe(false);
     });
     it("is false while an attachment is still uploading, whatever is attached", () => {
       expect(build({ uploading: true, isEmpty: false, pendingImages: [image("/a.png")] }).canSend).toBe(false);
