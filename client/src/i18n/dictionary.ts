@@ -746,6 +746,18 @@ export interface Dictionary {
       customLabel: string;
       customAnswer: string;
       selectedCount: string;
+      /** iOS: the native composer's row for a pending approval (`pending` is
+       * the one for a question). */
+      pendingApproval: string;
+      /** iOS: accessibility label of that row, which opens the question sheet. */
+      open: string;
+      /** iOS: the sheet's small label above a question without a header of its
+       * own, one per kind of prompt. */
+      kickerQuestion: string;
+      kickerApproval: string;
+      /** iOS: the sheet's main button on every question but the last (which
+       * reads `common.send`). */
+      next: string;
       skip: string;
       submit: string;
     };
