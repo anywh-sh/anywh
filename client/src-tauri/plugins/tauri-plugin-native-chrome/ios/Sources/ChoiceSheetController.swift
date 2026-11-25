@@ -20,8 +20,11 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
   private let presenter: () -> UIViewController?
   private var host: UIHostingController<ChoiceSheetView>?
 
-  /// Runs right before the sheet opens (the composer drops its keyboard).
+  /// Runs right before the sheet opens (the composer drops its keyboard and
+  /// steps aside).
   var willPresent: () -> Void = {}
+  /// Runs once the sheet is on its way out, or gone.
+  var didDismiss: () -> Void = {}
 
   init(store: ChoiceStore, presenter: @escaping () -> UIViewController?) {
     self.store = store
@@ -77,12 +80,14 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
   private func dismiss() {
     guard let host else { return }
     self.host = nil
+    didDismiss()
     host.dismiss(animated: true)
   }
 
   /// Pulled down by the user: the question stays pending.
   func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
     host = nil
+    didDismiss()
   }
 
   // MARK: Height
@@ -104,7 +109,13 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
   private func applyTheme(_ theme: ShellTheme) {
     guard let host else { return }
     let background = UIColor(hex: theme.background)
-    host.overrideUserInterfaceStyle = background.isDark ? .dark : .light
+    let style: UIUserInterfaceStyle = background.isDark ? .dark : .light
+    host.overrideUserInterfaceStyle = style
+    // The sheet's own surface (its glass, or its opaque full-height
+    // background) follows the presentation, not the content: without this
+    // it took the system's appearance, light glass under the theme's light
+    // ink.
+    host.sheetPresentationController?.traitOverrides.userInterfaceStyle = style
     if #available(iOS 26, *) {
       // The system's own Liquid Glass sheet shows through.
       host.view.backgroundColor = .clear

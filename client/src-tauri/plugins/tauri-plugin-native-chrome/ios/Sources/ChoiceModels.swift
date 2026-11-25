@@ -70,6 +70,9 @@ struct ChoiceTextEvent: Encodable {
 @MainActor
 final class ChoiceStore: ObservableObject {
   @Published private(set) var args: ChoiceSheetArgs?
+  /// The last question there was. The sheet keeps drawing it while it slides
+  /// away after the question is gone (answered), instead of going blank.
+  private(set) var lastArgs: ChoiceSheetArgs?
   /// The free-text field. It belongs to this side while the user types: the
   /// payload only writes it when the step changes, and a tap on an option
   /// empties it (the web side drops the text on that tap too).
@@ -99,8 +102,12 @@ final class ChoiceStore: ObservableObject {
   func apply(_ next: ChoiceSheetArgs?) -> Bool {
     let stepChanged = next?.stepKey != args?.stepKey
     args = next
+    // Going away (`nil`) leaves the field and the scroll as they were: the
+    // sheet still shows them while it slides down.
+    guard let next else { return stepChanged }
+    lastArgs = next
     if stepChanged {
-      customText = next?.custom?.text ?? ""
+      customText = next.custom?.text ?? ""
       stepVersion += 1
     }
     return stepChanged

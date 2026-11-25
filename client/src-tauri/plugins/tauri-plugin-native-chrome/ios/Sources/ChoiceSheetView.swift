@@ -15,18 +15,18 @@ private enum SheetTuning {
 }
 
 /// The pending question as a native sheet: a small label (the question's
-/// header or the kind of prompt) and its position, the question itself, the
-/// options as large rows, the free-text field when the question takes one, and
-/// skip / next-or-send at the bottom. Opened from the composer's row by
-/// `ChoiceSheetController`; everything it shows comes worded from the web
-/// side, and every tap goes back to it through the store.
+/// header or the kind of prompt) and its position, the question itself and
+/// the options as large rows; pinned at the bottom, the free-text field when
+/// the question takes one, and skip / next-or-send. Opened from the
+/// composer's row by `ChoiceSheetController`; everything it shows comes
+/// worded from the web side, and every tap goes back to it through the store.
 struct ChoiceSheetView: View {
   @ObservedObject var store: ChoiceStore
   @FocusState private var fieldFocused: Bool
   private let topID = "choice-sheet-top"
 
   var body: some View {
-    if let args = store.args {
+    if let args = store.args ?? store.lastArgs {
       let theme = args.theme
       VStack(spacing: 0) {
         header(args, theme)
@@ -119,9 +119,6 @@ struct ChoiceSheetView: View {
         }
         .opacity(args.optionsDimmed ? SheetTuning.dimmedOpacity : 1)
       }
-      if let custom = args.custom {
-        customField(custom, theme)
-      }
     }
     .padding(.horizontal, SheetTuning.sideInset)
     .padding(.top, 2)
@@ -202,8 +199,14 @@ struct ChoiceSheetView: View {
 
   // MARK: Footer
 
+  /// Pinned under the scrolled options, so it rides above the keyboard: the
+  /// free-text field (when the question takes one) is always in full view
+  /// while it is being typed in.
   private func footer(_ args: ChoiceSheetArgs, _ theme: ShellTheme) -> some View {
     VStack(spacing: 10) {
+      if let custom = args.custom {
+        customField(custom, theme)
+      }
       if let status = args.status {
         Text(status)
           .font(.system(size: 13))
@@ -215,7 +218,10 @@ struct ChoiceSheetView: View {
           Text(args.skipLabel)
             .font(.system(size: 16, weight: .medium))
             .foregroundStyle(Color(hex: theme.muted))
-            .padding(.horizontal, 18)
+            // Its text lines up with the options' indicators and the field's
+            // text above it.
+            .padding(.leading, 14)
+            .padding(.trailing, 18)
             .frame(height: SheetTuning.buttonHeight)
             .contentShape(Rectangle())
         }
@@ -237,7 +243,7 @@ struct ChoiceSheetView: View {
       }
     }
     .padding(.horizontal, SheetTuning.sideInset)
-    .padding(.top, 10)
+    .padding(.top, 6)
     .padding(.bottom, 12)
   }
 }
