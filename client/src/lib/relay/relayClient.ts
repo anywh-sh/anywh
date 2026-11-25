@@ -32,6 +32,7 @@ import { authHeaders, resolveConnection } from "@/lib/profiles/connectionResolve
 import type { Profile } from "@/lib/profiles/profiles";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { WS_PROTOCOL_VERSION } from "@/lib/relay/protocolVersion";
+import type { TurnFailureClass } from "@/lib/relay/agent-event";
 
 export type {
   AgentEvent,
@@ -438,7 +439,10 @@ export interface RelayClientCallbacks {
    * callback doesn't act on yet. */
   onEvent: (event: AgentEvent) => void;
   onTurnComplete: (stopped: boolean, durationMs?: number) => void;
-  onTurnError: (message: string) => void;
+  /** `failureClass` is the agent's own reading of the failure (`"auth"`: a
+   * lost login), passed on so the live turn offers the same way back in a
+   * replayed one does. */
+  onTurnError: (message: string, failureClass?: TurnFailureClass) => void;
   /** End of this session's history replay — completed turns received
    * after this are truly new, not reconstruction (see sharedSession.ts). */
   onCaughtUp: () => void;
@@ -751,7 +755,7 @@ export class RelayClient {
         if (parsed.event.type === "turn_ended") {
           this.callbacks.onTurnComplete(parsed.event.stopped, parsed.event.durationMs);
         } else if (parsed.event.type === "error") {
-          this.callbacks.onTurnError(parsed.event.message);
+          this.callbacks.onTurnError(parsed.event.message, parsed.event.failureClass);
         } else {
           this.callbacks.onEvent(parsed.event);
         }

@@ -139,7 +139,7 @@ type Action =
    * `RelayClientCallbacks.onEvent`'s doc comment) — these two actions
    * reconstruct the same event shape `applyAgentEvent` expects, so live
    * dispatch and history replay share one code path. */
-  | { type: "TURN_ERROR"; message: string }
+  | { type: "TURN_ERROR"; message: string; failureClass?: TurnFailureClass }
   | { type: "TURN_COMPLETE"; stopped: boolean; durationMs?: number }
   | { type: "RESET" }
   /** Initial tail received via `history_page` — swaps
@@ -513,7 +513,10 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
       return applyAgentEvent(state, action.event);
 
     case "TURN_ERROR":
-      return applyAgentEvent(state, { type: "error", message: action.message });
+      return applyAgentEvent(
+        state,
+        action.failureClass ? { type: "error", message: action.message, failureClass: action.failureClass } : { type: "error", message: action.message },
+      );
 
     case "TURN_COMPLETE":
       return applyAgentEvent(state, { type: "turn_ended", stopped: action.stopped, ...(action.durationMs !== undefined ? { durationMs: action.durationMs } : {}) });
@@ -605,7 +608,7 @@ export interface UseMessageLogResult {
    * `addUserMessage`/`sendMessage` in `ChatPanel.onSend`. */
   editUserMessage: (id: string, text: string) => void;
   handleEvent: (event: AgentEvent) => void;
-  handleTurnError: (message: string) => void;
+  handleTurnError: (message: string, failureClass?: TurnFailureClass) => void;
   handleTurnComplete: (stopped?: boolean, durationMs?: number) => void;
   reset: () => void;
   /** Hydrates the log with the initial tail received via `history_page`
@@ -652,7 +655,7 @@ export function useMessageLog(): UseMessageLogResult {
     addUserMessage: (text, images) => dispatch({ type: "USER_MESSAGE", text, images, sentAt: Date.now() }),
     editUserMessage: (id, text) => dispatch({ type: "EDIT_USER_MESSAGE", id, text, sentAt: Date.now() }),
     handleEvent: (event) => dispatch({ type: "AGENT_EVENT", event }),
-    handleTurnError: (message) => dispatch({ type: "TURN_ERROR", message }),
+    handleTurnError: (message, failureClass) => dispatch(failureClass ? { type: "TURN_ERROR", message, failureClass } : { type: "TURN_ERROR", message }),
     handleTurnComplete: (stopped, durationMs) => dispatch({ type: "TURN_COMPLETE", stopped: stopped === true, durationMs }),
     reset: () => dispatch({ type: "RESET" }),
     hydrate: (page) => dispatch({ type: "HYDRATE", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore }),

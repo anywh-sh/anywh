@@ -589,9 +589,9 @@ export function ChatPanel({
           lastAssistantText: lastTextEntry?.kind === "text" ? lastTextEntry.text : null,
         });
       }),
-    onTurnError: (message) =>
+    onTurnError: (message, failureClass) =>
       whenResynced(() => {
-        logRef.current.handleTurnError(message);
+        logRef.current.handleTurnError(message, failureClass);
         setTurnStartedAt(null);
       }),
     // A turn in progress is SESSION state, not sender state — without this,

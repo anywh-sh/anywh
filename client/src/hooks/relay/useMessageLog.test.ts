@@ -306,6 +306,17 @@ describe("useMessageLog", () => {
     ]);
   });
 
+  it("handleTurnError keeps the failure class, so a live turn that failed for a lost login offers the way back in too", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleTurnError("Not logged in · Please run /login", "auth"));
+    act(() => result.current.handleTurnError("Overloaded"));
+
+    expect(stripVolatile(result.current.entries)).toEqual([
+      { kind: "error", message: "Not logged in · Please run /login", failureClass: "auth" },
+      { kind: "error", message: "Overloaded" },
+    ]);
+  });
+
   it("context_attribution updates attributionByToolUseId, never entries — it isn't a message", () => {
     const { result } = renderHook(() => useMessageLog());
     act(() => result.current.handleEvent({ type: "context_attribution", toolUseIds: ["t1"], tokens: 13_472, estimated: false }));
