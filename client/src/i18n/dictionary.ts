@@ -689,7 +689,12 @@ export interface Dictionary {
       /** On the send button while the agent has no login. */
       sendBlocked: string;
       connect: string;
+      /** On a turn that failed for a lost or never-made login. Neutral on
+       * which: a fresh machine has never been signed in. */
       reconnect: string;
+      /** Stands in for the CLI's own error on that turn ("Please run
+       * /login" is an instruction for its terminal, not for this app). */
+      turnFailed: string;
     };
     log: {
       loading: string;

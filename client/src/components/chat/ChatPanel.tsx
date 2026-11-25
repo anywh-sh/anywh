@@ -823,7 +823,11 @@ export function ChatPanel({
     () =>
       isIOS() || !agentId
         ? undefined
-        : { label: dict.chat.agentSignedOut.reconnect.split("{agent}").join(agentDisplayName), onClick: () => setAgentLoginOpen(true) },
+        : {
+            label: dict.chat.agentSignedOut.reconnect.split("{agent}").join(agentDisplayName),
+            explanation: dict.chat.agentSignedOut.turnFailed.split("{agent}").join(agentDisplayName),
+            onClick: () => setAgentLoginOpen(true),
+          },
     [agentId, agentDisplayName, dict],
   );
 

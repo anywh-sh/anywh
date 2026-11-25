@@ -317,6 +317,30 @@ describe("useMessageLog", () => {
     ]);
   });
 
+  it("a turn that failed for a lost login drops the assistant text that only echoed the error (as a signed-out claude sends it)", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "user_message", text: "hello" }));
+    act(() => result.current.handleEvent({ type: "text", text: "Not logged in · Please run /login" }));
+    act(() => result.current.handleEvent({ type: "error", message: "Not logged in · Please run /login", failureClass: "auth" }));
+
+    expect(stripVolatile(result.current.entries)).toEqual([
+      { kind: "user", text: "hello" },
+      { kind: "error", message: "Not logged in · Please run /login", failureClass: "auth" },
+    ]);
+  });
+
+  it("keeps the text when it isn't the echo, or when the failure isn't about the login", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "user_message", text: "hello" }));
+    act(() => result.current.handleEvent({ type: "text", text: "Working on it" }));
+    act(() => result.current.handleEvent({ type: "error", message: "Not logged in · Please run /login", failureClass: "auth" }));
+    act(() => result.current.handleEvent({ type: "user_message", text: "again" }));
+    act(() => result.current.handleEvent({ type: "text", text: "Overloaded" }));
+    act(() => result.current.handleEvent({ type: "error", message: "Overloaded" }));
+
+    expect(result.current.entries.map((entry) => entry.kind)).toEqual(["user", "text", "error", "user", "text", "error"]);
+  });
+
   it("context_attribution updates attributionByToolUseId, never entries — it isn't a message", () => {
     const { result } = renderHook(() => useMessageLog());
     act(() => result.current.handleEvent({ type: "context_attribution", toolUseIds: ["t1"], tokens: 13_472, estimated: false }));

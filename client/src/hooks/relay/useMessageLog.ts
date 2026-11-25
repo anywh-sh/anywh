@@ -172,6 +172,21 @@ function lastIndexWhere<T>(items: T[], test: (item: T) => boolean): number {
   return -1;
 }
 
+/** A turn that failed for a lost login: the CLI says so twice — once as the
+ * assistant's own text ("Not logged in · Please run /login"), then as the
+ * turn's error. The error is the one that offers the way back in, so the
+ * echo of it, in this turn, goes. Any other text stays. */
+function withoutEchoedAuthText(entries: LogEntry[], event: { message: string; failureClass?: TurnFailureClass }): LogEntry[] {
+  if (event.failureClass !== "auth") return entries;
+  const message = event.message.trim();
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry.kind === "user") return entries;
+    if (entry.kind === "text" && entry.text.trim() === message) return [...entries.slice(0, i), ...entries.slice(i + 1)];
+  }
+  return entries;
+}
+
 /** Index where the current turn's entries begin: just past the last user
  * message or turn footer. */
 function turnStart(entries: LogEntry[]): number {
@@ -440,7 +455,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       return {
         ...state,
         entries: [
-          ...dropPending(state.entries),
+          ...withoutEchoedAuthText(dropPending(state.entries), event),
           event.failureClass ? { kind: "error", id: newId(), message: event.message, failureClass: event.failureClass } : { kind: "error", id: newId(), message: event.message },
         ],
         streamingText: [],
