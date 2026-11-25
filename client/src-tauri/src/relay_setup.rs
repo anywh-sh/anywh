@@ -1255,6 +1255,30 @@ fn bundled_relay(_app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
     None
 }
 
+// `macos_relay` is compiled on every desktop Unix (its tests run on Linux),
+// never on Windows. `relay_setup_start` names these in its bundled-relay
+// branch, which `bundled_relay` never takes off macOS; the stubs keep that
+// branch compiling on Windows.
+#[cfg(unix)]
+fn sync_bundled_tree(tree: &Path, support: &Path) -> std::io::Result<PathBuf> {
+    crate::macos_relay::sync_tree(tree, support)
+}
+
+#[cfg(not(unix))]
+fn sync_bundled_tree(_tree: &Path, _support: &Path) -> std::io::Result<PathBuf> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "this platform ships no relay with the app"))
+}
+
+#[cfg(unix)]
+fn bundled_launchd_dir(support: &Path) -> PathBuf {
+    crate::macos_relay::launchd_dir(support)
+}
+
+#[cfg(not(unix))]
+fn bundled_launchd_dir(support: &Path) -> PathBuf {
+    support.join("launchd")
+}
+
 /// Whether this app ships its own relay, so its app menu offers "Quit
 /// Completely" (stop the local relay along with the app).
 #[tauri::command]
@@ -1330,7 +1354,7 @@ pub async fn relay_setup_start(
         Some((tree, support)) => {
             let synced = {
                 let support = support.clone();
-                tauri::async_runtime::spawn_blocking(move || crate::macos_relay::sync_tree(&tree, &support))
+                tauri::async_runtime::spawn_blocking(move || sync_bundled_tree(&tree, &support))
                     .await
                     .map_err(|e| e.to_string())?
             };
@@ -1373,7 +1397,7 @@ pub async fn relay_setup_start(
             .args(["--mode", params.mode.as_deref().unwrap_or("prod")])
             // What makes add-profile.sh write launchd jobs, and where.
             .env("ANYWH_RELAY_MANAGED_BY_APP", "1")
-            .env("ANYWH_LAUNCHD_DIR", crate::macos_relay::launchd_dir(support));
+            .env("ANYWH_LAUNCHD_DIR", bundled_launchd_dir(support));
         if let Some(label) = &params.profile_label {
             command.args(["--label", label]);
         }
