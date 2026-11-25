@@ -836,7 +836,10 @@ describe("anywh room canvas", () => {
       async () => {
         const { worktrees } = await (await fetch(`${stack.base}/rooms/${finished}/worktrees`)).json();
         worktree = worktrees[0];
-        return worktree !== undefined;
+        // Listed from the moment its creation is recorded, while `git worktree
+        // add` may still be checking it out and holding its index.lock: a
+        // commit made then fails with "index.lock: File exists".
+        return worktree?.state === "created";
       },
       { timeout: 60000, timeoutMsg: "the spike never made a worktree" },
     );
