@@ -1,4 +1,5 @@
-import { addPluginListener, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { listenPluginEvents } from "@/lib/platform/pluginEvents";
 import type { NativeShellTheme } from "@/lib/platform/nativeShell";
 
 export interface NativeComposerAttachment {
@@ -96,12 +97,6 @@ export async function readNativeAttachment(path: string): Promise<Uint8Array> {
 
 /** Subscribes to every native composer event. Resolves to one function that
  * removes them all. */
-export async function listenNativeComposer(handlers: NativeComposerHandlers): Promise<() => void> {
-  const names = Object.keys(handlers) as (keyof NativeComposerHandlers)[];
-  const listeners = await Promise.all(
-    names.map((name) => addPluginListener("native-chrome", name, (event: never) => (handlers[name] as (event: never) => void)(event))),
-  );
-  return () => {
-    for (const listener of listeners) void listener.unregister();
-  };
+export function listenNativeComposer(handlers: NativeComposerHandlers): Promise<() => void> {
+  return listenPluginEvents("native-chrome", handlers);
 }

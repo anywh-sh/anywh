@@ -3,7 +3,7 @@ import { useDict } from "@/i18n";
 import { formatElapsed } from "@/components/chat/activity/Elapsed";
 import type { ComposerHandle, ComposerProps } from "@/components/chat/Composer";
 import { useDraftSync } from "@/hooks/composer/useDraftSync";
-import { toHex, useThemeVersion } from "@/hooks/platform/useNativeShell";
+import { useShellTheme } from "@/hooks/platform/useNativeShell";
 import { useWebModalOpen } from "@/hooks/platform/useWebModalOpen";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { decideSubmit } from "@/lib/composer/composerSubmit";
@@ -21,7 +21,6 @@ import {
 } from "@/lib/platform/nativeComposer";
 import { buildComposerPayload } from "@/lib/platform/nativeComposerModel";
 import { createNativeComposerOwner } from "@/lib/platform/nativeComposerOwner";
-import { buildShellTheme } from "@/lib/platform/nativeShellModel";
 
 const THUMBNAIL_SIDE = 112;
 
@@ -77,9 +76,7 @@ export const NativeComposer = forwardRef<NativeComposerHandle, NativeComposerPro
   const { pendingImages, uploadingImage, turnInFlight, turnStartedAt, disabled, editBannerText, sendBlockedReason } = props;
   const id = useId();
   const dict = useDict();
-  const themeVersion = useThemeVersion();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const theme = useMemo(() => buildShellTheme(toHex), [themeVersion]);
+  const theme = useShellTheme();
   const modalOpen = useWebModalOpen();
 
   // Latest props for the native callbacks, which outlive any one render.

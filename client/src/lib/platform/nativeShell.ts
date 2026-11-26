@@ -1,4 +1,5 @@
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
+import { listenPluginEvents } from "@/lib/platform/pluginEvents";
 
 /** Colors of the shell chrome as `#rrggbb[aa]`. Native code paints them as
  * given; it never reads the app's CSS. */
@@ -189,14 +190,8 @@ export function setNativeGestureHint(blocked: boolean): Promise<void> {
 
 /** Subscribes to every native shell event. Resolves to one function that
  * removes them all. */
-export async function listenNativeShell(handlers: NativeShellHandlers): Promise<() => void> {
-  const names = Object.keys(handlers) as (keyof NativeShellHandlers)[];
-  const listeners = await Promise.all(
-    names.map((name) => addPluginListener("native-chrome", name, (event: never) => (handlers[name] as (event: never) => void)(event))),
-  );
-  return () => {
-    for (const listener of listeners) void listener.unregister();
-  };
+export function listenNativeShell(handlers: NativeShellHandlers): Promise<() => void> {
+  return listenPluginEvents("native-chrome", handlers);
 }
 
 export function setNativeTopBarMenu(payload: NativeTopBarMenuPayload): Promise<void> {

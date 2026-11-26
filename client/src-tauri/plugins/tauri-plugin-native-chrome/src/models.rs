@@ -345,6 +345,87 @@ pub struct ScrollToEndRequest {
   pub accessory_height: f64,
 }
 
+/// The pending question's row inside the composer, which opens the sheet.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceBanner {
+  /// "Pending question" / "Approval needed"; the position travels apart, in
+  /// `ChoiceSheet::position`.
+  pub label: String,
+  /// The question, shown on one line.
+  pub text: String,
+  /// Accessibility label of the row.
+  pub open_label: String,
+}
+
+/// One option of the question on screen, already worded and translated.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceOptionRow {
+  pub label: String,
+  pub description: Option<String>,
+  pub selected: bool,
+}
+
+/// The free-text answer field, when the question takes one.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceCustomField {
+  /// Applied to the field only when `ChoiceSheet::step_key` changes, so a
+  /// payload never overwrites what is being typed.
+  pub text: String,
+  pub placeholder: String,
+  pub label: String,
+  /// Mask the field (a secure text entry).
+  pub secret: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceStrings {
+  pub close: String,
+  pub previous: String,
+}
+
+/// One step (question) of a pending prompt, as the native sheet draws it. The
+/// web side owns the answer being built and resends this after every change;
+/// the native side reports taps and typing back as events.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceSheet {
+  /// Identifies the question on screen; a new one resets the free-text field
+  /// and the scroll position.
+  pub step_key: String,
+  pub banner: ChoiceBanner,
+  /// Small label above the question: its header, or the kind of prompt.
+  pub kicker: String,
+  /// "1 of 3", only when the prompt has more than one question.
+  pub position: Option<String>,
+  pub question: String,
+  pub multi_select: bool,
+  pub options: Vec<ChoiceOptionRow>,
+  /// Free text was typed: it is the answer, the options step back.
+  pub options_dimmed: bool,
+  pub custom: Option<ChoiceCustomField>,
+  pub can_go_back: bool,
+  /// `false` while the relay can't be reached: nothing can be answered.
+  pub can_answer: bool,
+  /// Why answering is held back, or `None`.
+  pub status: Option<String>,
+  pub submit_label: String,
+  pub skip_label: String,
+  pub strings: ChoiceStrings,
+  pub theme: ShellTheme,
+}
+
+/// `choice: None` means no question is pending: the composer row goes away
+/// and an open sheet closes.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceRequest {
+  pub choice: Option<ChoiceSheet>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadAttachmentRequest {
@@ -498,6 +579,32 @@ mod tests {
     let request: ComposerRequest = serde_json::from_str(FIXTURE).unwrap();
     let again = serde_json::to_value(&request).unwrap();
     assert_eq!(again, serde_json::from_str::<serde_json::Value>(FIXTURE).unwrap());
+  }
+
+  /// Shared with the web side's `nativeChoiceModel.test.ts`, which asserts its
+  /// own output equals this file: a field this struct does not declare would be
+  /// dropped before Swift.
+  const CHOICE_FIXTURE: &str = include_str!("../tests/fixtures/choice_payload.json");
+
+  #[test]
+  fn choice_payload_round_trips_to_the_same_json() {
+    let request: ChoiceRequest = serde_json::from_str(CHOICE_FIXTURE).unwrap();
+    let sheet = request.choice.as_ref().unwrap();
+    assert_eq!(sheet.options.len(), 3);
+    assert!(sheet.options[0].selected);
+    assert_eq!(sheet.options[2].description, None);
+    assert_eq!(sheet.position.as_deref(), Some("1 of 2"));
+    assert!(sheet.custom.as_ref().is_some_and(|custom| !custom.secret));
+    assert_eq!(sheet.status, None);
+    let again = serde_json::to_value(&request).unwrap();
+    assert_eq!(again, serde_json::from_str::<serde_json::Value>(CHOICE_FIXTURE).unwrap());
+  }
+
+  #[test]
+  fn no_pending_choice_is_a_null_choice() {
+    let request: ChoiceRequest = serde_json::from_str(r#"{"choice":null}"#).unwrap();
+    assert!(request.choice.is_none());
+    assert_eq!(serde_json::to_string(&request).unwrap(), r#"{"choice":null}"#);
   }
 }
 

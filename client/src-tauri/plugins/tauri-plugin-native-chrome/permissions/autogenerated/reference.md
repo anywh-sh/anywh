@@ -16,6 +16,7 @@ Default permissions for the plugin
 - `allow-blur-composer`
 - `allow-set-composer-elapsed`
 - `allow-set-scroll-to-end`
+- `allow-set-choice`
 - `allow-read-attachment`
 - `allow-register-for-push`
 - `allow-set-visible-session`
@@ -184,6 +185,32 @@ Enables the remove_listener command without any pre-configured scope.
 <td>
 
 Denies the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:allow-set-choice`
+
+</td>
+<td>
+
+Enables the set_choice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:deny-set-choice`
+
+</td>
+<td>
+
+Denies the set_choice command without any pre-configured scope.
 
 </td>
 </tr>

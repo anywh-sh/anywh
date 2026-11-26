@@ -13,6 +13,7 @@ permissions = [
   "allow-blur-composer",
   "allow-set-composer-elapsed",
   "allow-set-scroll-to-end",
+  "allow-set-choice",
   "allow-read-attachment",
   "allow-register-for-push",
   "allow-set-visible-session",

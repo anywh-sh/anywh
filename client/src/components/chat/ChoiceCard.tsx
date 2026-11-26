@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { isIOS } from "@/lib/platform/platform";
 import { useDict } from "@/i18n";
-import type { ChoiceAnswer, ChoiceOption, ChoiceQuestion } from "@/lib/relay/relayClient";
+import * as choiceFlow from "@/lib/choice/choiceFlow";
+import { allowsCustomText, optionLabel, optionValue, questionText } from "@/lib/choice/choiceText";
+import type { ChoiceAnswer, ChoiceQuestion } from "@/lib/relay/relayClient";
 
 interface ChoiceCardProps {
   promptId: string;
@@ -31,21 +33,16 @@ interface ChoiceCardProps {
  * composer, replacing the old row of dir/files/terminal buttons there (moved
  * below the composer instead — see ChatPanel.tsx).
  *
- * One `choice_answer` is sent for the WHOLE prompt at once (not per
- * question, see relay/src/sharedSession.ts::answerChoice) — this component
- * accumulates an answer per question locally as the user steps through them
- * and only calls `onAnswer` once the last one is confirmed or skipped, or
- * (for `kind: "approval"` only) the user closes the card early, filling in
- * whatever wasn't reached yet with an empty selection so the live blocked
- * tool call always genuinely unblocks. `kind: "choice"` collapses instead of
- * answering — see `ChoiceCardProps.kind` and the `collapsed` state. */
+ * The answer is built one question at a time by the pure `choiceFlow`
+ * transitions (shared with the iOS native sheet), and `onAnswer` is called
+ * once the last question is confirmed or skipped, or (for `kind: "approval"`
+ * only) the user closes the card early, filling in whatever wasn't reached
+ * yet with an empty selection so the live blocked tool call always genuinely
+ * unblocks. `kind: "choice"` collapses instead of answering — see
+ * `ChoiceCardProps.kind` and the `collapsed` state. */
 export function ChoiceCard({ promptId, questions, kind, onAnswer, disabled = false }: ChoiceCardProps) {
   const dict = useDict();
-  const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<Map<number, string[]>>(new Map());
-  const [selected, setSelected] = useState<string[]>([]);
-  const [customTexts, setCustomTexts] = useState<Map<number, string>>(new Map());
-  const [customText, setCustomText] = useState("");
+  const [flow, setFlow] = useState<choiceFlow.ChoiceFlow>(choiceFlow.INITIAL_CHOICE_FLOW);
   // Only ever set for `kind: "choice"` (the top-right button answers
   // directly for `kind: "approval"` instead, see its `onClick` below) — the
   // card stays mounted while collapsed, so every other piece of state above
@@ -58,98 +55,42 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer, disabled = fal
   // be reused across prompts since `ChatPanel` keys it by `choicePrompt`
   // state, not by mount/unmount.
   useEffect(() => {
-    setIndex(0);
-    setAnswers(new Map());
-    setSelected([]);
-    setCustomTexts(new Map());
-    setCustomText("");
+    setFlow(choiceFlow.INITIAL_CHOICE_FLOW);
     setCollapsed(false);
   }, [promptId]);
 
+  const { index, answers, selected, customText } = flow;
   const question = questions[index];
   const isLast = index === questions.length - 1;
-  // Free text always wins over checked options when both are present — kept
-  // mutually exclusive (see `toggleOption`/`setCustomTextFor`) so there's
-  // never an ambiguous "which one did they mean" at confirm time.
-  const effectiveSelection = customText.trim() ? [customText.trim()] : selected;
+  const effectiveSelection = choiceFlow.effectiveSelection(flow);
 
+  // The card's own actions: the pure transitions of `choiceFlow` applied to
+  // this card's state, with the `disabled` guard on what would answer.
   function goTo(nextIndex: number): void {
-    setIndex(nextIndex);
-    setSelected(answers.get(nextIndex) ?? []);
-    setCustomText(customTexts.get(nextIndex) ?? "");
-  }
-
-  /** What an answer carries for this option. The relay's own options (a
-   * permission prompt) answer with a stable id, because the label the user
-   * reads is written here and translated; the model's options answer with
-   * the label itself, which is what gets fed back to the model. */
-  function valueOf(option: ChoiceOption): string {
-    return option.id ?? option.label;
-  }
-
-  /** The label to print. An option the relay wrote carries an id this app
-   * already has copy for; an option the model wrote carries only its label,
-   * which is the model's own words and belongs on screen as written. */
-  function labelOf(option: ChoiceOption): string {
-    if (option.id === "approve") return dict.chat.approval.approve;
-    if (option.id === "deny") return dict.chat.approval.deny;
-    if (option.id === "accept") return dict.chat.approval.codexAccept;
-    if (option.id === "acceptForSession") return dict.chat.approval.codexAcceptForSession;
-    if (option.id === "decline") return dict.chat.approval.codexDecline;
-    if (option.id === "cancel") return dict.chat.approval.codexCancel;
-    if (option.id === "rejectAlways") return dict.chat.approval.rejectAlways;
-    return option.label;
-  }
-
-  /** A permission prompt is composed here rather than sent as a sentence, so
-   * it follows the selected language. `question` stays the fallback for a
-   * relay too old to send the parts. */
-  function questionText(current: ChoiceQuestion): string {
-    if (!current.approval) return current.question;
-    if (current.approval.tool === "ExitPlanMode") return dict.chat.approval.exitPlanMode;
-    const base =
-      current.approval.tool === "command" || current.approval.tool === "writeStdin"
-        ? dict.chat.approval.codexCommand.replace("{detail}", current.approval.detail)
-        : current.approval.tool === "fileChange"
-          ? dict.chat.approval.codexFileChange.replace("{detail}", current.approval.detail)
-          : dict.chat.approval.toolCall.replace("{tool}", current.approval.tool).replace("{detail}", current.approval.detail);
-    return current.approval.reason ? `${base} ${dict.chat.approval.reasonSuffix.replace("{reason}", current.approval.reason)}` : base;
+    setFlow((current) => choiceFlow.goTo(current, nextIndex));
   }
 
   function toggleOption(label: string): void {
-    setCustomText("");
-    setCustomTexts((current) => {
-      const next = new Map(current);
-      next.delete(index);
-      return next;
-    });
-    if (question.multiSelect) {
-      setSelected((current) => (current.includes(label) ? current.filter((item) => item !== label) : [...current, label]));
-    } else {
-      setSelected((current) => (current.includes(label) ? [] : [label]));
-    }
+    setFlow((current) => choiceFlow.toggleOption(current, questions[current.index], label));
   }
 
   function setCustomTextFor(value: string): void {
-    setCustomText(value);
-    setCustomTexts((current) => new Map(current).set(index, value));
-    if (value.trim() && selected.length > 0) setSelected([]);
+    setFlow((current) => choiceFlow.setCustomText(current, value));
   }
 
   function finish(finalAnswers: Map<number, string[]>): void {
     if (disabled) return;
-    onAnswer(questions.map((question, questionIndex) => ({ question: question.question, selected: finalAnswers.get(questionIndex) ?? [] })));
+    onAnswer(choiceFlow.answersFor(questions, finalAnswers));
   }
 
   function confirmCurrent(withSelection: string[]): void {
     if (disabled) return;
-    const next = new Map(answers).set(index, withSelection);
-    if (isLast) {
-      finish(next);
+    const outcome = choiceFlow.confirmCurrent(flow, questions, withSelection);
+    if (outcome.kind === "done") {
+      onAnswer(outcome.answers);
       return;
     }
-    setAnswers(next);
-    goTo(index + 1);
+    setFlow(outcome.flow);
   }
 
   /** Up/down moves focus between option buttons (a roving-focus listbox,
@@ -209,7 +150,7 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer, disabled = fal
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           {question.header && <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{question.header}</p>}
-          <p className="text-sm font-medium text-foreground">{questionText(question)}</p>
+          <p className="text-sm font-medium text-foreground">{questionText(question, dict)}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {questions.length > 1 && (
@@ -238,7 +179,7 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer, disabled = fal
 
       <div className={cn("flex flex-col divide-y divide-border", customText.trim() && "opacity-40")}>
         {question.options.map((option, optionIndex) => {
-          const value = valueOf(option);
+          const value = optionValue(option);
           const isSelected = selected.includes(value);
           return (
             <TextButton
@@ -260,7 +201,7 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer, disabled = fal
                 <Check className={cn("size-3", !isSelected && "opacity-0")} />
               </span>
               <span className="flex flex-col">
-                <span className="text-sm text-foreground">{labelOf(option)}</span>
+                <span className="text-sm text-foreground">{optionLabel(option, dict)}</span>
                 {option.description && <span className="text-xs text-muted-foreground">{option.description}</span>}
               </span>
             </TextButton>
@@ -268,16 +209,8 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer, disabled = fal
         })}
       </div>
 
-      {/* Free-text fallback — always the last option. Gated on this specific
-          question having no options to pick from, not on `kind`: a
-          `kind: "approval"` question with real options (a permission
-          prompt, or a native multiple-choice user-input question) matches
-          the answer against option ids the engine sent, and free text
-          matches none of them, so offering it there would only ever stall
-          the blocked call — but a `kind: "approval"` user-input question
-          with NO options is the engine's own honest signal that it wants
-          free text, same as `kind: "choice"` always has. */}
-      {(kind === "choice" || question.options.length === 0) && (
+      {/* Free-text fallback — always the last option (see `allowsCustomText`). */}
+      {allowsCustomText(kind, question) && (
         <input
           type={question.secret ? "password" : "text"}
           value={customText}

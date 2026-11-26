@@ -51,14 +51,17 @@ final class ComposerController {
   private var arrowBottom: NSLayoutConstraint?
   private var lastInset: Int?
   private var positionObservation: NSKeyValueObservation?
+  /// The question sheet is over it: hidden from sight, but still counted in
+  /// the inset, so the web layout doesn't move under the sheet.
+  private var covered = false
 
   /// Fires with the files chosen in the Photos / Files pickers.
   var onAttach: ([AttachedFile]) -> Void = { _ in }
 
-  init(store: ComposerStore, presenter: @escaping () -> UIViewController?) {
+  init(store: ComposerStore, choice: ChoiceStore, presenter: @escaping () -> UIViewController?) {
     self.store = store
     self.presenter = presenter
-    self.host = UIHostingController(rootView: ComposerView(store: store))
+    self.host = UIHostingController(rootView: ComposerView(store: store, choice: choice))
     self.arrowHost = UIHostingController(rootView: ScrollToEndButton(store: store))
     store.onAttachPhotos = { [weak self] in self?.presentPicker(photos: true) }
     store.onAttachFiles = { [weak self] in self?.presentPicker(photos: false) }
@@ -146,17 +149,28 @@ final class ComposerController {
   // MARK: State from the web side
 
   func apply(_ args: ComposerArgs) {
-    let hidden = args.hidden
     applyTheme(args.theme)
+    applyVisibility()
+    if args.hidden { store.textView?.resignFirstResponder() }
+    // The page may have reloaded since the inset was last injected.
+    reportInset(force: true)
+  }
+
+  /// Steps aside for the question sheet, which sits right over it: through
+  /// the sheet's glass it only showed as a blur of its own row.
+  func setCovered(_ covered: Bool) {
+    self.covered = covered
+    applyVisibility()
+  }
+
+  private func applyVisibility() {
+    let hidden = (store.args?.hidden ?? true) || covered
     UIView.animate(withDuration: 0.15) {
       self.container.alpha = hidden ? 0 : 1
       self.wash.alpha = hidden ? 0 : 1
     }
     container.isUserInteractionEnabled = !hidden
     refreshArrowInteraction()
-    if hidden { store.textView?.resignFirstResponder() }
-    // The page may have reloaded since the inset was last injected.
-    reportInset(force: true)
   }
 
   func applyTheme(_ theme: ShellTheme) {
@@ -202,7 +216,7 @@ final class ComposerController {
   }
 
   private func refreshArrowInteraction() {
-    let hidden = store.args?.hidden ?? true
+    let hidden = (store.args?.hidden ?? true) || covered
     arrowHost.view.isUserInteractionEnabled = store.scrollToEndVisible && !hidden
   }
 

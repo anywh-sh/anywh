@@ -80,4 +80,8 @@ impl<R: Runtime> NativeChrome<R> {
   pub fn set_scroll_to_end(&self, _payload: ScrollToEndRequest) -> crate::Result<()> {
     Ok(())
   }
+
+  pub fn set_choice(&self, _payload: ChoiceRequest) -> crate::Result<()> {
+    Ok(())
+  }
 }

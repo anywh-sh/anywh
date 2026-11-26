@@ -5,7 +5,7 @@ import { profileColorVar, type Profile } from "@/lib/profiles/profiles";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { bubbleMenu } from "@/lib/platform/bubbleMenu";
 import { blocksDrawerGesture } from "@/lib/platform/drawerGestureHint";
-import { listenNativeShell, setNativeDrawer, setNativeGestureHint, setNativeTopBar } from "@/lib/platform/nativeShell";
+import { listenNativeShell, setNativeDrawer, setNativeGestureHint, setNativeTopBar, type NativeShellTheme } from "@/lib/platform/nativeShell";
 import { buildDrawerPayload, buildShellTheme, buildTopBarPayload } from "@/lib/platform/nativeShellModel";
 import type { BotSummary } from "@/lib/bots/botTypes";
 
@@ -56,6 +56,14 @@ export function useThemeVersion(): number {
   return version;
 }
 
+/** The app's theme as the native chrome paints it (`#rrggbb[aa]`), recomputed
+ * whenever the theme changes. */
+export function useShellTheme(): NativeShellTheme {
+  const themeVersion = useThemeVersion();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => buildShellTheme(toHex), [themeVersion]);
+}
+
 /**
  * Drives the iOS native shell (top bar + conversation drawer): sends it the
  * pre-formatted state whenever that changes, tells it when a touch starts on
@@ -66,13 +74,7 @@ export function useThemeVersion(): number {
 export function useNativeShell(args: UseNativeShellArgs): void {
   const dict = useDict();
   const { locale } = useLocale();
-  const themeVersion = useThemeVersion();
-
-  const theme = useMemo(
-    () => buildShellTheme(toHex),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [themeVersion],
-  );
+  const theme = useShellTheme();
 
   const { title, modelLabel, connected } = args;
   const topBar = useMemo(
