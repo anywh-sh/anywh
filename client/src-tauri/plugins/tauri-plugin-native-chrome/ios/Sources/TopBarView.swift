@@ -44,13 +44,12 @@ struct TopBarView: View {
         // in, fixed like the model, so it reads as locked too.
         if let cwd {
           Section(cwd.label) {
+            // Title, subtitle and icon as the label's three views: the
+            // second text of a `Label` didn't show in the menu.
             Button {} label: {
-              Label {
-                Text(cwd.name)
-                Text(cwd.path)
-              } icon: {
-                Image(systemName: "folder")
-              }
+              Text(cwd.name)
+              Text(cwd.path)
+              Image(systemName: "folder")
             }
             .disabled(true)
           }
