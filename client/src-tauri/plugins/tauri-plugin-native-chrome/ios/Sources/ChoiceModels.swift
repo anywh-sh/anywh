@@ -54,14 +54,22 @@ struct ChoiceArgs: Decodable {
   let choice: ChoiceSheetArgs?
 }
 
-// Events sent back to the web side.
+// Events sent back to the web side. Each names the question it was made on
+// (`stepKey`), so the web side can drop one that lands after the sheet moved
+// on (the second tap of a double tap on Next).
 
 struct ChoiceToggleEvent: Encodable {
+  let stepKey: String
   let index: Int
 }
 
 struct ChoiceTextEvent: Encodable {
+  let stepKey: String
   let text: String
+}
+
+struct ChoiceStepEvent: Encodable {
+  let stepKey: String
 }
 
 /// State behind the composer's pending-question row and the question sheet,
@@ -91,11 +99,12 @@ final class ChoiceStore: ObservableObject {
   var onClose: () -> Void = {}
   var onFieldFocus: () -> Void = {}
   var onMeasure: () -> Void = {}
-  var onToggle: (Int) -> Void = { _ in }
-  var onCustomTextChange: (String) -> Void = { _ in }
-  var onPrevious: () -> Void = {}
-  var onSubmit: () -> Void = {}
-  var onSkip: () -> Void = {}
+  /// Each report carries the `stepKey` of the question it was made on.
+  var onToggle: (String, Int) -> Void = { _, _ in }
+  var onCustomTextChange: (String, String) -> Void = { _, _ in }
+  var onPrevious: (String) -> Void = { _ in }
+  var onSubmit: (String) -> Void = { _ in }
+  var onSkip: (String) -> Void = { _ in }
 
   /// Takes a payload in. Returns whether the step changed.
   @discardableResult
@@ -115,13 +124,15 @@ final class ChoiceStore: ObservableObject {
 
   /// A typed edit: kept here and reported. Programmatic writes (`apply`)
   /// skip this, so the web side never hears its own text back.
-  func editCustomText(_ text: String) {
+  func editCustomText(_ text: String, step: String) {
     customText = text
-    onCustomTextChange(text)
+    onCustomTextChange(step, text)
   }
 
-  func toggle(_ index: Int) {
-    customText = ""
-    onToggle(index)
+  func toggle(_ index: Int, step: String) {
+    // A tap on a question already gone is dropped on the web side, so the
+    // field of the one now on screen keeps its text.
+    if step == args?.stepKey { customText = "" }
+    onToggle(step, index)
   }
 }

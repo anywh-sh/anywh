@@ -5,7 +5,7 @@ import type { PendingChoice } from "@/hooks/relay/useRelayClient";
 import { INITIAL_CHOICE_FLOW, confirmCurrent, effectiveSelection, goTo, setCustomText, toggleOption, type ChoiceFlow } from "@/lib/choice/choiceFlow";
 import { optionValue } from "@/lib/choice/choiceText";
 import { listenNativeChoice, setNativeChoice } from "@/lib/platform/nativeChoice";
-import { buildChoicePayload } from "@/lib/platform/nativeChoiceModel";
+import { buildChoicePayload, choiceStepKey } from "@/lib/platform/nativeChoiceModel";
 import type { ChoiceAnswer } from "@/lib/relay/relayClient";
 
 interface NativeChoiceSheetProps {
@@ -21,10 +21,23 @@ interface NativeChoiceSheetProps {
 interface FlowState {
   promptId: string | null;
   flow: ChoiceFlow;
+  /** What the free-text field opens with on the question on screen. Only
+   * moves when the question does: while the user types, the field's text is
+   * the native side's, so the payload doesn't change (and isn't resent) on
+   * every keystroke. */
+  fieldText: string;
 }
 
-function flowOf(state: FlowState, promptId: string): ChoiceFlow {
-  return state.promptId === promptId ? state.flow : INITIAL_CHOICE_FLOW;
+const INITIAL_STATE: FlowState = { promptId: null, flow: INITIAL_CHOICE_FLOW, fieldText: "" };
+
+function stateOf(state: FlowState, promptId: string): FlowState {
+  return state.promptId === promptId ? state : { ...INITIAL_STATE, promptId };
+}
+
+/** The flow after `next`, with the field's opening text following a change
+ * of question. */
+function advance(state: FlowState, next: ChoiceFlow): FlowState {
+  return { ...state, flow: next, fieldText: next.index === state.flow.index ? state.fieldText : next.customText };
 }
 
 /**
@@ -35,41 +48,41 @@ function flowOf(state: FlowState, promptId: string): ChoiceFlow {
  * `choiceFlow` transitions as `ChoiceCard` — and sends the question on screen;
  * native draws it and reports taps and typing back. Unmounting takes the row
  * and the sheet away.
+ *
+ * Every native event names the question it was made on (`stepKey`), and one
+ * made on a question no longer on screen is dropped: a second tap on Next
+ * lands after the first moved on, and would otherwise skip the next question
+ * with nothing chosen. A prompt is answered once: the answer clears it, but
+ * only on the next render, and a second Send can arrive before that.
  */
 export function NativeChoiceSheet({ prompt, disabled, onAnswer }: NativeChoiceSheetProps) {
   const dict = useDict();
   const theme = useShellTheme();
 
-  const [state, setState] = useState<FlowState>({ promptId: null, flow: INITIAL_CHOICE_FLOW });
+  const [state, setState] = useState<FlowState>(INITIAL_STATE);
   // Native events can arrive back to back (the last keystroke, then Return):
   // each one has to see what the previous one did, not the last render.
   const stateRef = useRef(state);
-  const commit = (next: FlowState): void => {
-    stateRef.current = next;
-    setState(next);
-  };
-  const commitRef = useRef(commit);
-  commitRef.current = commit;
+  const answeredRef = useRef<string | null>(null);
 
   // Latest props for the native callbacks, which outlive any one render.
   const propsRef = useRef({ prompt, disabled, onAnswer });
   propsRef.current = { prompt, disabled, onAnswer };
 
-  const payload = useMemo(
-    () =>
-      prompt
-        ? buildChoicePayload({
-            dict,
-            theme,
-            promptId: prompt.promptId,
-            kind: prompt.kind,
-            questions: prompt.questions,
-            flow: flowOf(state, prompt.promptId),
-            disabled,
-          })
-        : null,
-    [dict, theme, prompt, state, disabled],
-  );
+  const payload = useMemo(() => {
+    if (!prompt) return null;
+    const current = stateOf(state, prompt.promptId);
+    return buildChoicePayload({
+      dict,
+      theme,
+      promptId: prompt.promptId,
+      kind: prompt.kind,
+      questions: prompt.questions,
+      flow: current.flow,
+      fieldText: current.fieldText,
+      disabled,
+    });
+  }, [dict, theme, prompt, state, disabled]);
 
   const lastSentRef = useRef<string | null>(null);
   useEffect(() => {
@@ -92,35 +105,51 @@ export function NativeChoiceSheet({ prompt, disabled, onAnswer }: NativeChoiceSh
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    /** Applies a change to the answer of the prompt pending right now. */
-    const update = (change: (flow: ChoiceFlow, current: PendingChoice) => ChoiceFlow): void => {
-      const current = propsRef.current.prompt;
-      if (!current) return;
-      const flow = flowOf(stateRef.current, current.promptId);
-      commitRef.current({ promptId: current.promptId, flow: change(flow, current) });
+    const commit = (next: FlowState): void => {
+      stateRef.current = next;
+      setState(next);
     };
 
-    /** Confirms the question on screen: the next one, or the answer. */
-    const confirm = (selectionOf: (flow: ChoiceFlow) => string[]): void => {
-      const { prompt: current, disabled: held, onAnswer: answer } = propsRef.current;
-      if (!current || held) return;
-      const flow = flowOf(stateRef.current, current.promptId);
-      const outcome = confirmCurrent(flow, current.questions, selectionOf(flow));
-      if (outcome.kind === "done") answer(outcome.answers);
-      else commitRef.current({ promptId: current.promptId, flow: outcome.flow });
+    /** The prompt pending right now and its answer so far, if `stepKey` is
+     * the question on screen; `null` for an event made on another one. */
+    const onScreen = (stepKey: string): { current: PendingChoice; state: FlowState } | null => {
+      const current = propsRef.current.prompt;
+      if (!current || answeredRef.current === current.promptId) return null;
+      const state = stateOf(stateRef.current, current.promptId);
+      return choiceStepKey(current.promptId, state.flow.index) === stepKey ? { current, state } : null;
+    };
+
+    /** Applies a change to the answer of the question on screen. */
+    const update = (stepKey: string, change: (flow: ChoiceFlow, current: PendingChoice) => ChoiceFlow): void => {
+      const target = onScreen(stepKey);
+      if (target) commit(advance(target.state, change(target.state.flow, target.current)));
+    };
+
+    /** Confirms the question on screen: on to the next one, or the answer. */
+    const confirm = (stepKey: string, selectionOf: (flow: ChoiceFlow) => string[]): void => {
+      const target = onScreen(stepKey);
+      if (!target || propsRef.current.disabled) return;
+      const { current, state } = target;
+      const outcome = confirmCurrent(state.flow, current.questions, selectionOf(state.flow));
+      if (outcome.kind === "next") {
+        commit(advance(state, outcome.flow));
+        return;
+      }
+      answeredRef.current = current.promptId;
+      propsRef.current.onAnswer(outcome.answers);
     };
 
     void listenNativeChoice({
-      choiceToggleOption: ({ index }) =>
-        update((flow, current) => {
+      choiceToggleOption: ({ stepKey, index }) =>
+        update(stepKey, (flow, current) => {
           const question = current.questions[flow.index];
           const option = question?.options[index];
           return option ? toggleOption(flow, question, optionValue(option)) : flow;
         }),
-      choiceCustomTextChange: ({ text }) => update((flow) => setCustomText(flow, text)),
-      choicePrevious: () => update((flow) => (flow.index > 0 ? goTo(flow, flow.index - 1) : flow)),
-      choiceSubmit: () => confirm(effectiveSelection),
-      choiceSkip: () => confirm(() => []),
+      choiceCustomTextChange: ({ stepKey, text }) => update(stepKey, (flow) => setCustomText(flow, text)),
+      choicePrevious: ({ stepKey }) => update(stepKey, (flow) => (flow.index > 0 ? goTo(flow, flow.index - 1) : flow)),
+      choiceSubmit: ({ stepKey }) => confirm(stepKey, effectiveSelection),
+      choiceSkip: ({ stepKey }) => confirm(stepKey, () => []),
     })
       .then((off) => {
         if (disposed) off();

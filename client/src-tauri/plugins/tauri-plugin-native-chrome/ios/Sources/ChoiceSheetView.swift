@@ -64,7 +64,7 @@ struct ChoiceSheetView: View {
   private func header(_ args: ChoiceSheetArgs, _ theme: ShellTheme) -> some View {
     HStack(spacing: 10) {
       if args.canGoBack {
-        roundButton("chevron.left", label: args.strings.previous, theme: theme) { store.onPrevious() }
+        roundButton("chevron.left", label: args.strings.previous, theme: theme) { store.onPrevious(args.stepKey) }
       }
       HStack(spacing: 8) {
         Text(args.kicker)
@@ -114,7 +114,7 @@ struct ChoiceSheetView: View {
       if !args.options.isEmpty {
         VStack(spacing: 8) {
           ForEach(Array(args.options.enumerated()), id: \.offset) { index, option in
-            optionRow(index, option, multiSelect: args.multiSelect, theme: theme)
+            optionRow(index, option, step: args.stepKey, multiSelect: args.multiSelect, theme: theme)
           }
         }
         .opacity(args.optionsDimmed ? SheetTuning.dimmedOpacity : 1)
@@ -125,13 +125,13 @@ struct ChoiceSheetView: View {
     .padding(.bottom, 16)
   }
 
-  private func optionRow(_ index: Int, _ option: ChoiceOptionRow, multiSelect: Bool, theme: ShellTheme) -> some View {
+  private func optionRow(_ index: Int, _ option: ChoiceOptionRow, step: String, multiSelect: Bool, theme: ShellTheme) -> some View {
     let shape = RoundedRectangle(cornerRadius: SheetTuning.corner, style: .continuous)
     let primary = Color(hex: theme.primary)
     let ink = Color(hex: theme.foreground)
     return Button {
       fieldFocused = false
-      store.toggle(index)
+      store.toggle(index, step: step)
     } label: {
       HStack(alignment: .firstTextBaseline, spacing: 12) {
         Image(systemName: indicator(selected: option.selected, multiSelect: multiSelect))
@@ -167,13 +167,13 @@ struct ChoiceSheetView: View {
   }
 
   @ViewBuilder
-  private func customField(_ custom: ChoiceCustomField, _ theme: ShellTheme) -> some View {
+  private func customField(_ custom: ChoiceCustomField, step: String, _ theme: ShellTheme) -> some View {
     let shape = RoundedRectangle(cornerRadius: SheetTuning.corner, style: .continuous)
     let ink = Color(hex: theme.foreground)
     let primary = Color(hex: theme.primary)
     // The setter only runs on the user's own edits, so the web side never
     // hears back a text it sent.
-    let text = Binding(get: { store.customText }, set: { store.editCustomText($0) })
+    let text = Binding(get: { store.customText }, set: { store.editCustomText($0, step: step) })
     let prompt = Text(custom.placeholder).foregroundStyle(Color(hex: theme.muted))
     Group {
       if custom.secret {
@@ -189,7 +189,7 @@ struct ChoiceSheetView: View {
     .submitLabel(.send)
     // Return sends only what was typed, like Enter in the web card's field.
     .onSubmit {
-      if !store.customText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { store.onSubmit() }
+      if !store.customText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { store.onSubmit(step) }
     }
     .padding(.horizontal, 14)
     .frame(minHeight: SheetTuning.rowMinHeight)
@@ -205,7 +205,7 @@ struct ChoiceSheetView: View {
   private func footer(_ args: ChoiceSheetArgs, _ theme: ShellTheme) -> some View {
     VStack(spacing: 10) {
       if let custom = args.custom {
-        customField(custom, theme)
+        customField(custom, step: args.stepKey, theme)
       }
       if let status = args.status {
         Text(status)
@@ -214,7 +214,7 @@ struct ChoiceSheetView: View {
           .frame(maxWidth: .infinity)
       }
       HStack(spacing: 8) {
-        Button { store.onSkip() } label: {
+        Button { store.onSkip(args.stepKey) } label: {
           Text(args.skipLabel)
             .font(.system(size: 16, weight: .medium))
             .foregroundStyle(Color(hex: theme.muted))
@@ -228,7 +228,7 @@ struct ChoiceSheetView: View {
         .buttonStyle(.plain)
         .disabled(!args.canAnswer)
         .opacity(args.canAnswer ? 1 : 0.4)
-        Button { store.onSubmit() } label: {
+        Button { store.onSubmit(args.stepKey) } label: {
           Text(args.submitLabel)
             .font(.system(size: 16, weight: .semibold))
             .foregroundStyle(Color(hex: theme.primaryForeground))

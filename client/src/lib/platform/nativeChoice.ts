@@ -30,9 +30,9 @@ export interface NativeChoicePayload {
   options: NativeChoiceOption[];
   /** Free text was typed: it is the answer, and the options step back. */
   optionsDimmed: boolean;
-  /** The free-text answer field, when the question takes one. `text` is only
-   * applied when `stepKey` changes: a payload never overwrites what is being
-   * typed. */
+  /** The free-text answer field, when the question takes one. `text` is what
+   * it opens with on this question, applied only when `stepKey` changes: a
+   * payload never overwrites what is being typed. */
   custom: { text: string; placeholder: string; label: string; secret: boolean } | null;
   canGoBack: boolean;
   /** `false` while the relay can't be reached. */
@@ -46,13 +46,15 @@ export interface NativeChoicePayload {
 }
 
 /** What the native question sheet reports. It decides nothing: each of these
- * is a tap or an edit, and the handlers decide what it does to the answer. */
+ * is a tap or an edit, and the handlers decide what it does to the answer.
+ * Every event carries the `stepKey` of the question it was made on, so one
+ * that lands after the sheet moved to another question can be told apart. */
 export interface NativeChoiceHandlers {
-  choiceToggleOption: (event: { index: number }) => void;
-  choiceCustomTextChange: (event: { text: string }) => void;
-  choicePrevious: () => void;
-  choiceSubmit: () => void;
-  choiceSkip: () => void;
+  choiceToggleOption: (event: { stepKey: string; index: number }) => void;
+  choiceCustomTextChange: (event: { stepKey: string; text: string }) => void;
+  choicePrevious: (event: { stepKey: string }) => void;
+  choiceSubmit: (event: { stepKey: string }) => void;
+  choiceSkip: (event: { stepKey: string }) => void;
 }
 
 /** `null` takes the composer row away and closes the sheet if it is open. */

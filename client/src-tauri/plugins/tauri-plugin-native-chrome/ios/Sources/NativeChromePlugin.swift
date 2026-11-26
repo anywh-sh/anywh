@@ -158,11 +158,15 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
   @MainActor
   private func wireChoice() {
     let store = choiceStore
-    store.onToggle = { [weak self] index in try? self?.trigger("choiceToggleOption", data: ChoiceToggleEvent(index: index)) }
-    store.onCustomTextChange = { [weak self] text in try? self?.trigger("choiceCustomTextChange", data: ChoiceTextEvent(text: text)) }
-    store.onPrevious = { [weak self] in self?.trigger("choicePrevious", data: JSObject()) }
-    store.onSubmit = { [weak self] in self?.trigger("choiceSubmit", data: JSObject()) }
-    store.onSkip = { [weak self] in self?.trigger("choiceSkip", data: JSObject()) }
+    store.onToggle = { [weak self] step, index in
+      try? self?.trigger("choiceToggleOption", data: ChoiceToggleEvent(stepKey: step, index: index))
+    }
+    store.onCustomTextChange = { [weak self] step, text in
+      try? self?.trigger("choiceCustomTextChange", data: ChoiceTextEvent(stepKey: step, text: text))
+    }
+    store.onPrevious = { [weak self] step in try? self?.trigger("choicePrevious", data: ChoiceStepEvent(stepKey: step)) }
+    store.onSubmit = { [weak self] step in try? self?.trigger("choiceSubmit", data: ChoiceStepEvent(stepKey: step)) }
+    store.onSkip = { [weak self] step in try? self?.trigger("choiceSkip", data: ChoiceStepEvent(stepKey: step)) }
   }
 
   @objc func setChoice(_ invoke: Invoke) throws {

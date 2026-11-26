@@ -3,7 +3,7 @@ import { getDictionary } from "@/i18n";
 import { INITIAL_CHOICE_FLOW, goTo, setCustomText, toggleOption, type ChoiceFlow } from "@/lib/choice/choiceFlow";
 import type { NativeShellTheme } from "@/lib/platform/nativeShell";
 import type { ChoiceQuestion } from "@/lib/relay/relayClient";
-import { buildChoicePayload, type ChoiceModelInput } from "./nativeChoiceModel";
+import { buildChoicePayload, choiceStepKey, type ChoiceModelInput } from "./nativeChoiceModel";
 import fixture from "../../../src-tauri/plugins/tauri-plugin-native-chrome/tests/fixtures/choice_payload.json";
 
 const en = getDictionary("en");
@@ -52,6 +52,7 @@ function build(over: Partial<ChoiceModelInput> = {}) {
     kind: "choice",
     questions: [retry, anythingElse],
     flow: INITIAL_CHOICE_FLOW,
+    fieldText: "",
     disabled: false,
     ...over,
   });
@@ -68,6 +69,7 @@ describe("buildChoicePayload", () => {
       expect(build().stepKey).toBe("prompt-1:0");
       expect(build({ flow: goTo(INITIAL_CHOICE_FLOW, 1) }).stepKey).toBe("prompt-1:1");
       expect(build({ promptId: "prompt-2" }).stepKey).toBe("prompt-2:0");
+      expect(build({ flow: goTo(INITIAL_CHOICE_FLOW, 1) }).stepKey).toBe(choiceStepKey("prompt-1", 1));
     });
 
     it("has a position and a way back only when there is more than one question", () => {
@@ -129,13 +131,20 @@ describe("buildChoicePayload", () => {
   });
 
   describe("the free-text field", () => {
-    it("is there for a choice prompt, carrying the text typed for this question", () => {
-      expect(build({ flow: setCustomText(INITIAL_CHOICE_FLOW, "Only on CI") }).custom).toEqual({
+    it("is there for a choice prompt, opening with the text given for this question", () => {
+      expect(build({ fieldText: "Only on CI" }).custom).toEqual({
         text: "Only on CI",
         placeholder: en.chat.choice.customPlaceholder,
         label: en.chat.choice.customLabel,
         secret: false,
       });
+    });
+
+    it("doesn't follow what is being typed, so typing doesn't change the payload", () => {
+      const typing = build({ flow: setCustomText(INITIAL_CHOICE_FLOW, "Only on C"), fieldText: "" });
+      const typed = build({ flow: setCustomText(INITIAL_CHOICE_FLOW, "Only on CI"), fieldText: "" });
+      expect(typing.custom?.text).toBe("");
+      expect(typed).toEqual(typing);
     });
 
     it("is not there for an approval with options to match against", () => {

@@ -14,8 +14,19 @@ export interface ChoiceModelInput {
   questions: ChoiceQuestion[];
   /** The answer being built (`choiceFlow`). */
   flow: ChoiceFlow;
+  /** What the free-text field opens with on this question. The native side
+   * applies it only when the question changes (the field is its own while
+   * the user types), so it is passed apart from the live `flow.customText`
+   * and the payload stays the same while typing. */
+  fieldText: string;
   /** The answer can't reach the relay right now (reconnecting). */
   disabled: boolean;
+}
+
+/** Names one question of one prompt. The payload carries it, and every event
+ * the native sheet reports carries back the one it was made on. */
+export function choiceStepKey(promptId: string, index: number): string {
+  return `${promptId}:${String(index)}`;
 }
 
 /**
@@ -35,7 +46,7 @@ export function buildChoicePayload(input: ChoiceModelInput): NativeChoicePayload
   const isLast = flow.index === questions.length - 1;
 
   return {
-    stepKey: `${input.promptId}:${String(flow.index)}`,
+    stepKey: choiceStepKey(input.promptId, flow.index),
     banner: { label: kind === "approval" ? copy.pendingApproval : copy.pending, text, openLabel: copy.open },
     kicker: question.header ? question.header : kind === "approval" ? copy.kickerApproval : copy.kickerQuestion,
     position,
@@ -48,7 +59,7 @@ export function buildChoicePayload(input: ChoiceModelInput): NativeChoicePayload
     })),
     optionsDimmed: flow.customText.trim().length > 0,
     custom: allowsCustomText(kind, question)
-      ? { text: flow.customText, placeholder: copy.customPlaceholder, label: copy.customLabel, secret: question.secret === true }
+      ? { text: input.fieldText, placeholder: copy.customPlaceholder, label: copy.customLabel, secret: question.secret === true }
       : null,
     canGoBack: flow.index > 0,
     canAnswer: !input.disabled,
