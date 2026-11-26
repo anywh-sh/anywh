@@ -1006,6 +1006,10 @@ export function ChatPanel({
     if (!showingLog) setScrollToEndVisible(false);
   }, [showingLog]);
   const logBottomPadding = nativeBottomInset + 8 + floatingStackHeight;
+  // iOS without a composer of its own (a room agent's panel brings one): the
+  // composer is native, and so is a pending question (`NativeChoiceSheet`
+  // instead of `ChoiceCard`).
+  const nativeComposer = !renderComposer && isIOS();
 
   const openRoom = (text: string, sentImages: PendingAttachment[]): void => {
     if (openingRoomRef.current) return;
@@ -1235,7 +1239,7 @@ export function ChatPanel({
             )}
 
             {/* Not with the native composer: there the question is native too. */}
-            {choicePrompt && (renderComposer || !isIOS()) && (
+            {choicePrompt && !nativeComposer && (
               <ChoiceCard
                 promptId={choicePrompt.promptId}
                 questions={choicePrompt.questions}
@@ -1254,7 +1258,7 @@ export function ChatPanel({
                 setPermissionMode,
                 contextUsage,
               })
-            ) : isIOS() ? (
+            ) : nativeComposer ? (
               <>
                 <NativeTopBarMenu
                   catalog={modelCatalog}
