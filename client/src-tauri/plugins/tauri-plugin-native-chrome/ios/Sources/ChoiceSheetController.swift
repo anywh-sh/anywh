@@ -23,11 +23,11 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
   /// it opens.
   private lazy var sizer = UIHostingController(rootView: ChoiceSheetView(store: store, fitting: true))
 
-  /// Runs right before the sheet opens (the composer drops its keyboard and
-  /// steps aside).
+  /// Runs right before the sheet opens: the composer drops its keyboard.
   var willPresent: () -> Void = {}
-  /// Runs once the sheet is on its way out, or gone.
-  var didDismiss: () -> Void = {}
+  /// Hides the composer while the sheet is over it (`true`), and brings it
+  /// back as the sheet leaves (`false`).
+  var coverComposer: (Bool) -> Void = { _ in }
 
   init(store: ChoiceStore, presenter: @escaping () -> UIViewController?) {
     self.store = store
@@ -56,6 +56,7 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
     // Something else is up already (a picker, a menu): leave it alone.
     guard presenter.presentedViewController == nil else { return }
     willPresent()
+    coverComposer(true)
     // Without this the first resolution of the fitted detent had nothing
     // measured (the sheet opened at full height) or the last question's
     // measurements (it opened at that height), and then jumped once the
@@ -89,14 +90,28 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
   private func dismiss() {
     guard let host else { return }
     self.host = nil
-    didDismiss()
+    coverComposer(false)
     host.dismiss(animated: true)
+  }
+
+  /// The user started pulling the sheet down: the composer comes back under
+  /// it right away, as with the close button. `presentationControllerDidDismiss`
+  /// only arrives once the sheet has finished sliding away, which left the
+  /// bottom of the screen empty for half a second. Let go too early and the
+  /// sheet springs back up: the composer steps aside again.
+  func presentationControllerWillDismiss(_ presentationController: UIPresentationController) {
+    coverComposer(false)
+    presentationController.presentedViewController.transitionCoordinator?.animate(alongsideTransition: nil) { [weak self] context in
+      MainActor.assumeIsolated {
+        if context.isCancelled { self?.coverComposer(true) }
+      }
+    }
   }
 
   /// Pulled down by the user: the question stays pending.
   func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
     host = nil
-    didDismiss()
+    coverComposer(false)
   }
 
   // MARK: Height

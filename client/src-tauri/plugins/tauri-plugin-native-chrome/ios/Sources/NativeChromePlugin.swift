@@ -75,11 +75,8 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     let composer = ComposerController(store: composerStore, choice: choiceStore, presenter: presenter)
     self.composer = composer
     let choiceSheet = ChoiceSheetController(store: choiceStore, presenter: presenter)
-    choiceSheet.willPresent = { [weak composer] in
-      composer?.blur()
-      composer?.setCovered(true)
-    }
-    choiceSheet.didDismiss = { [weak composer] in composer?.setCovered(false) }
+    choiceSheet.willPresent = { [weak composer] in composer?.blur() }
+    choiceSheet.coverComposer = { [weak composer] covered in composer?.setCovered(covered) }
     self.choiceSheet = choiceSheet
     wireChoice()
     guard let controller = CanvasDrawerController(webview: webview, topBar: topBarStore, drawer: drawerStore, composer: composer) else {
