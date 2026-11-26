@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDict } from "@/i18n";
-import { toHex, useThemeVersion } from "@/hooks/platform/useNativeShell";
+import { useShellTheme } from "@/hooks/platform/useNativeShell";
 import type { PendingChoice } from "@/hooks/relay/useRelayClient";
 import { INITIAL_CHOICE_FLOW, confirmCurrent, effectiveSelection, goTo, setCustomText, toggleOption, type ChoiceFlow } from "@/lib/choice/choiceFlow";
 import { optionValue } from "@/lib/choice/choiceText";
 import { listenNativeChoice, setNativeChoice } from "@/lib/platform/nativeChoice";
 import { buildChoicePayload } from "@/lib/platform/nativeChoiceModel";
-import { buildShellTheme } from "@/lib/platform/nativeShellModel";
 import type { ChoiceAnswer } from "@/lib/relay/relayClient";
 
 interface NativeChoiceSheetProps {
@@ -39,9 +38,7 @@ function flowOf(state: FlowState, promptId: string): ChoiceFlow {
  */
 export function NativeChoiceSheet({ prompt, disabled, onAnswer }: NativeChoiceSheetProps) {
   const dict = useDict();
-  const themeVersion = useThemeVersion();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const theme = useMemo(() => buildShellTheme(toHex), [themeVersion]);
+  const theme = useShellTheme();
 
   const [state, setState] = useState<FlowState>({ promptId: null, flow: INITIAL_CHOICE_FLOW });
   // Native events can arrive back to back (the last keystroke, then Return):

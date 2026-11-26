@@ -1,4 +1,5 @@
-import { addPluginListener, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { listenPluginEvents } from "@/lib/platform/pluginEvents";
 import type { NativeShellTheme } from "@/lib/platform/nativeShell";
 
 /** One option of the question on screen, already worded and translated. */
@@ -61,12 +62,6 @@ export function setNativeChoice(choice: NativeChoicePayload | null): Promise<voi
 
 /** Subscribes to every event of the native question sheet. Resolves to one
  * function that removes them all. */
-export async function listenNativeChoice(handlers: NativeChoiceHandlers): Promise<() => void> {
-  const names = Object.keys(handlers) as (keyof NativeChoiceHandlers)[];
-  const listeners = await Promise.all(
-    names.map((name) => addPluginListener("native-chrome", name, (event: never) => (handlers[name] as (event: never) => void)(event))),
-  );
-  return () => {
-    for (const listener of listeners) void listener.unregister();
-  };
+export function listenNativeChoice(handlers: NativeChoiceHandlers): Promise<() => void> {
+  return listenPluginEvents("native-chrome", handlers);
 }
