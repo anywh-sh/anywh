@@ -95,17 +95,9 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
   }
 
   /// The user started pulling the sheet down: the composer comes back under
-  /// it right away, as with the close button. `presentationControllerDidDismiss`
-  /// only arrives once the sheet has finished sliding away, which left the
-  /// bottom of the screen empty for half a second. Let go too early and the
-  /// sheet springs back up: the composer steps aside again.
+  /// it right away, and steps aside again if the sheet springs back up.
   func presentationControllerWillDismiss(_ presentationController: UIPresentationController) {
-    coverComposer(false)
-    presentationController.presentedViewController.transitionCoordinator?.animate(alongsideTransition: nil) { [weak self] context in
-      MainActor.assumeIsolated {
-        if context.isCancelled { self?.coverComposer(true) }
-      }
-    }
+    uncoverWhilePulledDown(presentationController) { [weak self] covered in self?.coverComposer(covered) }
   }
 
   /// Pulled down by the user: the question stays pending.
@@ -132,19 +124,6 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
 
   private func applyTheme(_ theme: ShellTheme) {
     guard let host else { return }
-    let background = UIColor(hex: theme.background)
-    let style: UIUserInterfaceStyle = background.isDark ? .dark : .light
-    host.overrideUserInterfaceStyle = style
-    // The sheet's own surface (its glass, or its opaque full-height
-    // background) follows the presentation, not the content: without this
-    // it took the system's appearance, light glass under the theme's light
-    // ink.
-    host.sheetPresentationController?.traitOverrides.userInterfaceStyle = style
-    if #available(iOS 26, *) {
-      // The system's own Liquid Glass sheet shows through.
-      host.view.backgroundColor = .clear
-    } else {
-      host.view.backgroundColor = background
-    }
+    styleSheet(host, theme: theme)
   }
 }

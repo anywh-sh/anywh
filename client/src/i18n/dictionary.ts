@@ -1556,6 +1556,46 @@ export interface Dictionary {
       showHidden: string;
       hideHidden: string;
     };
+    /** The iOS picker: a capsule above the native composer that opens a native
+     * sheet, and the folder in the top bar menu once it is fixed. */
+    cwdPicker: {
+      title: string;
+      /** `{path}`: the folder, with the home folder written `~`. */
+      capsuleLabel: string;
+      more: string;
+      searchPrompt: string;
+      clearSearch: string;
+      recents: string;
+      browseFromCurrent: string;
+      subfolders: string;
+      loading: string;
+      /** `{name}`: the folder above. */
+      upTo: string;
+      emptyTitle: string;
+      emptyMessage: string;
+      /** `{query}`: the typed text, filled in by the native sheet. */
+      noMatchTitle: string;
+      noMatchMessage: string;
+      checking: string;
+      /** `{name}`: the folder a typed path leads to. */
+      open: string;
+      notFoundTitle: string;
+      /** `{path}`: the typed path. */
+      notFoundMessage: string;
+      readErrorTitle: string;
+      readError: {
+        permissionDenied: string;
+        notFound: string;
+        notADirectory: string;
+        invalidPath: string;
+        unreachable: string;
+      };
+      retry: string;
+      selected: string;
+      useFolder: string;
+      alreadyCurrent: string;
+      goHome: string;
+    };
     idle: {
       heading: string;
       subtitle: string;

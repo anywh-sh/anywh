@@ -1,0 +1,85 @@
+{
+  "model": {
+    "label": "Model",
+    "currentId": "opus",
+    "currentLabel": "Opus 4.1",
+    "options": [
+      {
+        "id": "opus",
+        "label": "Opus 4.1"
+      },
+      {
+        "id": "sonnet",
+        "label": "Sonnet 4.5"
+      }
+    ],
+    "locked": true,
+    "lockedHint": "The model is fixed after the conversation's first turn",
+    "enabled": false
+  },
+  "mode": {
+    "label": "Mode",
+    "currentId": "default",
+    "currentLabel": "Manual",
+    "options": [
+      {
+        "id": "default",
+        "label": "Manual",
+        "hint": "Asks before every edit or command"
+      },
+      {
+        "id": "plan",
+        "label": "Plan mode",
+        "hint": "Plans the work without touching anything"
+      }
+    ],
+    "enabled": true
+  },
+  "effort": {
+    "label": "Effort",
+    "currentId": "high",
+    "currentLabel": "High",
+    "options": [
+      {
+        "id": "default",
+        "label": "Default"
+      },
+      {
+        "id": "low",
+        "label": "Low"
+      },
+      {
+        "id": "high",
+        "label": "High"
+      },
+      {
+        "id": "max",
+        "label": "Max"
+      }
+    ],
+    "enabled": true
+  },
+  "agent": {
+    "label": "Agent",
+    "currentId": "claude",
+    "currentLabel": "Claude Code",
+    "options": [
+      {
+        "id": "claude",
+        "label": "Claude Code"
+      },
+      {
+        "id": "codex",
+        "label": "Codex"
+      }
+    ],
+    "locked": true,
+    "lockedHint": "The model is fixed after the conversation's first turn",
+    "enabled": false
+  },
+  "cwd": {
+    "label": "Working directory",
+    "name": "anywh",
+    "path": "~/anywh/anywh"
+  }
+}

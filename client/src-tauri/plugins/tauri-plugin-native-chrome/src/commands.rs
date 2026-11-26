@@ -79,6 +79,13 @@ pub(crate) async fn set_choice<R: Runtime>(app: AppHandle<R>, payload: ChoiceReq
     app.native_chrome().set_choice(payload)
 }
 
+/// The working directory picker: a capsule above the composer that opens a
+/// native sheet. `picker: None` takes both away.
+#[command]
+pub(crate) async fn set_cwd_picker<R: Runtime>(app: AppHandle<R>, payload: CwdPickerRequest) -> Result<()> {
+    app.native_chrome().set_cwd_picker(payload)
+}
+
 /// Asks iOS for an APNs device token and resolves once the system hands it
 /// back (or fails). Idempotent: calling it again just re-registers.
 #[command]

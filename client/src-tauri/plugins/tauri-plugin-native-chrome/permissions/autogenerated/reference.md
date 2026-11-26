@@ -17,6 +17,7 @@ Default permissions for the plugin
 - `allow-set-composer-elapsed`
 - `allow-set-scroll-to-end`
 - `allow-set-choice`
+- `allow-set-cwd-picker`
 - `allow-read-attachment`
 - `allow-register-for-push`
 - `allow-set-visible-session`
@@ -315,6 +316,32 @@ Enables the set_context_target command without any pre-configured scope.
 <td>
 
 Denies the set_context_target command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:allow-set-cwd-picker`
+
+</td>
+<td>
+
+Enables the set_cwd_picker command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:deny-set-cwd-picker`
+
+</td>
+<td>
+
+Denies the set_cwd_picker command without any pre-configured scope.
 
 </td>
 </tr>

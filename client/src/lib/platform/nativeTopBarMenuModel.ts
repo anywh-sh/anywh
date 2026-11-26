@@ -2,6 +2,7 @@ import type { Dictionary } from "@/i18n";
 import { agentName } from "@/lib/composer/agentName";
 import { effectiveEffort, labelForEffort } from "@/lib/composer/effortCatalog";
 import { effectiveModel, labelForModel } from "@/lib/composer/modelCatalog";
+import { displayPath, folderName } from "@/lib/files/folderPath";
 import type { NativeTopBarMenuPayload } from "@/lib/platform/nativeShell";
 import { permissionModeCopy } from "@/lib/composer/permissionModeCopy";
 import type { ModelCatalog, ModelChoice, ModelOption, PermissionMode, PermissionModeOption } from "@/lib/relay/relay-types";
@@ -23,6 +24,10 @@ export interface TopBarMenuModelInput {
   effort?: string | null;
   /** The effective model's catalog entry; `null`/absent = no effort menu. */
   effortCatalogOption?: ModelOption | null;
+  /** The conversation's folder: shown once `locked` fixed it. */
+  cwd?: string | null;
+  /** The home folder on the relay's machine, to show the folder from `~`. */
+  home?: string | null;
   dict: Dictionary;
 }
 
@@ -48,6 +53,8 @@ export function buildTopBarMenuPayload({
   agents = [],
   effort = null,
   effortCatalogOption = null,
+  cwd = null,
+  home = null,
   dict,
 }: TopBarMenuModelInput): NativeTopBarMenuPayload {
   return {
@@ -64,6 +71,8 @@ export function buildTopBarMenuPayload({
           },
     effort: buildEffortMenu({ effort, option: effortCatalogOption, connected, dict }),
     agent: buildAgentMenu({ agents, agentId, locked, connected, dict }),
+    // Fixed with the model; before that the capsule above the composer has it.
+    cwd: locked && cwd !== null ? { label: dict.shell.cwdPicker.title, name: folderName(cwd), path: displayPath(cwd, home) } : null,
   };
 }
 

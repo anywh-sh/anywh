@@ -140,6 +140,19 @@ pub struct TopBarAgentMenu {
   pub enabled: bool,
 }
 
+/// The conversation's working directory once the first message fixed it, at
+/// the top of the dropdown: the capsule above the composer is gone by then.
+/// Only shown, never picked.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopBarCwdEntry {
+  /// The section's label ("Working directory").
+  pub label: String,
+  pub name: String,
+  /// The path as shown, with the home folder written `~`.
+  pub path: String,
+}
+
 /// Contents of the dropdown the top bar's center opens. Each entry is `None`
 /// when there is nothing to offer for it; with all `None` the bar stays a
 /// plain label.
@@ -152,6 +165,9 @@ pub struct TopBarMenuRequest {
   /// Absent from a web build older than the agent entry.
   #[serde(default)]
   pub agent: Option<TopBarAgentMenu>,
+  /// Absent from a web build older than the working directory entry.
+  #[serde(default)]
+  pub cwd: Option<TopBarCwdEntry>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -426,6 +442,162 @@ pub struct ChoiceRequest {
   pub choice: Option<ChoiceSheet>,
 }
 
+/// A folder as the working directory picker shows it.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdFolderRef {
+  pub path: String,
+  pub name: String,
+  /// The path as shown, with the home folder written `~`.
+  pub display: String,
+}
+
+/// One subfolder of a listed folder.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdFolderEntry {
+  pub path: String,
+  pub name: String,
+  pub display: String,
+  /// A dot-folder or `node_modules`: offered only with "Show hidden folders".
+  pub hidden: bool,
+}
+
+/// A worded reason, for a folder the relay couldn't list or a typed path it
+/// couldn't find.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdNotice {
+  pub title: String,
+  pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CwdFolderStatus {
+  Loading,
+  Ready,
+  Error,
+}
+
+/// One folder's subfolders, as the relay last listed them.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdFolder {
+  pub status: CwdFolderStatus,
+  /// The folder above, for the "Up to ..." row; `None` at `/`.
+  pub parent: Option<CwdFolderRef>,
+  pub up_label: Option<String>,
+  /// Every subfolder, hidden ones included.
+  pub entries: Vec<CwdFolderEntry>,
+  pub error: Option<CwdNotice>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CwdLookupStatus {
+  Checking,
+  Found,
+  Missing,
+}
+
+/// A typed path the relay confirmed is a folder.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdLookupTarget {
+  pub path: String,
+  pub name: String,
+  pub display: String,
+  /// "Open <name>".
+  pub open_label: String,
+  /// Every folder from `/` down to this one, itself included, so going there
+  /// can stack the folders in between.
+  pub chain: Vec<CwdFolderRef>,
+}
+
+/// What the search field's typed path resolved to.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdLookup {
+  /// The text this answers: the sheet only shows it while the field still
+  /// holds exactly this.
+  pub query: String,
+  pub status: CwdLookupStatus,
+  pub target: Option<CwdLookupTarget>,
+  pub error: Option<CwdNotice>,
+}
+
+/// The capsule above the composer that opens the sheet.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdCapsule {
+  pub name: String,
+  pub accessibility_label: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdPickerStrings {
+  pub title: String,
+  pub close: String,
+  pub more: String,
+  pub search_prompt: String,
+  /// Accessibility label of the search field's clear button.
+  pub clear_search: String,
+  pub recents: String,
+  pub browse_from_current: String,
+  pub subfolders: String,
+  pub loading: String,
+  pub empty_title: String,
+  pub empty_message: String,
+  /// Holds `{query}`, which the sheet replaces with the typed text.
+  pub no_match_title: String,
+  pub no_match_message: String,
+  pub checking: String,
+  pub retry: String,
+  pub selected: String,
+  pub use_folder: String,
+  pub already_current: String,
+  pub show_hidden: String,
+  pub go_home: String,
+}
+
+/// The working directory picker of a conversation whose folder can still be
+/// chosen. The web side lists folders, resolves typed paths and decides what
+/// a pick does; the native side owns where the sheet is (its stack of
+/// folders, the search text, whether hidden folders show) and reports it.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdPicker {
+  /// Names the conversation. Every event carries it back, and an open sheet
+  /// closes when it changes.
+  pub key: String,
+  pub capsule: CwdCapsule,
+  /// Bumped when a folder picked in the sheet takes effect: the capsule
+  /// flashes.
+  pub flash: u32,
+  /// The conversation's folder: the sheet opens on it.
+  pub current: CwdFolderRef,
+  /// The home folder on the relay's machine, once known.
+  pub home: Option<CwdFolderRef>,
+  /// Recently used folders, the current one left out.
+  pub recents: Vec<CwdFolderRef>,
+  /// Listings by path, while the sheet is open.
+  pub folders: std::collections::BTreeMap<String, CwdFolder>,
+  pub lookup: Option<CwdLookup>,
+  pub strings: CwdPickerStrings,
+  pub theme: ShellTheme,
+}
+
+/// `picker: None` means the folder can't be chosen (it is fixed after the
+/// first message, or not known yet): the capsule goes away and an open sheet
+/// closes.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CwdPickerRequest {
+  pub picker: Option<CwdPicker>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadAttachmentRequest {
@@ -516,6 +688,22 @@ mod tests {
   fn top_bar_menu_without_an_agent_entry_still_decodes() {
     let request: TopBarMenuRequest = serde_json::from_str(r#"{"model":null,"mode":null,"effort":null}"#).unwrap();
     assert!(request.agent.is_none());
+    assert!(request.cwd.is_none());
+  }
+
+  /// The web side's menu once the first message fixed the model, the agent
+  /// and the folder (`nativeTopBarMenuModel.test.ts` checks it).
+  const LOCKED_MENU_FIXTURE: &str = include_str!("../tests/fixtures/top_bar_menu_locked_payload.json");
+
+  #[test]
+  fn locked_top_bar_menu_keeps_its_working_directory_on_the_way_to_swift() {
+    let request: TopBarMenuRequest = serde_json::from_str(LOCKED_MENU_FIXTURE).unwrap();
+    let cwd = request.cwd.as_ref().unwrap();
+    assert_eq!(cwd.name, "anywh");
+    assert_eq!(cwd.path, "~/anywh/anywh");
+    assert!(request.model.as_ref().is_some_and(|model| model.locked));
+    let again = serde_json::to_value(&request).unwrap();
+    assert_eq!(again, serde_json::from_str::<serde_json::Value>(LOCKED_MENU_FIXTURE).unwrap());
   }
 
   #[test]
@@ -605,6 +793,34 @@ mod tests {
     let request: ChoiceRequest = serde_json::from_str(r#"{"choice":null}"#).unwrap();
     assert!(request.choice.is_none());
     assert_eq!(serde_json::to_string(&request).unwrap(), r#"{"choice":null}"#);
+  }
+
+  /// Shared with the web side's `nativeCwdPickerModel.test.ts`, which asserts
+  /// its own output equals this file: a field this struct does not declare
+  /// would be dropped before Swift.
+  const CWD_PICKER_FIXTURE: &str = include_str!("../tests/fixtures/cwd_picker_payload.json");
+
+  #[test]
+  fn cwd_picker_payload_round_trips_to_the_same_json() {
+    let request: CwdPickerRequest = serde_json::from_str(CWD_PICKER_FIXTURE).unwrap();
+    let picker = request.picker.as_ref().unwrap();
+    assert_eq!(picker.recents.len(), 2);
+    let current = &picker.folders[&picker.current.path];
+    assert_eq!(current.status, CwdFolderStatus::Ready);
+    assert!(current.entries.iter().any(|entry| entry.hidden));
+    assert_eq!(picker.folders.values().filter(|folder| folder.status == CwdFolderStatus::Error).count(), 1);
+    let lookup = picker.lookup.as_ref().unwrap();
+    assert_eq!(lookup.status, CwdLookupStatus::Found);
+    assert_eq!(lookup.target.as_ref().unwrap().chain.first().map(|folder| folder.path.as_str()), Some("/"));
+    let again = serde_json::to_value(&request).unwrap();
+    assert_eq!(again, serde_json::from_str::<serde_json::Value>(CWD_PICKER_FIXTURE).unwrap());
+  }
+
+  #[test]
+  fn no_choosable_folder_is_a_null_picker() {
+    let request: CwdPickerRequest = serde_json::from_str(r#"{"picker":null}"#).unwrap();
+    assert!(request.picker.is_none());
+    assert_eq!(serde_json::to_string(&request).unwrap(), r#"{"picker":null}"#);
   }
 }
 

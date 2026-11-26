@@ -3,6 +3,7 @@ import { getDictionary } from "@/i18n";
 import type { ModelCatalog, PermissionModeOption } from "@/lib/relay/relay-types";
 import { buildTopBarMenuPayload } from "./nativeTopBarMenuModel";
 import fixture from "../../../src-tauri/plugins/tauri-plugin-native-chrome/tests/fixtures/top_bar_menu_payload.json";
+import lockedFixture from "../../../src-tauri/plugins/tauri-plugin-native-chrome/tests/fixtures/top_bar_menu_locked_payload.json";
 
 const en = getDictionary("en");
 const catalog: ModelCatalog = {
@@ -158,6 +159,40 @@ describe("buildTopBarMenuPayload", () => {
       ...fixture,
       model: { ...fixture.model, lockedHint: en.chat.composer.modelLocked },
       agent: { ...fixture.agent, lockedHint: en.chat.composer.modelLocked },
+    });
+  });
+
+  describe("working directory", () => {
+    it("shows the folder at the top once the first message fixed it, from ~", () => {
+      expect(build({ locked: true, cwd: "/home/wil/anywh/anywh", home: "/home/wil" }).cwd).toEqual({
+        label: en.shell.cwdPicker.title,
+        name: "anywh",
+        path: "~/anywh/anywh",
+      });
+    });
+
+    it("leaves it out while it can still be chosen: the capsule has it then", () => {
+      expect(build({ locked: false, cwd: "/home/wil/anywh/anywh", home: "/home/wil" }).cwd).toBeNull();
+      expect(build({ locked: true, cwd: null }).cwd).toBeNull();
+    });
+
+    it("shows the whole path until the home folder is known", () => {
+      expect(build({ locked: true, cwd: "/srv/data" }).cwd?.path).toBe("/srv/data");
+    });
+
+    it("matches the shared locked fixture the native side decodes", () => {
+      const payload = build({
+        model: "opus",
+        locked: true,
+        agentId: "claude",
+        agents: ["claude", "codex"],
+        permissionMode: "default",
+        effort: "high",
+        effortCatalogOption: { id: "opus", label: "Opus", efforts: [{ id: "low" }, { id: "high" }, { id: "max" }] },
+        cwd: "/home/wil/anywh/anywh",
+        home: "/home/wil",
+      });
+      expect(payload).toEqual(lockedFixture);
     });
   });
 });

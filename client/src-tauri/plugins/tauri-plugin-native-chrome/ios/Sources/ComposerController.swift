@@ -31,8 +31,9 @@ private final class ComposerContainerView: UIView {
   }
 }
 
-/// The native composer, the strip under it and the scroll-to-end arrow, laid
-/// over the web canvas. It owns geometry only: the composer follows the
+/// The native composer (with the working directory capsule above it, in the
+/// same view), the strip under it and the scroll-to-end arrow, laid over the
+/// web canvas. It owns geometry only: the composer follows the
 /// keyboard through `keyboardLayoutGuide`, and the web layout is told how much
 /// room the whole thing takes (`--native-bottom-inset`) so it can pad the log
 /// and float its own controls above. Every decision stays on the web side.
@@ -58,10 +59,10 @@ final class ComposerController {
   /// Fires with the files chosen in the Photos / Files pickers.
   var onAttach: ([AttachedFile]) -> Void = { _ in }
 
-  init(store: ComposerStore, choice: ChoiceStore, presenter: @escaping () -> UIViewController?) {
+  init(store: ComposerStore, choice: ChoiceStore, cwd: CwdPickerStore, presenter: @escaping () -> UIViewController?) {
     self.store = store
     self.presenter = presenter
-    self.host = UIHostingController(rootView: ComposerView(store: store, choice: choice))
+    self.host = UIHostingController(rootView: ComposerView(store: store, choice: choice, cwd: cwd))
     self.arrowHost = UIHostingController(rootView: ScrollToEndButton(store: store))
     store.onAttachPhotos = { [weak self] in self?.presentPicker(photos: true) }
     store.onAttachFiles = { [weak self] in self?.presentPicker(photos: false) }

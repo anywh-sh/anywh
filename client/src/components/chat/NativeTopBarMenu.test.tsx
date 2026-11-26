@@ -88,6 +88,12 @@ describe("NativeTopBarMenu agent pick", () => {
     await waitFor(() => expect(ipc.payloads).toHaveLength(1));
     expect(ipc.payloads[0]).toMatchObject({ agent: { currentId: "claude", options: [{ id: "claude" }, { id: "codex" }] } });
     cleanup();
-    expect(ipc.payloads[ipc.payloads.length - 1]).toEqual({ model: null, mode: null, effort: null, agent: null });
+    expect(ipc.payloads[ipc.payloads.length - 1]).toEqual({ model: null, mode: null, effort: null, agent: null, cwd: null });
+  });
+
+  it("shows the folder once it is fixed, from ~", async () => {
+    renderMenu({ locked: true, cwd: "/home/wil/anywh", home: "/home/wil" });
+    await waitFor(() => expect(ipc.payloads).toHaveLength(1));
+    expect(ipc.payloads[0]).toMatchObject({ cwd: { name: "anywh", path: "~/anywh" } });
   });
 });

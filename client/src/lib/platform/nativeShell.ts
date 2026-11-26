@@ -75,6 +75,15 @@ export interface NativeTopBarMenuPayload {
     lockedHint: string;
     enabled: boolean;
   } | null;
+  /** The conversation's folder once the first message fixed it, shown at the
+   * top (the capsule above the composer is gone by then); `null` while it
+   * can still be chosen. Optional on the native side, like `agent`. */
+  cwd: {
+    label: string;
+    name: string;
+    /** As shown, with the home folder written `~`. */
+    path: string;
+  } | null;
 }
 
 export interface NativeDrawerStrings {

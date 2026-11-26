@@ -91,4 +91,8 @@ impl<R: Runtime> NativeChrome<R> {
   pub fn set_choice(&self, payload: ChoiceRequest) -> crate::Result<()> {
     self.0.run_mobile_plugin("setChoice", payload).map_err(Into::into)
   }
+
+  pub fn set_cwd_picker(&self, payload: CwdPickerRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setCwdPicker", payload).map_err(Into::into)
+  }
 }
