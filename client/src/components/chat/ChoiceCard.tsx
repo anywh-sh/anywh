@@ -6,16 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { isIOS } from "@/lib/platform/platform";
 import { useDict } from "@/i18n";
-import {
-  INITIAL_CHOICE_FLOW,
-  answersFor,
-  confirmCurrent as confirmFlow,
-  effectiveSelection as effectiveSelectionOf,
-  goTo as goToQuestion,
-  setCustomText as setFlowCustomText,
-  toggleOption as toggleFlowOption,
-  type ChoiceFlow,
-} from "@/lib/choice/choiceFlow";
+import * as choiceFlow from "@/lib/choice/choiceFlow";
 import { allowsCustomText, optionLabel, optionValue, questionText } from "@/lib/choice/choiceText";
 import type { ChoiceAnswer, ChoiceQuestion } from "@/lib/relay/relayClient";
 
@@ -51,7 +42,7 @@ interface ChoiceCardProps {
  * `ChoiceCardProps.kind` and the `collapsed` state. */
 export function ChoiceCard({ promptId, questions, kind, onAnswer, disabled = false }: ChoiceCardProps) {
   const dict = useDict();
-  const [flow, setFlow] = useState<ChoiceFlow>(INITIAL_CHOICE_FLOW);
+  const [flow, setFlow] = useState<choiceFlow.ChoiceFlow>(choiceFlow.INITIAL_CHOICE_FLOW);
   // Only ever set for `kind: "choice"` (the top-right button answers
   // directly for `kind: "approval"` instead, see its `onClick` below) — the
   // card stays mounted while collapsed, so every other piece of state above
@@ -64,35 +55,37 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer, disabled = fal
   // be reused across prompts since `ChatPanel` keys it by `choicePrompt`
   // state, not by mount/unmount.
   useEffect(() => {
-    setFlow(INITIAL_CHOICE_FLOW);
+    setFlow(choiceFlow.INITIAL_CHOICE_FLOW);
     setCollapsed(false);
   }, [promptId]);
 
   const { index, answers, selected, customText } = flow;
   const question = questions[index];
   const isLast = index === questions.length - 1;
-  const effectiveSelection = effectiveSelectionOf(flow);
+  const effectiveSelection = choiceFlow.effectiveSelection(flow);
 
+  // The card's own actions: the pure transitions of `choiceFlow` applied to
+  // this card's state, with the `disabled` guard on what would answer.
   function goTo(nextIndex: number): void {
-    setFlow((current) => goToQuestion(current, nextIndex));
+    setFlow((current) => choiceFlow.goTo(current, nextIndex));
   }
 
   function toggleOption(label: string): void {
-    setFlow((current) => toggleFlowOption(current, questions[current.index], label));
+    setFlow((current) => choiceFlow.toggleOption(current, questions[current.index], label));
   }
 
   function setCustomTextFor(value: string): void {
-    setFlow((current) => setFlowCustomText(current, value));
+    setFlow((current) => choiceFlow.setCustomText(current, value));
   }
 
   function finish(finalAnswers: Map<number, string[]>): void {
     if (disabled) return;
-    onAnswer(answersFor(questions, finalAnswers));
+    onAnswer(choiceFlow.answersFor(questions, finalAnswers));
   }
 
   function confirmCurrent(withSelection: string[]): void {
     if (disabled) return;
-    const outcome = confirmFlow(flow, questions, withSelection);
+    const outcome = choiceFlow.confirmCurrent(flow, questions, withSelection);
     if (outcome.kind === "done") {
       onAnswer(outcome.answers);
       return;
