@@ -20,6 +20,9 @@ interface NativeCwdPickerProps {
    * choosable before the connection opens (the pick waits in `RelayClient`);
    * an existing one's only once connected, when its lock is confirmed. */
   isNewConversation?: boolean;
+  /** The profile's home folder on the relay's machine (`useRelayHome`), once
+   * known: what `~` means, and where "Go to the home folder" leads. */
+  home: string | null;
   onSetCwd: (path: string) => void;
   /** A folder was picked and the sheet closed: the next step is the first
    * message. */
@@ -30,12 +33,10 @@ interface PickerState {
   /** Listings by path, while the sheet is open. */
   listings: Record<string, CwdListing>;
   lookup: CwdLookupState | null;
-  /** The home folder on the relay's machine, once listed. */
-  home: string | null;
   flash: number;
 }
 
-const INITIAL_STATE: PickerState = { listings: {}, lookup: null, home: null, flash: 0 };
+const INITIAL_STATE: PickerState = { listings: {}, lookup: null, flash: 0 };
 
 /** How long a typed path rests before it is looked up on the relay. */
 const LOOKUP_DELAY_MS = 250;
@@ -53,7 +54,7 @@ const LOOKUP_DELAY_MS = 250;
  * sheet closed (or reopened) is dropped. A pick is applied once per opening,
  * since the sheet closes itself on it and a second one can only be a repeat.
  */
-export function NativeCwdPicker({ profile, sessionId, cwd, locked, connected, isNewConversation, onSetCwd, onPicked }: NativeCwdPickerProps) {
+export function NativeCwdPicker({ profile, sessionId, cwd, locked, connected, isNewConversation, home, onSetCwd, onPicked }: NativeCwdPickerProps) {
   const dict = useDict();
   const theme = useShellTheme();
   const { recents, addRecent } = useRecentFolders(profile.id);
@@ -68,8 +69,8 @@ export function NativeCwdPicker({ profile, sessionId, cwd, locked, connected, is
   }, []);
 
   // Latest props for the native callbacks, which outlive any one render.
-  const propsRef = useRef({ profile, sessionId, cwd, locked, onSetCwd, onPicked, addRecent });
-  propsRef.current = { profile, sessionId, cwd, locked, onSetCwd, onPicked, addRecent };
+  const propsRef = useRef({ profile, sessionId, cwd, locked, home, onSetCwd, onPicked, addRecent });
+  propsRef.current = { profile, sessionId, cwd, locked, home, onSetCwd, onPicked, addRecent };
 
   /** Bumped when the sheet opens or closes: a listing from before is stale. */
   const generationRef = useRef(0);
@@ -77,7 +78,6 @@ export function NativeCwdPicker({ profile, sessionId, cwd, locked, connected, is
   /** A picked folder the relay hasn't confirmed yet; the capsule flashes when
    * it does. */
   const pendingFlashRef = useRef<string | null>(null);
-  const homeRef = useRef<Promise<string | null> | null>(null);
   const lookupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const choosable = !locked && cwd !== null && (Boolean(isNewConversation) || connected);
@@ -90,14 +90,14 @@ export function NativeCwdPicker({ profile, sessionId, cwd, locked, connected, is
             theme,
             key: sessionId,
             cwd,
-            home: state.home,
+            home,
             recents,
             listings: state.listings,
             lookup: state.lookup,
             flash: state.flash,
           })
         : null,
-    [choosable, cwd, dict, theme, sessionId, state, recents],
+    [choosable, cwd, dict, theme, sessionId, home, state, recents],
   );
 
   const lastSentRef = useRef<string | null>(null);
@@ -125,18 +125,13 @@ export function NativeCwdPicker({ profile, sessionId, cwd, locked, connected, is
     update((prev) => ({ ...prev, flash: prev.flash + 1 }));
   }, [cwd, update]);
 
-  // Another conversation starts over; another profile's relay has its own
-  // home folder.
+  // Another conversation starts over.
   useEffect(() => {
     generationRef.current += 1;
     chosenRef.current = false;
     pendingFlashRef.current = null;
-    update((prev) => ({ ...INITIAL_STATE, home: prev.home, flash: prev.flash }));
+    update((prev) => ({ ...INITIAL_STATE, flash: prev.flash }));
   }, [sessionId, update]);
-  useEffect(() => {
-    homeRef.current = null;
-    update((prev) => ({ ...prev, home: null }));
-  }, [profile.id, update]);
 
   useEffect(() => {
     let disposed = false;
@@ -163,39 +158,12 @@ export function NativeCwdPicker({ profile, sessionId, cwd, locked, connected, is
       );
     };
 
-    /** The relay's default folder for the profile, which is its home: what
-     * `~` means, and where "Go to the home folder" leads. Listed once. */
-    const ensureHome = (): Promise<string | null> => {
-      if (homeRef.current) return homeRef.current;
-      const generation = generationRef.current;
-      const pending = listDirectories(propsRef.current.profile, undefined, true).then(
-        (result) => {
-          update((prev) => ({
-            ...prev,
-            home: result.path,
-            listings:
-              generation === generationRef.current && !prev.listings[result.path]
-                ? { ...prev.listings, [result.path]: { status: "ready", entries: result.entries, error: null } }
-                : prev.listings,
-          }));
-          return result.path;
-        },
-        () => {
-          homeRef.current = null;
-          return null;
-        },
-      );
-      homeRef.current = pending;
-      return pending;
-    };
-
     const lookUp = async (query: string, generation: number): Promise<void> => {
       const stillWanted = () => generation === generationRef.current && stateRef.current.lookup?.query === query;
-      const home = query.startsWith("~") ? await ensureHome() : stateRef.current.home;
-      if (!stillWanted()) return;
-      const path = resolvePathQuery(query, home);
+      const path = resolvePathQuery(query, propsRef.current.home);
       if (path === null) {
-        update((prev) => ({ ...prev, lookup: { query, status: "missing", path: null, error: "unreachable" } }));
+        // `~` while the home folder is unknown: the relay never answered.
+        if (stillWanted()) update((prev) => ({ ...prev, lookup: { query, status: "missing", path: null, error: "unreachable" } }));
         return;
       }
       try {
@@ -223,7 +191,6 @@ export function NativeCwdPicker({ profile, sessionId, cwd, locked, connected, is
         if (!ours(key)) return;
         forget();
         chosenRef.current = false;
-        void ensureHome();
       },
       cwdPickerFolder: ({ key, path }) => {
         if (ours(key)) requestFolder(path, false);

@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { guessMimeFromExtension } from "@/lib/mimeTypes";
 import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { getDefaultPath } from "@/hooks/useDefaultPaths";
+import { useRelayHome } from "@/hooks/useRelayHome";
 import { resolveDefaultAgent } from "@/hooks/relay/useAgentPreference";
 import { getHostInfo } from "@/lib/relay/filesClient";
 import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreference";
@@ -1008,9 +1009,12 @@ export function ChatPanel({
   }, [showingLog]);
   const logBottomPadding = nativeBottomInset + 8 + floatingStackHeight;
   // iOS without a composer of its own (a room agent's panel brings one): the
-  // composer is native, and so is a pending question (`NativeChoiceSheet`
-  // instead of `ChoiceCard`).
+  // composer is native, and so are a pending question (`NativeChoiceSheet`
+  // instead of `ChoiceCard`) and the working directory (`NativeCwdPicker`
+  // instead of `WorkingDirectoryButton`).
   const nativeComposer = !renderComposer && isIOS();
+  // How those show a path: from `~` on the relay's machine.
+  const relayHomePath = useRelayHome(profile, nativeComposer);
 
   const openRoom = (text: string, sentImages: PendingAttachment[]): void => {
     if (openingRoomRef.current) return;
@@ -1288,6 +1292,7 @@ export function ChatPanel({
                   locked={cwdLocked}
                   connected={live}
                   isNewConversation={isNewConversation}
+                  home={relayHomePath}
                   onSetCwd={setCwd}
                   onPicked={() => composerRef.current?.focus()}
                 />

@@ -56,7 +56,7 @@ type Props = Partial<Parameters<typeof NativeCwdPicker>[0]>;
 async function mount(props: Props = {}) {
   const onSetCwd = vi.fn();
   const onPicked = vi.fn();
-  const all = { profile, sessionId: "s1", cwd: CWD, locked: false, connected: true, isNewConversation: true, onSetCwd, onPicked, ...props };
+  const all = { profile, sessionId: "s1", cwd: CWD, locked: false, connected: true, isNewConversation: true, home: HOME, onSetCwd, onPicked, ...props };
   const view = render(<NativeCwdPicker {...all} />);
   await waitFor(() => expect(ipc.handlers.has("cwdPickerChoose")).toBe(true));
   const rerender = (next: Props) => view.rerender(<NativeCwdPicker {...all} {...next} />);
@@ -107,14 +107,13 @@ describe("NativeCwdPicker", () => {
     await waitFor(() => expect(lastPayload()?.key).toBe("s1"));
   });
 
-  it("lists the folder the sheet opens on, with hidden ones, and learns the home folder", async () => {
+  it("lists the folder the sheet opens on, hidden ones included, and shows paths from the home folder", async () => {
     await mount();
     open();
     await waitFor(() => expect(lastPayload()?.folders[CWD]?.status).toBe("ready"));
     expect(relay.listDirectories).toHaveBeenCalledWith(profile, CWD, true);
-    expect(relay.listDirectories).toHaveBeenCalledWith(profile, undefined, true);
     expect(lastPayload()?.folders[CWD].entries.map((entry) => entry.name)).toEqual(["anywh", "anywh-ios"]);
-    await waitFor(() => expect(lastPayload()?.home?.display).toBe("~"));
+    expect(lastPayload()?.home?.display).toBe("~");
     expect(lastPayload()?.current.display).toBe("~/anywh");
   });
 
@@ -140,7 +139,10 @@ describe("NativeCwdPicker", () => {
     fire("cwdPickerFolder", { key: "s1", path: "/srv" });
     await waitFor(() => expect(lastPayload()?.folders["/srv"]?.status).toBe("loading"));
     fire("cwdPickerClose", { key: "s1" });
-    await act(async () => answer({ path: "/srv", entries: [{ name: "data", path: "/srv/data" }] }));
+    await act(async () => {
+      answer({ path: "/srv", entries: [{ name: "data", path: "/srv/data" }] });
+      await Promise.resolve();
+    });
     expect(lastPayload()?.folders["/srv"]).toBeUndefined();
   });
 
@@ -174,7 +176,16 @@ describe("NativeCwdPicker", () => {
 
     fire("cwdPickerLookup", { key: "s1", query: "~/personal" });
     await waitFor(() => expect(lastPayload()?.lookup?.status).toBe("missing"));
+    expect(relay.listDirectories).toHaveBeenCalledWith(profile, "/home/wil/personal", true);
     expect(lastPayload()?.lookup?.error).toEqual({ title: "Folder not found", message: "Nothing at ~/personal on the relay's machine. Check the path." });
+  });
+
+  it("can't follow ~ while the home folder is unknown", async () => {
+    await mount({ home: null });
+    open();
+    fire("cwdPickerLookup", { key: "s1", query: "~/anywh" });
+    await waitFor(() => expect(lastPayload()?.lookup?.status).toBe("missing"));
+    expect(lastPayload()?.lookup?.error?.message).toBe("The relay didn't answer. Check the connection and try again.");
   });
 
   it("sets a picked folder once, remembers it and hands the focus back", async () => {
