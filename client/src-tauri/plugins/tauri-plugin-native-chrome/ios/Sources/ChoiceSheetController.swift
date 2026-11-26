@@ -19,6 +19,9 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
   private let store: ChoiceStore
   private let presenter: () -> UIViewController?
   private var host: UIHostingController<ChoiceSheetView>?
+  /// Lays the sheet's content out off screen to work out its height before
+  /// it opens.
+  private lazy var sizer = UIHostingController(rootView: ChoiceSheetView(store: store, fitting: true))
 
   /// Runs right before the sheet opens (the composer drops its keyboard and
   /// steps aside).
@@ -53,6 +56,12 @@ final class ChoiceSheetController: NSObject, UISheetPresentationControllerDelega
     // Something else is up already (a picker, a menu): leave it alone.
     guard presenter.presentedViewController == nil else { return }
     willPresent()
+    // Without this the first resolution of the fitted detent had nothing
+    // measured (the sheet opened at full height) or the last question's
+    // measurements (it opened at that height), and then jumped once the
+    // sheet laid itself out.
+    let fit = CGSize(width: presenter.view.bounds.width, height: .greatestFiniteMagnitude)
+    store.resetMeasurements(estimate: sizer.sizeThatFits(in: fit).height)
 
     let host = UIHostingController(rootView: ChoiceSheetView(store: store))
     host.modalPresentationStyle = .pageSheet

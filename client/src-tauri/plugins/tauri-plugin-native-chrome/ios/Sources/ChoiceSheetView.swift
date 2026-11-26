@@ -22,6 +22,10 @@ private enum SheetTuning {
 /// worded from the web side, and every tap goes back to it through the store.
 struct ChoiceSheetView: View {
   @ObservedObject var store: ChoiceStore
+  /// Laid out only to work out the sheet's height before it opens: the
+  /// content in full instead of in a scroll view, and no measurements
+  /// reported back.
+  var fitting = false
   @FocusState private var fieldFocused: Bool
   private let topID = "choice-sheet-top"
 
@@ -31,15 +35,19 @@ struct ChoiceSheetView: View {
       VStack(spacing: 0) {
         header(args, theme)
           .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measure(\.headerHeight, $0) }
-        ScrollViewReader { proxy in
-          ScrollView {
-            content(args, theme)
-              .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measure(\.contentHeight, $0) }
-          }
-          .scrollBounceBehavior(.basedOnSize)
-          .scrollDismissesKeyboard(.interactively)
-          .onChange(of: store.stepVersion) {
-            proxy.scrollTo(topID, anchor: .top)
+        if fitting {
+          content(args, theme)
+        } else {
+          ScrollViewReader { proxy in
+            ScrollView {
+              content(args, theme)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measure(\.contentHeight, $0) }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: store.stepVersion) {
+              proxy.scrollTo(topID, anchor: .top)
+            }
           }
         }
         footer(args, theme)
@@ -54,7 +62,7 @@ struct ChoiceSheetView: View {
   /// Keeps the store's measurement of one part of the sheet, telling the
   /// controller only when it really moved (the fitted detent follows it).
   private func measure(_ part: ReferenceWritableKeyPath<ChoiceStore, CGFloat>, _ value: CGFloat) {
-    guard abs(store[keyPath: part] - value) > 0.5 else { return }
+    guard !fitting, abs(store[keyPath: part] - value) > 0.5 else { return }
     store[keyPath: part] = value
     store.onMeasure()
   }

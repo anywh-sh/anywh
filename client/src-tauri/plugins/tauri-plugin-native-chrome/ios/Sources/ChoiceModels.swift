@@ -93,7 +93,14 @@ final class ChoiceStore: ObservableObject {
   var headerHeight: CGFloat = 0
   var contentHeight: CGFloat = 0
   var footerHeight: CGFloat = 0
-  var fittedHeight: CGFloat { headerHeight + contentHeight + footerHeight }
+  /// The height worked out right before the sheet opens, used until the
+  /// sheet's own layout has measured every part: it opens at the right
+  /// height instead of at full height, or at the last question's.
+  var estimatedHeight: CGFloat = 0
+  var fittedHeight: CGFloat {
+    let measured = headerHeight > 0 && contentHeight > 0 && footerHeight > 0
+    return measured ? headerHeight + contentHeight + footerHeight : estimatedHeight
+  }
 
   var onOpen: () -> Void = {}
   var onClose: () -> Void = {}
@@ -120,6 +127,15 @@ final class ChoiceStore: ObservableObject {
       stepVersion += 1
     }
     return stepChanged
+  }
+
+  /// The sheet is about to open: what it measured for an earlier question
+  /// no longer applies.
+  func resetMeasurements(estimate: CGFloat) {
+    headerHeight = 0
+    contentHeight = 0
+    footerHeight = 0
+    estimatedHeight = estimate
   }
 
   /// A typed edit: kept here and reported. Programmatic writes (`apply`)
