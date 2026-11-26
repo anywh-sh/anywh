@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDict } from "@/i18n";
+import { breadcrumbsFor, parentOf } from "@/lib/files/folderPath";
 import { listDirectories, type FsEntry } from "@/lib/relay/fsBrowse";
 import type { Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
@@ -35,29 +36,6 @@ interface FolderPickerDialogProps {
    * reason, same fix, this time on the `Dialog`'s `onCloseAutoFocus`
    * (which by default would return focus to the trigger that opened the modal). */
   onFocusComposer: () => void;
-}
-
-interface Crumb {
-  label: string;
-  path: string;
-}
-
-/** `/home/user/mode/widgets` -> home > user > mode > widgets, each with the path
- * accumulated up to that point. Root becomes a static "/" crumb. */
-function breadcrumbsFor(path: string): Crumb[] {
-  const segments = path.split("/").filter(Boolean);
-  if (segments.length === 0) return [{ label: "/", path: "/" }];
-  let acc = "";
-  return segments.map((label) => {
-    acc += `/${label}`;
-    return { label, path: acc };
-  });
-}
-
-function parentOf(path: string): string {
-  const segments = path.split("/").filter(Boolean);
-  segments.pop();
-  return segments.length === 0 ? "/" : `/${segments.join("/")}`;
 }
 
 /** A folder in the list: the dialog's mono, on the list's chrome ground. */

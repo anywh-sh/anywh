@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useRecentFolders } from "@/hooks/useRecentFolders";
 import { useDict } from "@/i18n";
 import { FolderPickerDialog } from "@/components/chat/FolderPickerDialog";
+import { folderName } from "@/lib/files/folderPath";
 import { profileColorVar, type Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 
@@ -39,15 +40,6 @@ interface WorkingDirectoryButtonProps {
    * would leave the user unable to type right away, having to click the
    * field again. */
   onFocusComposer: () => void;
-}
-
-/** Just the last folder's name from the path, so the button/list don't get
- * huge — the full path appears in the tooltip and the "Working directory"
- * dropdown. */
-function folderName(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const lastSegment = trimmed.split("/").pop();
-  return lastSegment || "/";
 }
 
 /**
