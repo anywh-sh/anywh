@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { breadcrumbsFor, folderName, parentOf } from "@/lib/files/folderPath";
+import { ancestorsOf, breadcrumbsFor, displayPath, folderName, isHiddenFolder, isPathQuery, parentOf, resolvePathQuery } from "@/lib/files/folderPath";
 
 describe("folderName", () => {
   it("is the last segment of the path", () => {
@@ -36,5 +36,68 @@ describe("breadcrumbsFor", () => {
 
   it("is a single / crumb for the root", () => {
     expect(breadcrumbsFor("/")).toEqual([{ label: "/", path: "/" }]);
+  });
+});
+
+describe("ancestorsOf", () => {
+  it("lists every folder from the root down to the path", () => {
+    expect(ancestorsOf("/home/wil/anywh")).toEqual(["/", "/home", "/home/wil", "/home/wil/anywh"]);
+  });
+
+  it("is just the root for the root", () => {
+    expect(ancestorsOf("/")).toEqual(["/"]);
+  });
+});
+
+describe("isHiddenFolder", () => {
+  it("hides dot-folders and node_modules, like the relay", () => {
+    expect(isHiddenFolder(".git")).toBe(true);
+    expect(isHiddenFolder("node_modules")).toBe(true);
+    expect(isHiddenFolder("src")).toBe(false);
+  });
+});
+
+describe("displayPath", () => {
+  it("writes the home folder as ~", () => {
+    expect(displayPath("/home/wil", "/home/wil")).toBe("~");
+    expect(displayPath("/home/wil/anywh", "/home/wil")).toBe("~/anywh");
+  });
+
+  it("leaves a sibling sharing the home folder's prefix alone", () => {
+    expect(displayPath("/home/wilma", "/home/wil")).toBe("/home/wilma");
+  });
+
+  it("leaves paths as they are while home is unknown, or when home is /", () => {
+    expect(displayPath("/home/wil", null)).toBe("/home/wil");
+    expect(displayPath("/srv", "/")).toBe("/srv");
+  });
+});
+
+describe("isPathQuery", () => {
+  it("is a path when it starts with / or ~", () => {
+    expect(isPathQuery(" /srv")).toBe(true);
+    expect(isPathQuery("~/anywh")).toBe(true);
+    expect(isPathQuery("anywh")).toBe(false);
+    expect(isPathQuery("")).toBe(false);
+  });
+});
+
+describe("resolvePathQuery", () => {
+  it("expands ~ to the home folder", () => {
+    expect(resolvePathQuery("~", "/home/wil")).toBe("/home/wil");
+    expect(resolvePathQuery("~/anywh/", "/home/wil")).toBe("/home/wil/anywh");
+  });
+
+  it("can't expand ~ before the home folder is known", () => {
+    expect(resolvePathQuery("~/anywh", null)).toBeNull();
+  });
+
+  it("keeps absolute paths, without trailing slashes", () => {
+    expect(resolvePathQuery(" /srv/data// ", null)).toBe("/srv/data");
+    expect(resolvePathQuery("/", null)).toBe("/");
+  });
+
+  it("leaves ~user for the relay to refuse", () => {
+    expect(resolvePathQuery("~bob/x", "/home/wil")).toBe("~bob/x");
   });
 });
