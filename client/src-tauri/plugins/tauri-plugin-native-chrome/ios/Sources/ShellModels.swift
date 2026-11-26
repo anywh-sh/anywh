@@ -84,12 +84,24 @@ struct TopBarAgentMenuArgs: Decodable {
   let enabled: Bool
 }
 
+/// The conversation's folder once the first message fixed it: shown at the
+/// top of the dropdown (the capsule above the composer is gone by then),
+/// never picked.
+struct TopBarCwdArgs: Decodable {
+  let label: String
+  let name: String
+  /// As shown, with the home folder written `~`.
+  let path: String
+}
+
 struct TopBarMenuArgs: Decodable {
   let model: TopBarModelMenuArgs?
   let mode: TopBarModeMenuArgs?
   let effort: TopBarEffortMenuArgs?
   /// Optional: absent (not just `null`) from a web build older than this entry.
   let agent: TopBarAgentMenuArgs?
+  /// Optional, like `agent`.
+  let cwd: TopBarCwdArgs?
 }
 
 struct DrawerStrings: Decodable {

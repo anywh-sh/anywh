@@ -37,8 +37,24 @@ struct TopBarView: View {
     let mode = store.menu?.mode
     let effort = store.menu?.effort
     let agent = store.menu?.agent
-    if model != nil || mode != nil || effort != nil || agent != nil {
+    let cwd = store.menu?.cwd
+    if model != nil || mode != nil || effort != nil || agent != nil || cwd != nil {
       Menu {
+        // First, in a section of its own: the folder the conversation works
+        // in, fixed like the model, so it reads as locked too.
+        if let cwd {
+          Section(cwd.label) {
+            Button {} label: {
+              Label {
+                Text(cwd.name)
+                Text(cwd.path)
+              } icon: {
+                Image(systemName: "folder")
+              }
+            }
+            .disabled(true)
+          }
+        }
         if let model {
           Menu {
             Picker(selection: Binding(get: { model.currentId ?? "" }, set: { store.onModelSelect($0) })) {

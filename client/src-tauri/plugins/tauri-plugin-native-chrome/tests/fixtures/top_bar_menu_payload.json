@@ -76,5 +76,6 @@
     "locked": false,
     "lockedHint": "The model is fixed after the first message",
     "enabled": true
-  }
+  },
+  "cwd": null
 }

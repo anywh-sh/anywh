@@ -140,6 +140,19 @@ pub struct TopBarAgentMenu {
   pub enabled: bool,
 }
 
+/// The conversation's working directory once the first message fixed it, at
+/// the top of the dropdown: the capsule above the composer is gone by then.
+/// Only shown, never picked.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopBarCwdEntry {
+  /// The section's label ("Working directory").
+  pub label: String,
+  pub name: String,
+  /// The path as shown, with the home folder written `~`.
+  pub path: String,
+}
+
 /// Contents of the dropdown the top bar's center opens. Each entry is `None`
 /// when there is nothing to offer for it; with all `None` the bar stays a
 /// plain label.
@@ -152,6 +165,9 @@ pub struct TopBarMenuRequest {
   /// Absent from a web build older than the agent entry.
   #[serde(default)]
   pub agent: Option<TopBarAgentMenu>,
+  /// Absent from a web build older than the working directory entry.
+  #[serde(default)]
+  pub cwd: Option<TopBarCwdEntry>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -670,6 +686,22 @@ mod tests {
   fn top_bar_menu_without_an_agent_entry_still_decodes() {
     let request: TopBarMenuRequest = serde_json::from_str(r#"{"model":null,"mode":null,"effort":null}"#).unwrap();
     assert!(request.agent.is_none());
+    assert!(request.cwd.is_none());
+  }
+
+  /// The web side's menu once the first message fixed the model, the agent
+  /// and the folder (`nativeTopBarMenuModel.test.ts` checks it).
+  const LOCKED_MENU_FIXTURE: &str = include_str!("../tests/fixtures/top_bar_menu_locked_payload.json");
+
+  #[test]
+  fn locked_top_bar_menu_keeps_its_working_directory_on_the_way_to_swift() {
+    let request: TopBarMenuRequest = serde_json::from_str(LOCKED_MENU_FIXTURE).unwrap();
+    let cwd = request.cwd.as_ref().unwrap();
+    assert_eq!(cwd.name, "anywh");
+    assert_eq!(cwd.path, "~/anywh/anywh");
+    assert!(request.model.as_ref().is_some_and(|model| model.locked));
+    let again = serde_json::to_value(&request).unwrap();
+    assert_eq!(again, serde_json::from_str::<serde_json::Value>(LOCKED_MENU_FIXTURE).unwrap());
   }
 
   #[test]
