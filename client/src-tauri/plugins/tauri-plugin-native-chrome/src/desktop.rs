@@ -84,4 +84,8 @@ impl<R: Runtime> NativeChrome<R> {
   pub fn set_choice(&self, _payload: ChoiceRequest) -> crate::Result<()> {
     Ok(())
   }
+
+  pub fn set_cwd_picker(&self, _payload: CwdPickerRequest) -> crate::Result<()> {
+    Ok(())
+  }
 }

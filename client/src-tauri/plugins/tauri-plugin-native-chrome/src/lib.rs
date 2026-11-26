@@ -50,6 +50,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::set_composer_elapsed,
       commands::set_scroll_to_end,
       commands::set_choice,
+      commands::set_cwd_picker,
       commands::read_attachment,
       commands::register_for_push,
       commands::set_visible_session,

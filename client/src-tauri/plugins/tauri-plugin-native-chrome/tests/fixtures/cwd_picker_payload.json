@@ -1,0 +1,163 @@
+{
+  "picker": {
+    "key": "session-1",
+    "capsule": {
+      "name": "anywh",
+      "accessibilityLabel": "Working directory: ~/anywh/anywh. Tap to change it."
+    },
+    "flash": 1,
+    "current": {
+      "path": "/home/wil/anywh/anywh",
+      "name": "anywh",
+      "display": "~/anywh/anywh"
+    },
+    "home": {
+      "path": "/home/wil",
+      "name": "wil",
+      "display": "~"
+    },
+    "recents": [
+      {
+        "path": "/home/wil/anywh/anywh-landing",
+        "name": "anywh-landing",
+        "display": "~/anywh/anywh-landing"
+      },
+      {
+        "path": "/srv/data",
+        "name": "data",
+        "display": "/srv/data"
+      }
+    ],
+    "folders": {
+      "/home/wil/anywh/anywh": {
+        "status": "ready",
+        "parent": {
+          "path": "/home/wil/anywh",
+          "name": "anywh",
+          "display": "~/anywh"
+        },
+        "upLabel": "Up to anywh",
+        "entries": [
+          {
+            "path": "/home/wil/anywh/anywh/.github",
+            "name": ".github",
+            "display": "~/anywh/anywh/.github",
+            "hidden": true
+          },
+          {
+            "path": "/home/wil/anywh/anywh/client",
+            "name": "client",
+            "display": "~/anywh/anywh/client",
+            "hidden": false
+          },
+          {
+            "path": "/home/wil/anywh/anywh/relay",
+            "name": "relay",
+            "display": "~/anywh/anywh/relay",
+            "hidden": false
+          }
+        ],
+        "error": null
+      },
+      "/home/wil/anywh/anywh/client": {
+        "status": "loading",
+        "parent": {
+          "path": "/home/wil/anywh/anywh",
+          "name": "anywh",
+          "display": "~/anywh/anywh"
+        },
+        "upLabel": "Up to anywh",
+        "entries": [],
+        "error": null
+      },
+      "/root": {
+        "status": "error",
+        "parent": {
+          "path": "/",
+          "name": "/",
+          "display": "/"
+        },
+        "upLabel": "Up to /",
+        "entries": [],
+        "error": {
+          "title": "Couldn't read this folder",
+          "message": "The relay has no permission to list what's in it."
+        }
+      }
+    },
+    "lookup": {
+      "query": "~/anywh/anywh-ios",
+      "status": "found",
+      "target": {
+        "path": "/home/wil/anywh/anywh-ios",
+        "name": "anywh-ios",
+        "display": "~/anywh/anywh-ios",
+        "openLabel": "Open anywh-ios",
+        "chain": [
+          {
+            "path": "/",
+            "name": "/",
+            "display": "/"
+          },
+          {
+            "path": "/home",
+            "name": "home",
+            "display": "/home"
+          },
+          {
+            "path": "/home/wil",
+            "name": "wil",
+            "display": "~"
+          },
+          {
+            "path": "/home/wil/anywh",
+            "name": "anywh",
+            "display": "~/anywh"
+          },
+          {
+            "path": "/home/wil/anywh/anywh-ios",
+            "name": "anywh-ios",
+            "display": "~/anywh/anywh-ios"
+          }
+        ]
+      },
+      "error": null
+    },
+    "strings": {
+      "title": "Working directory",
+      "close": "Close",
+      "more": "More options",
+      "searchPrompt": "Search or paste a path",
+      "recents": "Recent",
+      "browseFromCurrent": "Browse from the current folder",
+      "subfolders": "Subfolders",
+      "loading": "Loading folders",
+      "emptyTitle": "No subfolders",
+      "emptyMessage": "This folder only has files. You can still use it.",
+      "noMatchTitle": "No folder named “{query}”",
+      "noMatchMessage": "The search only looks in this folder. To go straight to another one, paste a path starting with ~ or /.",
+      "checking": "Looking for the folder…",
+      "retry": "Try again",
+      "selected": "Selected folder",
+      "useFolder": "Use this folder",
+      "alreadyCurrent": "Already the current folder",
+      "showHidden": "Show hidden folders",
+      "goHome": "Go to the home folder"
+    },
+    "theme": {
+      "background": "#111111",
+      "sidebar": "#161616",
+      "elevated": "#1c1c1c",
+      "card": "#202020",
+      "foreground": "#eeeeee",
+      "muted": "#999999",
+      "faint": "#666666",
+      "border": "#2a2a2a",
+      "primary": "#e0642a",
+      "primaryForeground": "#ffffff",
+      "destructive": "#dc6f5c",
+      "tint": "#eceae4",
+      "success": "#e0642a"
+    }
+  }
+}
