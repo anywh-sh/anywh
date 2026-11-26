@@ -31,8 +31,8 @@ private final class ComposerContainerView: UIView {
   }
 }
 
-/// The native composer, the strip under it and the scroll-to-end arrow, laid
-/// over the web canvas. It owns geometry only: the composer follows the
+/// The native composer, the strip under it, the scroll-to-end arrow and the
+/// working directory capsule above it, laid over the web canvas. It owns geometry only: the composer follows the
 /// keyboard through `keyboardLayoutGuide`, and the web layout is told how much
 /// room the whole thing takes (`--native-bottom-inset`) so it can pad the log
 /// and float its own controls above. Every decision stays on the web side.
@@ -45,6 +45,13 @@ final class ComposerController {
   private let container = ComposerContainerView()
   private let host: UIHostingController<ComposerView>
   private let arrowHost: UIHostingController<ScrollToEndButton>
+  private let cwd: CwdPickerStore
+  private let capsuleHost: UIHostingController<CwdCapsuleView>
+  /// The capsule is on screen (a choosable folder, the composer not hidden
+  /// nor covered).
+  private var capsuleShown = false
+  /// Height of the web stack floating above the strip, as last reported.
+  private var webAccessoryHeight: CGFloat = 0
   private let wash = BottomEdgeWashView()
   private let picker = AttachmentPicker()
   private let presenter: () -> UIViewController?
@@ -58,11 +65,13 @@ final class ComposerController {
   /// Fires with the files chosen in the Photos / Files pickers.
   var onAttach: ([AttachedFile]) -> Void = { _ in }
 
-  init(store: ComposerStore, choice: ChoiceStore, presenter: @escaping () -> UIViewController?) {
+  init(store: ComposerStore, choice: ChoiceStore, cwd: CwdPickerStore, presenter: @escaping () -> UIViewController?) {
     self.store = store
+    self.cwd = cwd
     self.presenter = presenter
     self.host = UIHostingController(rootView: ComposerView(store: store, choice: choice))
     self.arrowHost = UIHostingController(rootView: ScrollToEndButton(store: store))
+    self.capsuleHost = UIHostingController(rootView: CwdCapsuleView(store: cwd))
     store.onAttachPhotos = { [weak self] in self?.presentPicker(photos: true) }
     store.onAttachFiles = { [weak self] in self?.presentPicker(photos: false) }
     picker.onFiles = { [weak self] files in self?.onAttach(files) }
@@ -100,6 +109,14 @@ final class ComposerController {
       MainActor.assumeIsolated { self?.reportInset() }
     }
     canvas.insertSubview(container, belowSubview: dim)
+
+    capsuleHost.sizingOptions = [.intrinsicContentSize]
+    let capsule = capsuleHost.view!
+    capsule.backgroundColor = .clear
+    capsule.translatesAutoresizingMaskIntoConstraints = false
+    capsule.alpha = 0
+    capsule.isUserInteractionEnabled = false
+    canvas.insertSubview(capsule, belowSubview: dim)
 
     host.sizingOptions = [.intrinsicContentSize]
     let content = host.view!
@@ -139,6 +156,10 @@ final class ComposerController {
       wash.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
       wash.topAnchor.constraint(equalTo: container.topAnchor, constant: -Tuning.bottomWashFade),
 
+      capsule.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      capsule.bottomAnchor.constraint(equalTo: container.topAnchor, constant: -CwdCapsuleTuning.gap),
+      capsule.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, multiplier: CwdCapsuleTuning.maxWidthShare),
+
       arrow.centerXAnchor.constraint(equalTo: canvas.centerXAnchor),
       arrow.widthAnchor.constraint(equalToConstant: scrollToEndSize),
       arrow.heightAnchor.constraint(equalToConstant: scrollToEndSize),
@@ -171,6 +192,40 @@ final class ComposerController {
     }
     container.isUserInteractionEnabled = !hidden
     refreshArrowInteraction()
+    refreshCapsule()
+  }
+
+  /// The working directory picker changed: the capsule comes or goes.
+  func cwdDidChange() {
+    refreshCapsule()
+  }
+
+  /// Whether the capsule takes room above the composer. Like the composer,
+  /// it still counts while a sheet covers it, so the web layout doesn't move
+  /// under the sheet.
+  private var capsuleCounted: Bool {
+    cwd.args != nil && !(store.args?.hidden ?? true)
+  }
+
+  /// Shows or hides the capsule. When the folder gets fixed (the first
+  /// message), it steps down a little as it fades out.
+  private func refreshCapsule() {
+    let shown = capsuleCounted && !covered
+    defer {
+      updateArrowOffset()
+      reportInset()
+    }
+    guard shown != capsuleShown else { return }
+    capsuleShown = shown
+    let view = capsuleHost.view!
+    view.isUserInteractionEnabled = shown
+    let stepsDown = !shown && cwd.args == nil
+    UIView.animate(withDuration: 0.2, delay: 0, options: shown ? .curveEaseOut : .curveEaseIn) {
+      view.alpha = shown ? 1 : 0
+      view.transform = stepsDown ? CGAffineTransform(translationX: 0, y: 6).scaledBy(x: 0.96, y: 0.96) : .identity
+    } completion: { _ in
+      if !self.capsuleShown { view.transform = .identity }
+    }
   }
 
   func applyTheme(_ theme: ShellTheme) {
@@ -211,8 +266,16 @@ final class ComposerController {
 
   func setScrollToEnd(visible: Bool, accessoryHeight: CGFloat) {
     store.scrollToEndVisible = visible
-    arrowBottom?.constant = -(Tuning.bottomWashFade + accessoryHeight + Tuning.arrowGap)
+    webAccessoryHeight = accessoryHeight
+    updateArrowOffset()
     refreshArrowInteraction()
+  }
+
+  /// The arrow sits above everything over the strip: the capsule, then the
+  /// web stack.
+  private func updateArrowOffset() {
+    let capsule = capsuleCounted ? CwdCapsuleTuning.height + CwdCapsuleTuning.gap : 0
+    arrowBottom?.constant = -(Tuning.bottomWashFade + capsule + webAccessoryHeight + Tuning.arrowGap)
   }
 
   private func refreshArrowInteraction() {
@@ -225,7 +288,7 @@ final class ComposerController {
   /// open the drawer.
   func owns(_ view: UIView?) -> Bool {
     guard let view else { return false }
-    return view.isDescendant(of: container) || view.isDescendant(of: arrowHost.view)
+    return view.isDescendant(of: container) || view.isDescendant(of: arrowHost.view) || view.isDescendant(of: capsuleHost.view)
   }
 
   // MARK: Layout
@@ -240,13 +303,15 @@ final class ComposerController {
   }
 
   /// Tells the web layout how much room the composer's strip takes at the
-  /// bottom: from the base of the canvas to the top of the strip's fade, so
-  /// the keyboard is already counted when it is open. Cleared while hidden,
-  /// which sends the web layout back to its fallback padding.
+  /// bottom: from the base of the canvas to the top of the strip's fade (or
+  /// of the capsule above it), so the keyboard is already counted when it is
+  /// open. Cleared while hidden, which sends the web layout back to its
+  /// fallback padding.
   func reportInset(force: Bool = false) {
     guard let canvas, container.bounds.height > 0 else { return }
     let hidden = store.args?.hidden ?? true
-    let value: Int? = hidden ? nil : Int((canvas.bounds.height - container.frame.minY + Tuning.bottomWashFade).rounded())
+    let top = container.frame.minY - (capsuleCounted ? CwdCapsuleTuning.height + CwdCapsuleTuning.gap : 0)
+    let value: Int? = hidden ? nil : Int((canvas.bounds.height - top + Tuning.bottomWashFade).rounded())
     if !force && value == lastInset { return }
     lastInset = value
     let script =

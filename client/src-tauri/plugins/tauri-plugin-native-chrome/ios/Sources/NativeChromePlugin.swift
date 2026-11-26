@@ -18,6 +18,10 @@ import WebKit
 /// - `setChoice`: a pending question (an agent's question or an approval), as
 ///   a row inside the composer that opens a native sheet. The web side owns
 ///   the answer being built; the sheet reports taps and typing back.
+/// - `setCwdPicker`: the conversation's folder while it can still be chosen,
+///   as a capsule above the composer that opens a native sheet. The web side
+///   lists folders and decides what a pick does; the sheet owns where it is
+///   and reports it.
 ///
 /// UIKit work always hops to the main actor with `Task { @MainActor in }`
 /// (plain GCD does not prove isolation to the Swift 6 compiler). The class is
@@ -36,6 +40,8 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
   @MainActor private var composer: ComposerController?
   @MainActor private let choiceStore = ChoiceStore()
   @MainActor private var choiceSheet: ChoiceSheetController?
+  @MainActor private let cwdStore = CwdPickerStore()
+  @MainActor private var cwdSheet: CwdSheetController?
   @MainActor private var shell: CanvasDrawerController?
   @MainActor private var lastTheme = ShellTheme.fallback
 
@@ -72,13 +78,18 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
       try? await Task.sleep(nanoseconds: 100_000_000)
     }
     let presenter: () -> UIViewController? = { [weak self] in self?.manager.viewController }
-    let composer = ComposerController(store: composerStore, choice: choiceStore, presenter: presenter)
+    let composer = ComposerController(store: composerStore, choice: choiceStore, cwd: cwdStore, presenter: presenter)
     self.composer = composer
     let choiceSheet = ChoiceSheetController(store: choiceStore, presenter: presenter)
     choiceSheet.willPresent = { [weak composer] in composer?.blur() }
     choiceSheet.coverComposer = { [weak composer] covered in composer?.setCovered(covered) }
     self.choiceSheet = choiceSheet
     wireChoice()
+    let cwdSheet = CwdSheetController(store: cwdStore, presenter: presenter)
+    cwdSheet.willPresent = { [weak composer] in composer?.blur() }
+    cwdSheet.coverComposer = { [weak composer] covered in composer?.setCovered(covered) }
+    self.cwdSheet = cwdSheet
+    wireCwdPicker()
     guard let controller = CanvasDrawerController(webview: webview, topBar: topBarStore, drawer: drawerStore, composer: composer) else {
       NSLog("[native-chrome] web view never joined a window; native shell disabled")
       return
@@ -164,6 +175,34 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     store.onPrevious = { [weak self] step in try? self?.trigger("choicePrevious", data: ChoiceStepEvent(stepKey: step)) }
     store.onSubmit = { [weak self] step in try? self?.trigger("choiceSubmit", data: ChoiceStepEvent(stepKey: step)) }
     store.onSkip = { [weak self] step in try? self?.trigger("choiceSkip", data: ChoiceStepEvent(stepKey: step)) }
+  }
+
+  /// Routes what the working directory picker reports to events for the web
+  /// side.
+  @MainActor
+  private func wireCwdPicker() {
+    let store = cwdStore
+    store.reportOpen = { [weak self] key in try? self?.trigger("cwdPickerOpen", data: CwdKeyEvent(key: key)) }
+    store.reportFolder = { [weak self] key, path in try? self?.trigger("cwdPickerFolder", data: CwdPathEvent(key: key, path: path)) }
+    store.reportRetry = { [weak self] key, path in try? self?.trigger("cwdPickerRetry", data: CwdPathEvent(key: key, path: path)) }
+    store.reportLookup = { [weak self] key, query in try? self?.trigger("cwdPickerLookup", data: CwdLookupEvent(key: key, query: query)) }
+    store.reportChoose = { [weak self] key, path in try? self?.trigger("cwdPickerChoose", data: CwdPathEvent(key: key, path: path)) }
+    store.reportClose = { [weak self] key in try? self?.trigger("cwdPickerClose", data: CwdKeyEvent(key: key)) }
+  }
+
+  @objc func setCwdPicker(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(CwdPickerRequestArgs.self)
+    Task { @MainActor in
+      // Before the shell is up the store still takes it, so the capsule shows
+      // as soon as the composer does.
+      if let sheet = self.cwdSheet {
+        sheet.apply(args.picker)
+      } else {
+        _ = self.cwdStore.apply(args.picker)
+      }
+      self.composer?.cwdDidChange()
+      invoke.resolve()
+    }
   }
 
   @objc func setChoice(_ invoke: Invoke) throws {
