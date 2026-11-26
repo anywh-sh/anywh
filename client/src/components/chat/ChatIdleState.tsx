@@ -11,10 +11,25 @@ import { isIOS } from "@/lib/platform/platform";
  *
  * On desktop it is just a heading: `ChatPanel` centres it together with the
  * composer, so the first thing on a new session is the question and the box
- * to answer it in. iOS keeps the full idle screen above its native composer. */
+ * to answer it in. iOS keeps the full idle screen above its native composer,
+ * centred in the room the native chrome leaves: between the top bar and the
+ * composer with what floats over it (the working directory capsule), keyboard
+ * included. Centred on the whole screen, it sat behind the composer as soon as
+ * a new session focused it and the keyboard came up. */
 export function ChatIdleState({ selector }: { selector?: ReactNode }) {
   const dict = useDict();
-  if (isIOS()) return <IdleScreen heading={dict.common.untitledSession} subtitle={dict.chat.log.idleSubtitle} />;
+  if (isIOS()) {
+    return (
+      <div
+        className="h-full pt-[var(--native-top-inset,calc(env(safe-area-inset-top)+64px))] pb-[var(--native-bottom-inset,96px)]"
+        // The inset jumps to its final value while the keyboard animates
+        // natively, as for the floating stack in `ChatPanel`.
+        style={{ transition: "padding-bottom 250ms ease-out" }}
+      >
+        <IdleScreen heading={dict.common.untitledSession} subtitle={dict.chat.log.idleSubtitle} />
+      </div>
+    );
+  }
   return (
     <>
       <h2
