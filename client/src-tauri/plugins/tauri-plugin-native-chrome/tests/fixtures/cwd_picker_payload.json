@@ -128,6 +128,7 @@
       "close": "Close",
       "more": "More options",
       "searchPrompt": "Search or paste a path",
+      "clearSearch": "Clear search",
       "recents": "Recent",
       "browseFromCurrent": "Browse from the current folder",
       "subfolders": "Subfolders",

@@ -724,6 +724,7 @@ export const en: Dictionary = {
       capsuleLabel: "Working directory: {path}. Tap to change it.",
       more: "More options",
       searchPrompt: "Search or paste a path",
+      clearSearch: "Clear search",
       recents: "Recent",
       browseFromCurrent: "Browse from the current folder",
       subfolders: "Subfolders",

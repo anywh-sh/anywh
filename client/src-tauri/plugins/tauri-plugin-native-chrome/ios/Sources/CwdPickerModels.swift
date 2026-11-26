@@ -79,6 +79,7 @@ struct CwdPickerStrings: Decodable {
   let close: String
   let more: String
   let searchPrompt: String
+  let clearSearch: String
   let recents: String
   let browseFromCurrent: String
   let subfolders: String
@@ -209,9 +210,10 @@ final class CwdPickerStore: ObservableObject {
     return next?.key != openKey
   }
 
-  /// The capsule was tapped.
+  /// The capsule was tapped. The controller won't open a second sheet over
+  /// one that is up.
   func requestOpen() {
-    guard args != nil, openKey == nil else { return }
+    guard args != nil else { return }
     onPresent()
   }
 
@@ -264,17 +266,31 @@ final class CwdPickerStore: ObservableObject {
     (args ?? lastArgs)?.folders[path]
   }
 
+  /// Every move through the stack goes through here: the search field's
+  /// keyboard goes with the screen it was typed on, as in the Files app.
+  private func navigate(_ change: () -> Void) {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    change()
+  }
+
+  /// A subfolder was tapped.
+  func open(_ folder: CwdFolderRef) {
+    navigate { pushed.append(folder) }
+  }
+
   /// The "Up to …" row. Steps back when the screen below is the folder above;
   /// otherwise (the bottom of the stack, or a folder reached by typing its
   /// path) puts the folder above in this one's place.
   func goUp() {
     guard let parent = folder(top.path)?.parent else { return }
-    if pushed.isEmpty {
-      root = parent
-    } else if (pushed.dropLast().last ?? root).path == parent.path {
-      pushed.removeLast()
-    } else {
-      pushed[pushed.count - 1] = parent
+    navigate {
+      if pushed.isEmpty {
+        root = parent
+      } else if (pushed.dropLast().last ?? root).path == parent.path {
+        pushed.removeLast()
+      } else {
+        pushed[pushed.count - 1] = parent
+      }
     }
   }
 
@@ -282,18 +298,20 @@ final class CwdPickerStore: ObservableObject {
   /// starts on, the folders in between are stacked too, so back walks up
   /// from it; anywhere else it goes right on top.
   func goTo(_ target: CwdLookupTarget) {
-    if target.path == root.path {
-      pushed = []
-    } else if let start = target.chain.firstIndex(where: { $0.path == root.path }) {
-      pushed = Array(target.chain[(start + 1)...])
-    } else {
-      pushed = [target.ref]
+    navigate {
+      if target.path == root.path {
+        pushed = []
+      } else if let start = target.chain.firstIndex(where: { $0.path == root.path }) {
+        pushed = Array(target.chain[(start + 1)...])
+      } else {
+        pushed = [target.ref]
+      }
     }
   }
 
   func goHome() {
     guard let home = (args ?? lastArgs)?.home else { return }
-    pushed = home.path == root.path ? [] : [home]
+    navigate { pushed = home.path == root.path ? [] : [home] }
   }
 
   /// Return in the search field: a typed path goes to its folder once the
@@ -303,7 +321,7 @@ final class CwdPickerStore: ObservableObject {
       guard let lookup = args?.lookup, lookup.query == trimmedQuery, let target = lookup.target else { return }
       goTo(target)
     } else if let folder = folder(top.path), folder.status == .ready, let first = visibleEntries(folder).first {
-      pushed.append(first.ref)
+      open(first.ref)
     }
   }
 

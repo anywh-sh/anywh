@@ -131,6 +131,7 @@ export function buildCwdPickerPayload(input: CwdPickerModelInput): NativeCwdPick
       close: dict.common.close,
       more: copy.more,
       searchPrompt: copy.searchPrompt,
+      clearSearch: copy.clearSearch,
       recents: copy.recents,
       browseFromCurrent: copy.browseFromCurrent,
       subfolders: copy.subfolders,

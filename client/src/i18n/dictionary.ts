@@ -1564,6 +1564,7 @@ export interface Dictionary {
       capsuleLabel: string;
       more: string;
       searchPrompt: string;
+      clearSearch: string;
       recents: string;
       browseFromCurrent: string;
       subfolders: string;

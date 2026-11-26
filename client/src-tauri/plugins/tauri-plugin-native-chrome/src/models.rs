@@ -542,6 +542,8 @@ pub struct CwdPickerStrings {
   pub close: String,
   pub more: String,
   pub search_prompt: String,
+  /// Accessibility label of the search field's clear button.
+  pub clear_search: String,
   pub recents: String,
   pub browse_from_current: String,
   pub subfolders: String,

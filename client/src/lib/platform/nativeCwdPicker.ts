@@ -74,6 +74,8 @@ export interface NativeCwdPickerPayload {
     close: string;
     more: string;
     searchPrompt: string;
+    /** Accessibility label of the search field's clear button. */
+    clearSearch: string;
     recents: string;
     browseFromCurrent: string;
     subfolders: string;

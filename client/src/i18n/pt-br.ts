@@ -724,6 +724,7 @@ export const ptBr: Dictionary = {
       capsuleLabel: "Pasta de trabalho: {path}. Toque para trocar.",
       more: "Mais opções",
       searchPrompt: "Buscar ou colar caminho",
+      clearSearch: "Limpar busca",
       recents: "Recentes",
       browseFromCurrent: "Navegar a partir da pasta atual",
       subfolders: "Subpastas",

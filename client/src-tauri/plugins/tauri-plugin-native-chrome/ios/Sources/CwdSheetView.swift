@@ -48,7 +48,6 @@ private struct CwdFolderScreen: View {
   let folder: CwdFolderRef
   /// The bottom of the stack: titled after the sheet, with the recent folders.
   let isRoot: Bool
-  @FocusState private var searchFocused: Bool
 
   var body: some View {
     if let args = store.args ?? store.lastArgs {
@@ -73,21 +72,16 @@ private struct CwdFolderScreen: View {
         }
       }
       .listStyle(.insetGrouped)
+      .environment(\.defaultMinListRowHeight, CwdSheetTuning.rowMinHeight)
       .scrollContentBackground(.hidden)
       .scrollDismissesKeyboard(.interactively)
       .navigationTitle(isRoot ? strings.title : folder.name)
       .navigationBarTitleDisplayMode(.inline)
-      .searchable(text: $store.query, placement: .navigationBarDrawer(displayMode: .always), prompt: Text(strings.searchPrompt))
-      .searchFocused($searchFocused)
-      .textInputAutocapitalization(.never)
-      .autocorrectionDisabled()
-      .onSubmit(of: .search) { store.submitSearch() }
-      // Typing at the half height left the keyboard over the list.
-      .onChange(of: searchFocused) { _, focused in
-        if focused { store.onSearchFocus() }
-      }
       .toolbar { toolbar(args) }
-      .pinnedFooter { footer(args) }
+      // A field of our own rather than the system's (`searchable`), which
+      // hid the title, the back button and the toolbar while typing.
+      .pinnedBar(edge: .top) { CwdSearchField(store: store, prompt: strings.searchPrompt, clearLabel: strings.clearSearch, theme: args.theme) }
+      .pinnedBar(edge: .bottom) { footer(args) }
     }
   }
 
@@ -167,7 +161,6 @@ private struct CwdFolderScreen: View {
         }
         Spacer(minLength: 0)
       }
-      .frame(minHeight: CwdSheetTuning.rowMinHeight)
       .contentShape(Rectangle())
     }
     .listRowBackground(cell(theme))
@@ -194,7 +187,6 @@ private struct CwdFolderScreen: View {
                 .lineLimit(1)
               Spacer(minLength: 0)
             }
-            .frame(minHeight: CwdSheetTuning.rowMinHeight)
             .contentShape(Rectangle())
           }
           .accessibilityHint(parent.display)
@@ -202,7 +194,11 @@ private struct CwdFolderScreen: View {
         }
         let entries = store.visibleEntries(listing)
         ForEach(entries, id: \.path) { entry in
-          NavigationLink(value: entry.ref) {
+          // A button rather than a `NavigationLink`: the stack changes
+          // through the store, after the keyboard (see `navigate`).
+          Button {
+            store.open(entry.ref)
+          } label: {
             HStack(spacing: 12) {
               Image(systemName: "folder")
                 .font(.system(size: 18))
@@ -213,8 +209,10 @@ private struct CwdFolderScreen: View {
                 .foregroundStyle(Color(hex: entry.hidden ? theme.faint : theme.foreground))
                 .lineLimit(1)
                 .truncationMode(.middle)
+              Spacer(minLength: 0)
+              disclosure(theme)
             }
-            .frame(minHeight: CwdSheetTuning.rowMinHeight)
+            .contentShape(Rectangle())
           }
           .listRowBackground(cell(theme))
         }
@@ -266,11 +264,8 @@ private struct CwdFolderScreen: View {
                 .truncationMode(.middle)
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-              .font(.system(size: 13, weight: .semibold))
-              .foregroundStyle(Color(hex: theme.faint))
+            disclosure(theme)
           }
-          .frame(minHeight: CwdSheetTuning.rowMinHeight)
           .contentShape(Rectangle())
         }
         .listRowBackground(cell(theme))
@@ -284,9 +279,15 @@ private struct CwdFolderScreen: View {
           .font(.system(size: 15))
           .foregroundStyle(Color(hex: theme.muted))
       }
-      .frame(minHeight: CwdSheetTuning.rowMinHeight)
       .listRowBackground(cell(theme))
     }
+  }
+
+  /// The chevron of a row that opens a folder.
+  private func disclosure(_ theme: ShellTheme) -> some View {
+    Image(systemName: "chevron.right")
+      .font(.system(size: 13, weight: .semibold))
+      .foregroundStyle(Color(hex: theme.faint))
   }
 
   /// An empty folder, a search with no match, or a folder the relay couldn't
@@ -388,7 +389,6 @@ private struct CwdSkeletonRows: View {
         Spacer(minLength: 0)
       }
       .foregroundStyle(Color(hex: theme.foreground).opacity(0.12))
-      .frame(minHeight: CwdSheetTuning.rowMinHeight)
       .opacity(dim ? 0.45 : 1)
     }
     .accessibilityElement(children: .ignore)
@@ -399,16 +399,69 @@ private struct CwdSkeletonRows: View {
   }
 }
 
+/// The search field under the navigation bar: it filters the folder on
+/// screen, or takes a pasted path. Focusing it takes the sheet to full
+/// height, so the keyboard doesn't cover the list.
+private struct CwdSearchField: View {
+  @ObservedObject var store: CwdPickerStore
+  let prompt: String
+  let clearLabel: String
+  let theme: ShellTheme
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 16))
+        .foregroundStyle(Color(hex: theme.faint))
+      TextField("", text: $store.query, prompt: Text(prompt).foregroundStyle(Color(hex: theme.faint)))
+        .font(.system(size: 16))
+        .foregroundStyle(Color(hex: theme.foreground))
+        .tint(Color(hex: theme.primary))
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .submitLabel(.go)
+        .focused($focused)
+        .onSubmit { store.submitSearch() }
+      if !store.query.isEmpty {
+        Button {
+          store.query = ""
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(.system(size: 16))
+            .foregroundStyle(Color(hex: theme.faint))
+            .frame(width: 32, height: 32)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(clearLabel)
+      }
+    }
+    .padding(.leading, 14)
+    .padding(.trailing, store.query.isEmpty ? 14 : 6)
+    .frame(height: 44)
+    .background(Capsule().fill(Color(hex: theme.foreground).opacity(0.08)))
+    .overlay(Capsule().strokeBorder(Color(hex: theme.primary).opacity(focused ? 1 : 0), lineWidth: 1.5))
+    .padding(.horizontal, 16)
+    .padding(.bottom, 8)
+    .onChange(of: focused) { _, isFocused in
+      if isFocused { store.onSearchFocus() }
+    }
+  }
+}
+
 private extension View {
-  /// The footer under the list. On iOS 26 it sits in a bar that softens the
-  /// list scrolling under it, like the system's own toolbars; before it, on
-  /// the bar material.
+  /// A bar pinned over the list: the search field on top, the footer at the
+  /// bottom. On iOS 26 it sits in a bar with a firm edge, so the list
+  /// scrolling under it doesn't show through; before it, on the bar
+  /// material.
   @ViewBuilder
-  func pinnedFooter<Footer: View>(@ViewBuilder _ footer: () -> Footer) -> some View {
+  func pinnedBar<Bar: View>(edge: VerticalEdge, @ViewBuilder _ bar: () -> Bar) -> some View {
     if #available(iOS 26, *) {
-      safeAreaBar(edge: .bottom) { footer() }
+      safeAreaBar(edge: edge) { bar() }
+        .scrollEdgeEffectStyle(.hard, for: edge == .top ? .top : .bottom)
     } else {
-      safeAreaInset(edge: .bottom, spacing: 0) { footer().background(.bar) }
+      safeAreaInset(edge: edge, spacing: 0) { bar().background(.bar) }
     }
   }
 }
