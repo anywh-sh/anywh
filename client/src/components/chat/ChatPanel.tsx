@@ -1283,6 +1283,8 @@ export function ChatPanel({
                   agentId={agentId}
                   agents={hostAgents}
                   onChangeAgent={setAgent}
+                  cwd={cwd}
+                  home={relayHomePath}
                 />
                 <NativeChoiceSheet prompt={choicePrompt} disabled={!live} onAnswer={answerChoice} />
                 <NativeCwdPicker

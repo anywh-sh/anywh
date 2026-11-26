@@ -22,13 +22,18 @@ interface NativeTopBarMenuProps {
   /** Ids of the agents the relay can run; the agent entry needs two or more. */
   agents?: string[];
   onChangeAgent?: (agentId: string) => void;
+  /** The conversation's folder, shown at the top once it is fixed. */
+  cwd?: string | null;
+  /** The relay's home folder, to show `cwd` from `~`. */
+  home?: string | null;
 }
 
 /** Headless: feeds the iOS top bar dropdown the session's agents, models,
- * permission modes and efforts and applies the pick. Renders nothing. */
+ * permission modes and efforts, and its folder once fixed, and applies the
+ * pick. Renders nothing. */
 export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
   const dict = useDict();
-  const { catalog, model, locked, connected, permissionMode, permissionModes, effort, agentId, agents } = props;
+  const { catalog, model, locked, connected, permissionMode, permissionModes, effort, agentId, agents, cwd, home } = props;
   const payload = useMemo(
     () =>
       buildTopBarMenuPayload({
@@ -42,9 +47,11 @@ export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
         agents,
         effort,
         effortCatalogOption: effectiveModelOption(catalog, model),
+        cwd,
+        home,
         dict,
       }),
-    [catalog, model, locked, connected, permissionMode, permissionModes, agentId, agents, effort, dict],
+    [catalog, model, locked, connected, permissionMode, permissionModes, agentId, agents, effort, cwd, home, dict],
   );
 
   const lastSentRef = useRef<string | null>(null);
@@ -59,7 +66,7 @@ export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
   useEffect(
     () => () => {
       lastSentRef.current = null;
-      void setNativeTopBarMenu({ model: null, mode: null, effort: null, agent: null }).catch(() => {});
+      void setNativeTopBarMenu({ model: null, mode: null, effort: null, agent: null, cwd: null }).catch(() => {});
     },
     [],
   );
