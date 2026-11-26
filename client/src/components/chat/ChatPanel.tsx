@@ -31,6 +31,7 @@ import { NativeTopBarMenu } from "@/components/chat/NativeTopBarMenu";
 import { NativeComposer, type NativeComposerHandle } from "@/components/chat/NativeComposer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { NativeChoiceSheet } from "@/components/chat/NativeChoiceSheet";
+import { NativeCwdPicker } from "@/components/chat/NativeCwdPicker";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
 import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
@@ -1174,11 +1175,12 @@ export function ChatPanel({
         <MessageLogSkeleton />
       )}
 
-      {/* iOS: the composer is native (and so is the strip under it, and a
-       * pending question: a row inside the composer that opens a native sheet,
-       * see `NativeChoiceSheet`). What stays web — the cwd row — floats above
-       * that strip, out of normal flow, so the log keeps scrolling visibly
-       * beneath it. `bottom` follows the inset the native side publishes
+      {/* iOS: the composer is native (and so is the strip under it, a pending
+       * question — a row inside the composer that opens a native sheet, see
+       * `NativeChoiceSheet` — and the working directory — a capsule above it,
+       * see `NativeCwdPicker`). What stays web — the background jobs row —
+       * floats above that strip, out of normal flow, so the log keeps
+       * scrolling visibly beneath it. `bottom` follows the inset the native side publishes
        * (`--native-bottom-inset`), keyboard included; the CSS variable jumps
        * to its final value while the keyboard animates natively, so a short
        * transition covers the gap. */}
@@ -1187,22 +1189,25 @@ export function ChatPanel({
         className={cn(isIOS() ? "absolute inset-x-0 z-20 flex flex-col gap-2 px-3.5 pb-2" : "contents")}
         style={isIOS() ? { bottom: "var(--native-bottom-inset, 96px)", transition: "bottom 250ms ease-out" } : undefined}
       >
-        {/* iOS keeps this row above the composer (unchanged) — on desktop it
-         * moved below (see after `Composer`) to make room for `ChoiceCard`
-         * sitting right above the input, like Claude Desktop's own
-         * `AskUserQuestion` card. */}
-        {isIOS() && (
+        {/* iOS keeps this row above the composer — on desktop it moved below
+         * (see after `Composer`) to make room for `ChoiceCard` sitting right
+         * above the input, like Claude Desktop's own `AskUserQuestion` card.
+         * With the native composer only the background jobs stay here, and
+         * only while there are some: the folder is the native capsule. */}
+        {isIOS() && (!nativeComposer || backgroundJobs.length > 0) && (
           <div className="flex items-center justify-between">
             <div className="flex min-w-0 items-center gap-1.5">
-              <WorkingDirectoryButton
-                profile={profile}
-                cwd={cwd}
-                locked={cwdLocked}
-                connected={live}
-                isNewConversation={isNewConversation}
-                onSetCwd={setCwd}
-                onFocusComposer={() => composerRef.current?.focus()}
-              />
+              {!nativeComposer && (
+                <WorkingDirectoryButton
+                  profile={profile}
+                  cwd={cwd}
+                  locked={cwdLocked}
+                  connected={live}
+                  isNewConversation={isNewConversation}
+                  onSetCwd={setCwd}
+                  onFocusComposer={() => composerRef.current?.focus()}
+                />
+              )}
               <BackgroundJobIndicator jobs={backgroundJobs} onCancel={cancelBackgroundJob} />
             </div>
           </div>
@@ -1276,6 +1281,16 @@ export function ChatPanel({
                   onChangeAgent={setAgent}
                 />
                 <NativeChoiceSheet prompt={choicePrompt} disabled={!live} onAnswer={answerChoice} />
+                <NativeCwdPicker
+                  profile={profile}
+                  sessionId={sessionId}
+                  cwd={cwd}
+                  locked={cwdLocked}
+                  connected={live}
+                  isNewConversation={isNewConversation}
+                  onSetCwd={setCwd}
+                  onPicked={() => composerRef.current?.focus()}
+                />
                 <NativeComposer
                   ref={composerRef}
                   disabled={!live}

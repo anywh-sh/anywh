@@ -45,7 +45,8 @@ interface WorkingDirectoryButtonProps {
 /**
  * Shows (and lets you change) the current session's working directory. On
  * desktop it is portalled into the centre of the title bar by `ChatPanel`;
- * on iOS, which has no title bar, it stays above the `Composer`. Before the first turn,
+ * on iOS, which has no title bar, it stays above the `Composer` of a room
+ * agent's panel (the native composer has `NativeCwdPicker`). Before the first turn,
  * the dropdown lists "Recent" (per profile, `useRecentFolders`) + "Choose
  * folder...". After the first turn the relay locks the folder (see
  * `SharedSession.runTurn` — Claude Code's session_id gets tied to the cwd
