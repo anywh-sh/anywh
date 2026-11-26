@@ -349,7 +349,8 @@ pub struct ScrollToEndRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChoiceBanner {
-  /// "Pending question" / "Approval needed", position included.
+  /// "Pending question" / "Approval needed"; the position travels apart, in
+  /// `ChoiceSheet::position`.
   pub label: String,
   /// The question, shown on one line.
   pub text: String,
