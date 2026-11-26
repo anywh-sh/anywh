@@ -4,9 +4,8 @@ import SwiftUI
 enum CwdCapsuleTuning {
   /// Gap between the capsule and the composer under it.
   static let gap: CGFloat = 8
-  /// Share of the composer's width the capsule may take before its name
-  /// truncates.
-  static let maxWidthShare: CGFloat = 0.72
+  /// Room the capsule always leaves on its right before its name truncates.
+  static let trailingRoom: CGFloat = 64
   static let height: CGFloat = 44
   /// How long the capsule's outline stays lit after a folder is picked.
   static let flashSeconds: Double = 0.9
@@ -16,6 +15,8 @@ enum CwdCapsuleTuning {
 /// chosen: a glass capsule with a folder icon, the folder's name and an
 /// up-down chevron. Tapping it opens the working directory sheet. It leaves
 /// once the first message fixes the folder (the top bar menu shows it then).
+/// Drawn by `ComposerView`, so it rides the keyboard with the composer and
+/// counts in the room the composer reports to the web layout.
 struct CwdCapsuleView: View {
   @ObservedObject var store: CwdPickerStore
   @State private var lit = false

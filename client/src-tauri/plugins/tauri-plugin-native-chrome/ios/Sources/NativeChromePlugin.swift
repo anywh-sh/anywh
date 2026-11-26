@@ -194,13 +194,12 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     let args = try invoke.parseArgs(CwdPickerRequestArgs.self)
     Task { @MainActor in
       // Before the shell is up the store still takes it, so the capsule shows
-      // as soon as the composer does.
+      // as soon as the composer does (it is drawn in the composer's view).
       if let sheet = self.cwdSheet {
         sheet.apply(args.picker)
       } else {
         _ = self.cwdStore.apply(args.picker)
       }
-      self.composer?.cwdDidChange()
       invoke.resolve()
     }
   }

@@ -23,33 +23,70 @@ private enum ThumbnailCache {
 /// The native composer: one glass surface holding the pending question's row,
 /// the banners, the attachment chips and the `[attach] [text] [send | stop]`
 /// row. A pill with one line, a continuous rounded rectangle once it grows.
+/// Above it, while the conversation's folder can still be chosen, the working
+/// directory capsule.
 struct ComposerView: View {
   @ObservedObject var store: ComposerStore
   @ObservedObject var choice: ChoiceStore
+  @ObservedObject var cwd: CwdPickerStore
 
   var body: some View {
     if let args = store.args {
-      let theme = args.theme
-      let expanded =
-        store.multiline || args.editBanner != nil || args.typo != nil || !args.attachments.isEmpty || args.uploading || choice.args != nil
-      VStack(alignment: .leading, spacing: 6) {
-        if let pending = choice.args { choiceRow(pending, theme) }
-        if let banner = args.editBanner { editBanner(banner, theme) }
-        if let typo = args.typo { typoBanner(typo, theme) }
-        if !args.attachments.isEmpty || args.uploading { chips(args, theme) }
-        inputRow(args, theme)
+      // The capsule's glass and the composer's are drawn together. As a view
+      // of its own, the capsule's glass moving with the keyboard next to the
+      // composer's started a layout pass that never ended: opening or closing
+      // the keyboard hung the app at full CPU in the Simulator.
+      glassGroup {
+        VStack(alignment: .leading, spacing: CwdCapsuleTuning.gap) {
+          if cwd.args != nil {
+            HStack(spacing: 0) {
+              CwdCapsuleView(store: cwd)
+              // The capsule never takes the whole row: a long name truncates.
+              Spacer(minLength: CwdCapsuleTuning.trailingRoom)
+            }
+            // Leaving (the first message fixed the folder), it steps down a
+            // little as it fades.
+            .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.96)).combined(with: .offset(y: 6))))
+          }
+          composer(args)
+        }
+        .animation(.easeOut(duration: 0.2), value: cwd.args == nil)
       }
-      .padding(.horizontal, 6)
-      .padding(.vertical, 4)
-      // The field is shorter than the pill: without this, taps above or below
-      // the line (or on the padding) did nothing. Buttons keep their own taps.
-      .contentShape(Rectangle())
-      .onTapGesture { store.textView?.becomeFirstResponder() }
-      .glassBackground(
-        RoundedRectangle(cornerRadius: expanded ? 22 : 26, style: .continuous),
-        tint: Color(hex: theme.tint)
-      )
-      .animation(.easeInOut(duration: 0.2), value: expanded)
+    }
+  }
+
+  private func composer(_ args: ComposerArgs) -> some View {
+    let theme = args.theme
+    let expanded =
+      store.multiline || args.editBanner != nil || args.typo != nil || !args.attachments.isEmpty || args.uploading || choice.args != nil
+    return VStack(alignment: .leading, spacing: 6) {
+      if let pending = choice.args { choiceRow(pending, theme) }
+      if let banner = args.editBanner { editBanner(banner, theme) }
+      if let typo = args.typo { typoBanner(typo, theme) }
+      if !args.attachments.isEmpty || args.uploading { chips(args, theme) }
+      inputRow(args, theme)
+    }
+    .padding(.horizontal, 6)
+    .padding(.vertical, 4)
+    // The field is shorter than the pill: without this, taps above or below
+    // the line (or on the padding) did nothing. Buttons keep their own taps.
+    .contentShape(Rectangle())
+    .onTapGesture { store.textView?.becomeFirstResponder() }
+    .glassBackground(
+      RoundedRectangle(cornerRadius: expanded ? 22 : 26, style: .continuous),
+      tint: Color(hex: theme.tint)
+    )
+    .animation(.easeInOut(duration: 0.2), value: expanded)
+  }
+
+  /// One glass container for the capsule and the composer on iOS 26, with no
+  /// blending between them.
+  @ViewBuilder
+  private func glassGroup<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    if #available(iOS 26, *) {
+      GlassEffectContainer(spacing: 0) { content() }
+    } else {
+      content()
     }
   }
 
