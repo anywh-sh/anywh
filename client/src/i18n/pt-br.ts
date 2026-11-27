@@ -42,6 +42,23 @@ export const ptBr: Dictionary = {
       showAll: "Mostrar tudo",
       showLess: "Mostrar menos",
     },
+    media: {
+      open: "Abrir {name}",
+      video: "Vídeo",
+      unavailable: "Não está mais disponível",
+      viewer: {
+        title: "Visualizador de mídia",
+        counter: "{current} de {total}",
+        previous: "Anterior",
+        next: "Próxima",
+        actualSize: "Tamanho real",
+        fitToScreen: "Ajustar à tela",
+        copyPath: "Copiar caminho",
+        pathCopied: "Caminho copiado",
+        failed: "Não foi possível carregar este arquivo. Ele pode ter sido movido ou apagado.",
+        downloadFailed: "Não foi possível baixar o arquivo.",
+      },
+    },
     toolCall: {
       attributionEstimatedHint: "Estimado — dividido proporcionalmente entre chamadas de ferramenta que rodaram em paralelo",
     },

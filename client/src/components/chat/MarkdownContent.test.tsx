@@ -2,6 +2,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MarkdownContent } from "./MarkdownContent";
+import { ChatMediaProvider } from "@/components/chat/media/ChatMediaProvider";
+import type { ChatMediaSource } from "@/lib/media/relayMediaSource";
+
+/** Stands in for the relay's `/files/media`: hands out a URL per path and
+ * records which paths were asked for. */
+function recordingSource(): ChatMediaSource & { asked: string[] } {
+  const asked: string[] = [];
+  return {
+    asked,
+    url: (path) => {
+      asked.push(path);
+      return `http://relay.test/files/media?path=${encodeURIComponent(path)}`;
+    },
+    load: () => new Promise<string>(() => {}),
+  };
+}
 
 const openUrl = vi.fn();
 vi.mock("@tauri-apps/plugin-opener", () => ({
@@ -76,6 +92,24 @@ describe("MarkdownContent", () => {
     const link = screen.getByRole("link", { name: "https://example.com" });
     await userEvent.click(link);
     expect(openUrl).toHaveBeenCalledWith("https://example.com");
+  });
+
+  it("asks the relay for the path a file:// image names, and for a path with spaces written in angle brackets", () => {
+    const source = recordingSource();
+    render(
+      <ChatMediaProvider source={source}>
+        <MarkdownContent text={"![a](file:///tmp/a%20b.png)\n![c](</Users/me/My Shots/c.png>)"} />
+      </ChatMediaProvider>,
+    );
+    expect(source.asked).toContain("/tmp/a b.png");
+    expect(source.asked).toContain("/Users/me/My Shots/c.png");
+    expect(screen.getByRole("img", { name: "c" })).toHaveAttribute("src", "http://relay.test/files/media?path=%2FUsers%2Fme%2FMy%20Shots%2Fc.png");
+  });
+
+  it("without a conversation around it (the file panel's preview) an image is its caption, never an <img> of the path", () => {
+    const { container } = render(<MarkdownContent text="![Architecture](docs/arch.png)" />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("Architecture")).toBeInTheDocument();
   });
 
   it("renders a table inside a scroll wrapper so one long cell scrolls instead of clipping columns", () => {

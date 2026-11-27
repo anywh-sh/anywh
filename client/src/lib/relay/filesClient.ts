@@ -125,6 +125,30 @@ export async function fetchRawFile(profile: Profile, sessionId: string, path: st
   return response.blob();
 }
 
+function chatMediaPath(sessionId: string, path: string): string {
+  return `/files/media?${new URLSearchParams({ session: sessionId, path }).toString()}`;
+}
+
+/** Where an `<img>`/`<video>` loads an image or video the chat shows inline
+ * (`/files/media`: any path on the relay's machine, media types only, see
+ * relay/src/fs/chatMedia.ts) — for a direct profile only, same reason as
+ * `rawFileUrl`. No cache-busting `v`: unlike the file panel the chat has no
+ * mtime for a path the agent wrote, and the relay revalidates by ETag
+ * instead, so a screenshot taken again under the same name still reloads. */
+export function chatMediaUrl(profile: Profile, sessionId: string, path: string): string {
+  return `http://${profile.host}:${profile.relayPort}${chatMediaPath(sessionId, path)}`;
+}
+
+/** `chatMediaUrl`'s bytes fetched with the connection's own token — what a
+ * tailnet profile needs, and what a download reads with progress. Rejects on
+ * a non-2xx answer, so a missing file is an error, not an empty body. */
+export async function fetchChatMedia(profile: Profile, sessionId: string, path: string, signal?: AbortSignal): Promise<Response> {
+  const { base, token } = await resolveBase(profile);
+  const response = await fetch(`${base}${chatMediaPath(sessionId, path)}`, { headers: authHeaders(token), signal });
+  if (!response.ok) throw new Error(`HTTP ${String(response.status)}`);
+  return response;
+}
+
 /** `dir` omitted creates at the session's root — today the only caller
  * (`FileTree`'s panel-level "new file" context menu) never creates inside a
  * specific folder. */

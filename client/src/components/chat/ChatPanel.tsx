@@ -26,6 +26,7 @@ import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundAc
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
 import { buildWireMessage } from "@/lib/composer/wireMessage";
 import { MessageLog, type MessageLogHandle } from "@/components/chat/MessageLog";
+import { ChatMediaProvider, useRelayChatMedia } from "@/components/chat/media/ChatMediaProvider";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
 import { ChatIdleState } from "@/components/chat/ChatIdleState";
 import { Composer } from "@/components/chat/Composer";
@@ -322,6 +323,7 @@ export function ChatPanel({
   const [resyncing, setResyncing] = useState(false);
 
   const images = useImageUpload(profile, (message) => window.alert(message));
+  const chatMedia = useRelayChatMedia(profile, sessionId);
   // Either composer answers to the same handle; only the native one can close
   // the keyboard on its own (`blurIfFocused`).
   const composerRef = useRef<NativeComposerHandle>(null);
@@ -1110,6 +1112,7 @@ export function ChatPanel({
         // already been `false` for a long time.
         <ChatIdleState selector={canChooseType ? <SessionTypeSelector value={sessionType} onChange={setSessionType} /> : undefined} />
       ) : hydrated ? (
+        <ChatMediaProvider source={chatMedia.source} onDownload={chatMedia.onDownload}>
         <MessageLog
           ref={messageLogRef}
           entries={log.entries}
@@ -1143,6 +1146,7 @@ export function ChatPanel({
           trailing={logTrailing}
           reconnect={reconnect}
         />
+        </ChatMediaProvider>
       ) : (
         <MessageLogSkeleton />
       )}

@@ -1,5 +1,5 @@
 import { memo, useEffect, useReducer, useRef, useState } from "react";
-import { Check, Copy, FileText, Pencil, Video } from "lucide-react";
+import { Check, Copy, FileText, Pencil } from "lucide-react";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { useLongPress } from "@/hooks/useLongPress";
 import { isIOS } from "@/lib/platform/platform";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { CollapsibleText } from "@/components/chat/CollapsibleText";
+import { MediaTile } from "@/components/chat/media/MediaTile";
 
 interface UserBubbleProps {
   id: string;
@@ -136,6 +137,7 @@ export const UserBubble = memo(function UserBubble({
   return (
     <div className="group flex flex-col items-end">
       <div
+        data-media-scope=""
         className={cn(
           // Square and bordered, like every other surface in this design —
           // the rounded pill it used to be was the one bubble shape left
@@ -182,20 +184,15 @@ export const UserBubble = memo(function UserBubble({
                       <span className="max-w-60 truncate">{attachmentName(image, dict.chat.composer.unnamedAttachment)}</span>
                     </span>
                   ) : (
-                    <div key={image.path} className="relative">
-                      {image.previewUrl ? (
-                        <img src={image.previewUrl} alt="" className="max-h-48 max-w-full object-cover" />
-                      ) : (
-                        <div className="flex size-24 items-center justify-center bg-border text-muted-foreground">
-                          <Video className="size-6" />
-                        </div>
-                      )}
-                      {image.kind === "video" && (
-                        <div className="pointer-events-none absolute bottom-1 left-1 flex size-5 items-center justify-center rounded-full bg-media-scrim text-media-scrim-foreground">
-                          <Video className="size-3" />
-                        </div>
-                      )}
-                    </div>
+                    // The sender's own preview right after sending; from
+                    // history (or another device) the relay's copy, a
+                    // video's first extracted frame standing in for it.
+                    <MediaTile
+                      key={image.path}
+                      item={{ path: image.path, kind: image.kind, poster: image.frames?.[0] }}
+                      layout="grid"
+                      previewSrc={image.previewUrl}
+                    />
                   ),
                 )}
               </div>
@@ -307,7 +304,7 @@ export const AssistantText = memo(function AssistantText({ text, streaming, onCo
   });
 
   return (
-    <div className="flex flex-col items-start" {...(isIOS() && !streaming ? longPress : undefined)}>
+    <div data-media-scope="" className="flex flex-col items-start" {...(isIOS() && !streaming ? longPress : undefined)}>
       <div className="prose-chat min-w-0 max-w-full text-sm text-foreground">
         <MarkdownContent text={stripPlanChoiceMarkers(text)} onOpenPath={onOpenPath} />
       </div>
