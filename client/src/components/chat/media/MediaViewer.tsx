@@ -120,15 +120,15 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
                 </span>
               )}
               {item.kind === "image" && !failed && (
-                <HeaderAction label={zoomed ? copy.fitToScreen : copy.actualSize} pressed={zoomed} onClick={() => setZoomed((value) => !value)}>
+                <HeaderAction label={zoomed ? copy.fitToScreen : copy.actualSize} pressed={zoomed} onClick={() => setZoomed((value) => !value)} onEscape={onClose}>
                   {zoomed ? <ZoomOut className="size-3.5" /> : <ZoomIn className="size-3.5" />}
                 </HeaderAction>
               )}
-              <HeaderAction label={copied ? copy.pathCopied : copy.copyPath} onClick={copyPath}>
+              <HeaderAction label={copied ? copy.pathCopied : copy.copyPath} onClick={copyPath} onEscape={onClose}>
                 {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
               </HeaderAction>
               {onDownload && !failed && (
-                <HeaderAction label={dict.common.download} onClick={() => onDownload(item)}>
+                <HeaderAction label={dict.common.download} onClick={() => onDownload(item)} onEscape={onClose}>
                   <Download className="size-3.5" />
                 </HeaderAction>
               )}
@@ -146,7 +146,7 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
         </DialogHeader>
         <div className="flex min-h-0 flex-1 bg-background">
           {arrows && (
-            <StepButton label={copy.previous} shortcut="←" disabled={current === 0} onClick={() => select(current - 1)}>
+            <StepButton label={copy.previous} shortcut="←" disabled={current === 0} onClick={() => select(current - 1)} onEscape={onClose}>
               <ChevronLeft />
             </StepButton>
           )}
@@ -161,7 +161,7 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
             onFailed={markFailed}
           />
           {arrows && (
-            <StepButton label={copy.next} shortcut="→" disabled={current === items.length - 1} onClick={() => select(current + 1)}>
+            <StepButton label={copy.next} shortcut="→" disabled={current === items.length - 1} onClick={() => select(current + 1)} onEscape={onClose}>
               <ChevronRight />
             </StepButton>
           )}
@@ -172,8 +172,18 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
   );
 }
 
+interface ControlProps {
+  label: string;
+  onClick: () => void;
+  /** Closes the viewer. An open tooltip is the topmost layer, and Radix
+   * hands Escape to that layer alone: without this, the Escape that should
+   * close the viewer only hides the tooltip of the button under the pointer. */
+  onEscape: () => void;
+  children: ReactNode;
+}
+
 /** A control in the header band, named by its tooltip as well as its label. */
-function HeaderAction({ label, pressed, onClick, children }: { label: string; pressed?: boolean; onClick: () => void; children: ReactNode }) {
+function HeaderAction({ label, pressed, onClick, onEscape, children }: ControlProps & { pressed?: boolean }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -181,14 +191,16 @@ function HeaderAction({ label, pressed, onClick, children }: { label: string; pr
           {children}
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side="bottom" onEscapeKeyDown={onEscape}>
+        {label}
+      </TooltipContent>
     </Tooltip>
   );
 }
 
 /** Previous or next, in a gutter of its own beside the stage: never over
  * the picture, so it needs no backing to stay legible on a bright one. */
-function StepButton({ label, shortcut, disabled, onClick, children }: { label: string; shortcut: string; disabled: boolean; onClick: () => void; children: ReactNode }) {
+function StepButton({ label, shortcut, disabled, onClick, onEscape, children }: ControlProps & { shortcut: string; disabled: boolean }) {
   return (
     <div className="flex w-14 shrink-0 items-center justify-center">
       <Tooltip>
@@ -197,7 +209,7 @@ function StepButton({ label, shortcut, disabled, onClick, children }: { label: s
             {children}
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="top">
+        <TooltipContent side="top" onEscapeKeyDown={onEscape}>
           {label}
           <TooltipShortcut>{shortcut}</TooltipShortcut>
         </TooltipContent>

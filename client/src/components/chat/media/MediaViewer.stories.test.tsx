@@ -102,6 +102,15 @@ describe("media viewer stories", () => {
     expect(screen.getByRole("button", { name: "Open the viewer" })).toBeInTheDocument();
   });
 
+  it("Gallery closes on the first Escape even while a tooltip shows", async () => {
+    render(<Gallery />);
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.hover(within(dialog).getByRole("button", { name: copy.copyPath }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(copy.copyPath);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("Wide fits one picture, with nothing to step to", async () => {
     render(<Wide />);
     const dialog = await screen.findByRole("dialog", { name: "Requests per day" });
