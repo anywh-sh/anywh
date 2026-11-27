@@ -35,6 +35,23 @@ describe("useMessageLog", () => {
     expect(stripVolatile(result.current.entries)).toEqual([{ kind: "user", text: "oi", images: [{ id: "img-1" }] }]);
   });
 
+  it("reads a sent message's attachment markers back into its attachments, the typed text alone as its text", () => {
+    const { result } = renderHook(() => useMessageLog());
+    const sent = "how does this look?\n\n[imagem anexada: /tmp/anywh-uploads/a.png]\n[vídeo anexado, 1 frames extraídos em ordem cronológica (arquivo original: /tmp/anywh-uploads/b.mov)]\n[frame 1/1: /tmp/anywh-uploads/b-1.jpg]";
+    act(() => result.current.handleEvent({ type: "user_message", text: sent }));
+
+    expect(stripVolatile(result.current.entries)).toEqual([
+      {
+        kind: "user",
+        text: "how does this look?",
+        images: [
+          { kind: "image", path: "/tmp/anywh-uploads/a.png" },
+          { kind: "video", path: "/tmp/anywh-uploads/b.mov", frames: ["/tmp/anywh-uploads/b-1.jpg"] },
+        ],
+      },
+    ]);
+  });
+
   it("keeps the room card of a user_message on the user entry, and leaves a digest without one a plain entry", () => {
     const room = { kind: "instruction", title: "Fix the build" } as const;
     const { result } = renderHook(() => useMessageLog());
