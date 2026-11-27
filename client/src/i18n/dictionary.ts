@@ -490,8 +490,6 @@ export interface Dictionary {
       /** A tile whose file the relay can no longer serve (deleted, moved). */
       unavailable: string;
       viewer: {
-        /** Title of the viewer, for assistive tech only. */
-        title: string;
         counter: string;
         previous: string;
         next: string;

@@ -47,7 +47,6 @@ export const en: Dictionary = {
       video: "Video",
       unavailable: "No longer available",
       viewer: {
-        title: "Media viewer",
         counter: "{current} of {total}",
         previous: "Previous",
         next: "Next",

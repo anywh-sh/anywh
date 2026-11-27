@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type TouchEvent } from "react";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import { Check, ChevronLeft, ChevronRight, Copy, Download, ImageOff, Play, X, ZoomIn, ZoomOut } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type TouchEvent } from "react";
+import { Check, ChevronLeft, ChevronRight, Copy, Download, ImageOff, Video, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogOverlay, DialogPortal } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDict } from "@/i18n";
 import { mediaFileName, type ChatMediaItem } from "@/lib/media/chatMedia";
 import type { ChatMediaSource } from "@/lib/media/relayMediaSource";
@@ -15,6 +15,9 @@ interface MediaViewerProps {
   items: ChatMediaItem[];
   index: number;
   source: ChatMediaSource;
+  /** Closed, the viewer stays mounted with the last file drawn, so the
+   * dialog has something to fade out. */
+  open: boolean;
   onIndexChange: (index: number) => void;
   onClose: () => void;
   /** Saves the file on this device — absent where the app can't (iOS). */
@@ -25,38 +28,42 @@ interface MediaViewerProps {
 const SWIPE_MIN_PX = 60;
 
 /**
- * The viewer a media tile opens: one image or video at a time over a dark
- * scrim, stepping through every one of the message it came from — arrows,
- * the ← → keys, a swipe on touch, or the strip of thumbnails along the
- * bottom. An image fits the screen and a click shows it at its own pixels
- * (scrollable), which is what reading a simulator capture takes. A video
- * plays with the platform's own controls.
+ * The viewer a media tile opens: a large dialog (`DialogContent
+ * size="large"`) showing one image or video at a time and stepping through
+ * every one of the message it came from — arrows, the ← → keys, a swipe on
+ * touch, or the strip of thumbnails along the bottom. The header band names
+ * the file and holds what to do with it: its own pixels (an image fits the
+ * stage, and a click or the magnifier shows it 1:1, scrollable, which is
+ * what reading a simulator capture takes), copy its path, download it. A
+ * video plays with the platform's own controls.
  *
  * A Radix dialog, so it portals to `<body>` (a fixed box inside a tab would
  * anchor to the tab's `contain`ed wrapper instead of the window) and the iOS
- * native composer hides while it's open (`useWebModalOpen`). On iOS the
- * native top bar stays over the top of the screen, so the toolbar moves to
- * the bottom there.
+ * native composer hides while it's open (`useWebModalOpen`); the large size
+ * keeps the frame clear of the native top bar there.
  */
-export function MediaViewer({ items, index, source, onIndexChange, onClose, onDownload }: MediaViewerProps) {
+export function MediaViewer({ items, index, source, open, onIndexChange, onClose, onDownload }: MediaViewerProps) {
   const dict = useDict();
   const copy = dict.chat.media.viewer;
   const current = Math.min(Math.max(index, 0), items.length - 1);
   const item = items[current];
   const many = items.length > 1;
-  const toolbarAtBottom = isIOS();
+  // On iOS a swipe or the strip turns the page, and the arrows would only
+  // take width from the picture.
+  const arrows = many && !isIOS();
   const [zoomed, setZoomed] = useState(false);
   const [copied, setCopied] = useState(false);
   // The file the stage couldn't load: nothing to zoom into or download.
   const [failedPath, setFailedPath] = useState<string | null>(null);
   const failed = failedPath === item.path;
   const markFailed = useCallback(() => setFailedPath(item.path), [item.path]);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setZoomed(false), [item.path]);
 
-  function go(delta: number): void {
-    const next = current + delta;
-    if (next >= 0 && next < items.length) onIndexChange(next);
+  function select(next: number): void {
+    if (next < 0 || next >= items.length || next === current) return;
+    onIndexChange(next);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
@@ -64,10 +71,10 @@ export function MediaViewer({ items, index, source, onIndexChange, onClose, onDo
     if (event.target instanceof HTMLVideoElement) return;
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      go(-1);
+      select(current - 1);
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      go(1);
+      select(current + 1);
     }
   }
 
@@ -81,107 +88,115 @@ export function MediaViewer({ items, index, source, onIndexChange, onClose, onDo
     );
   }
 
-  const caption = item.alt?.trim() || mediaFileName(item.path);
-  const toolbar = (
-    <div
-      className={cn(
-        "box-content flex h-12 shrink-0 items-center gap-0.5 px-2",
-        toolbarAtBottom ? "pb-[env(safe-area-inset-bottom)]" : "pt-[env(safe-area-inset-top)]",
-      )}
-    >
-      {many && (
-        <span className="shrink-0 px-2 font-mono text-[11px] text-media-scrim-foreground/75 tabular-nums">
-          {copy.counter.replace("{current}", String(current + 1)).replace("{total}", String(items.length))}
-        </span>
-      )}
-      <span className="min-w-0 flex-1 truncate px-2 font-mono text-[11.5px] text-media-scrim-foreground" title={item.path}>
-        {caption}
-      </span>
-      {item.kind === "image" && !failed && (
-        <Button
-          variant="scrim"
-          size="icon-sm"
-          aria-pressed={zoomed}
-          aria-label={zoomed ? copy.fitToScreen : copy.actualSize}
-          onClick={() => setZoomed((value) => !value)}
-        >
-          {zoomed ? <ZoomOut /> : <ZoomIn />}
-        </Button>
-      )}
-      <Button variant="scrim" size="icon-sm" aria-label={copied ? copy.pathCopied : copy.copyPath} onClick={copyPath}>
-        {copied ? <Check /> : <Copy />}
-      </Button>
-      {onDownload && !failed && (
-        <Button variant="scrim" size="icon-sm" aria-label={dict.common.download} onClick={() => onDownload(item)}>
-          <Download />
-        </Button>
-      )}
-      <DialogPrimitive.Close asChild>
-        <Button variant="scrim" size="icon-sm" aria-label={dict.common.close}>
-          <X />
-        </Button>
-      </DialogPrimitive.Close>
-    </div>
-  );
+  const name = mediaFileName(item.path);
+  const caption = item.alt?.trim() || name;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogPortal>
-        {/* Blurred as well as darkened: the scrim alone leaves the
-         * conversation behind legible enough to compete with the picture. */}
-        <DialogOverlay className="bg-media-scrim backdrop-blur-md" />
-        <DialogPrimitive.Content
-          aria-describedby={undefined}
-          onKeyDown={onKeyDown}
-          className="fixed inset-0 z-50 flex flex-col bg-media-scrim outline-none select-none"
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        ref={contentRef}
+        size="large"
+        aria-describedby={undefined}
+        // The frame itself takes focus, not its first button: ← → work at
+        // once, and no tooltip pops up over the picture as it opens.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          contentRef.current?.focus();
+        }}
+        onKeyDown={onKeyDown}
+        className="select-none"
+      >
+        <DialogHeader
+          actions={
+            <>
+              {many && (
+                <span className="px-1.5 font-mono text-[11px] text-text-faint tabular-nums">
+                  {copy.counter.replace("{current}", String(current + 1)).replace("{total}", String(items.length))}
+                </span>
+              )}
+              {item.kind === "image" && !failed && (
+                <HeaderAction label={zoomed ? copy.fitToScreen : copy.actualSize} pressed={zoomed} onClick={() => setZoomed((value) => !value)}>
+                  {zoomed ? <ZoomOut className="size-3.5" /> : <ZoomIn className="size-3.5" />}
+                </HeaderAction>
+              )}
+              <HeaderAction label={copied ? copy.pathCopied : copy.copyPath} onClick={copyPath}>
+                {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              </HeaderAction>
+              {onDownload && !failed && (
+                <HeaderAction label={dict.common.download} onClick={() => onDownload(item)}>
+                  <Download className="size-3.5" />
+                </HeaderAction>
+              )}
+            </>
+          }
         >
-          <DialogPrimitive.Title className="sr-only">{copy.title}</DialogPrimitive.Title>
-          {!toolbarAtBottom && toolbar}
-          <div className={cn("relative flex min-h-0 flex-1", toolbarAtBottom && "pt-[var(--native-top-inset,calc(env(safe-area-inset-top)+64px))]")}>
-            <MediaStage
-              key={item.path}
-              item={item}
-              source={source}
-              zoomed={zoomed}
-              onToggleZoom={() => setZoomed((value) => !value)}
-              onBackdrop={onClose}
-              onSwipe={go}
-              onFailed={markFailed}
-            />
-            {/* Filled, unlike the toolbar's: they sit over the picture itself,
-             * where a bare glyph vanishes on a light image. Not on iOS, where
-             * a swipe or the strip turns the page and the arrows would only
-             * cover its edges. */}
-            {many && !toolbarAtBottom && (
-              <>
-                <Button
-                  variant="scrim"
-                  size="icon"
-                  className="absolute top-1/2 left-2 -translate-y-1/2 bg-media-scrim"
-                  disabled={current === 0}
-                  aria-label={copy.previous}
-                  onClick={() => go(-1)}
-                >
-                  <ChevronLeft />
-                </Button>
-                <Button
-                  variant="scrim"
-                  size="icon"
-                  className="absolute top-1/2 right-2 -translate-y-1/2 bg-media-scrim"
-                  disabled={current === items.length - 1}
-                  aria-label={copy.next}
-                  onClick={() => go(1)}
-                >
-                  <ChevronRight />
-                </Button>
-              </>
+          <div className="flex min-w-0 items-baseline gap-2.5">
+            <DialogTitle className="min-w-0">{caption}</DialogTitle>
+            {caption !== name && (
+              <span className="hidden min-w-0 shrink-[2] truncate font-mono text-[11px] text-text-faint sm:block" title={item.path}>
+                {name}
+              </span>
             )}
           </div>
-          {many && <Filmstrip items={items} current={current} source={source} onSelect={onIndexChange} />}
-          {toolbarAtBottom && toolbar}
-        </DialogPrimitive.Content>
-      </DialogPortal>
+        </DialogHeader>
+        <div className="flex min-h-0 flex-1 bg-background">
+          {arrows && (
+            <StepButton label={copy.previous} shortcut="←" disabled={current === 0} onClick={() => select(current - 1)}>
+              <ChevronLeft />
+            </StepButton>
+          )}
+          <MediaStage
+            key={item.path}
+            item={item}
+            source={source}
+            zoomed={zoomed}
+            onToggleZoom={() => setZoomed((value) => !value)}
+            onSwipe={(delta) => select(current + delta)}
+            onFailed={markFailed}
+          />
+          {arrows && (
+            <StepButton label={copy.next} shortcut="→" disabled={current === items.length - 1} onClick={() => select(current + 1)}>
+              <ChevronRight />
+            </StepButton>
+          )}
+        </div>
+        {many && <Filmstrip items={items} current={current} source={source} onSelect={select} />}
+      </DialogContent>
     </Dialog>
+  );
+}
+
+/** A control in the header band, named by its tooltip as well as its label. */
+function HeaderAction({ label, pressed, onClick, children }: { label: string; pressed?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label={label} aria-pressed={pressed} onClick={onClick}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Previous or next, in a gutter of its own beside the stage: never over
+ * the picture, so it needs no backing to stay legible on a bright one. */
+function StepButton({ label, shortcut, disabled, onClick, children }: { label: string; shortcut: string; disabled: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <div className="flex w-14 shrink-0 items-center justify-center">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="outline" size="icon" aria-label={label} disabled={disabled} onClick={onClick}>
+            {children}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          {label}
+          <TooltipShortcut>{shortcut}</TooltipShortcut>
+        </TooltipContent>
+      </Tooltip>
+    </div>
   );
 }
 
@@ -190,15 +205,15 @@ interface MediaStageProps {
   source: ChatMediaSource;
   zoomed: boolean;
   onToggleZoom: () => void;
-  onBackdrop: () => void;
   onSwipe: (delta: number) => void;
   onFailed: () => void;
 }
 
 /** The current file, fitted or at its own size. Keyed by path at the call
  * site, so moving to another file starts from a clean load state. */
-function MediaStage({ item, source, zoomed, onToggleZoom, onBackdrop, onSwipe, onFailed }: MediaStageProps) {
-  const copy = useDict().chat.media.viewer;
+function MediaStage({ item, source, zoomed, onToggleZoom, onSwipe, onFailed }: MediaStageProps) {
+  const dict = useDict();
+  const copy = dict.chat.media.viewer;
   const media = useMediaSrc(source, item.path);
   const poster = useMediaSrc(source, item.kind === "video" ? item.poster : undefined);
   const [failed, setFailed] = useState(false);
@@ -208,11 +223,6 @@ function MediaStage({ item, source, zoomed, onToggleZoom, onBackdrop, onSwipe, o
   useEffect(() => {
     if (gone) onFailed();
   }, [gone, onFailed]);
-
-  // Only the empty stage around the picture closes, never the picture.
-  function onClick(event: MouseEvent<HTMLDivElement>): void {
-    if (event.target === event.currentTarget) onBackdrop();
-  }
 
   function onTouchStart(event: TouchEvent<HTMLDivElement>): void {
     const touch = event.touches[0];
@@ -233,13 +243,13 @@ function MediaStage({ item, source, zoomed, onToggleZoom, onBackdrop, onSwipe, o
   if (gone) {
     content = (
       <div className="m-auto flex max-w-md flex-col items-center gap-2 px-6 text-center">
-        <ImageOff className="size-8 text-media-scrim-foreground/60" />
-        <p className="text-sm text-media-scrim-foreground">{copy.failed}</p>
-        <p className="font-mono text-[11px] break-all text-media-scrim-foreground/60 select-text">{item.path}</p>
+        <ImageOff className="size-8 text-text-faint" />
+        <p className="text-sm text-muted-foreground">{copy.failed}</p>
+        <p className="font-mono text-[11px] break-all text-text-faint select-text">{item.path}</p>
       </div>
     );
   } else if (!media.src) {
-    content = <Spinner size="lg" tone="current" className="m-auto text-media-scrim-foreground" label={copy.title} />;
+    content = <Spinner size="lg" className="m-auto" label={dict.common.loading} />;
   } else if (item.kind === "video") {
     content = (
       <video
@@ -248,7 +258,7 @@ function MediaStage({ item, source, zoomed, onToggleZoom, onBackdrop, onSwipe, o
         controls
         autoPlay
         playsInline
-        className="m-auto max-h-full max-w-full"
+        className="m-auto max-h-full max-w-full border border-border"
         onError={() => setFailed(true)}
       />
     );
@@ -258,7 +268,9 @@ function MediaStage({ item, source, zoomed, onToggleZoom, onBackdrop, onSwipe, o
         src={media.src}
         alt={item.alt ?? ""}
         draggable={false}
-        className={zoomed ? "m-auto max-w-none cursor-zoom-out" : "m-auto max-h-full max-w-full cursor-zoom-in object-contain"}
+        // The tiles' hairline: on a light theme a light capture would
+        // otherwise have no edge against the stage.
+        className={cn("m-auto border border-border", zoomed ? "max-w-none cursor-zoom-out" : "max-h-full max-w-full cursor-zoom-in object-contain")}
         onClick={onToggleZoom}
         onError={() => setFailed(true)}
       />
@@ -268,7 +280,6 @@ function MediaStage({ item, source, zoomed, onToggleZoom, onBackdrop, onSwipe, o
   return (
     <div
       className={cn("flex min-h-0 min-w-0 flex-1 p-4", zoomed ? "overflow-auto" : "overflow-hidden")}
-      onClick={onClick}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
@@ -288,7 +299,7 @@ function Filmstrip({ items, current, source, onSelect }: { items: ChatMediaItem[
   }, [current]);
 
   return (
-    <div className="flex shrink-0 justify-center-safe gap-1.5 overflow-x-auto px-3 py-2">
+    <div className="flex shrink-0 justify-center-safe gap-1.5 overflow-x-auto border-t border-border bg-bg-chrome px-3 py-2.5">
       {items.map((item, index) => (
         <Button
           key={item.path}
@@ -297,7 +308,6 @@ function Filmstrip({ items, current, source, onSelect }: { items: ChatMediaItem[
           size="media"
           aria-pressed={index === current}
           aria-label={copy.open.replace("{name}", mediaFileName(item.path))}
-          className="relative h-12 border-media-scrim-foreground/20 bg-media-scrim opacity-60 transition-opacity hover:opacity-100 aria-pressed:border-media-scrim-foreground aria-pressed:opacity-100"
           onClick={() => onSelect(index)}
         >
           <FilmstripPicture item={item} source={source} />
@@ -313,8 +323,14 @@ function FilmstripPicture({ item, source }: { item: ChatMediaItem; source: ChatM
   if (picture.src && !failed) {
     return (
       <>
-        <img src={picture.src} alt="" draggable={false} className="block h-full w-auto" onError={() => setFailed(true)} />
-        {item.kind === "video" && <Play className="pointer-events-none absolute inset-0 m-auto size-3.5 fill-current text-media-scrim-foreground" />}
+        <img src={picture.src} alt="" draggable={false} className="block h-12 w-auto" onError={() => setFailed(true)} />
+        {item.kind === "video" && (
+          // The composer's badge for an attached video, in the corner: a
+          // phone capture's thumbnail is barely wider than a centred one.
+          <span className="pointer-events-none absolute bottom-0 left-0 flex size-4 items-center justify-center bg-media-scrim text-media-scrim-foreground">
+            <Video className="size-2.5" />
+          </span>
+        )}
       </>
     );
   }
@@ -322,8 +338,8 @@ function FilmstripPicture({ item, source }: { item: ChatMediaItem; source: ChatM
   // either still on its way or gone.
   const gone = failed || picture.failed;
   return (
-    <span className="flex h-full w-9 items-center justify-center text-media-scrim-foreground/60">
-      {item.kind === "video" && !item.poster ? <Play className="size-3.5" /> : gone ? <ImageOff className="size-3.5" /> : <Spinner size="xs" tone="current" />}
+    <span className="flex h-12 w-9 items-center justify-center text-text-faint">
+      {item.kind === "video" && !item.poster ? <Video className="size-3.5" /> : gone ? <ImageOff className="size-3.5" /> : <Spinner size="xs" />}
     </span>
   );
 }

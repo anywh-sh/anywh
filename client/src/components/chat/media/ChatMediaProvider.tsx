@@ -14,24 +14,38 @@ interface ChatMediaProviderProps {
   children: ReactNode;
 }
 
+interface ViewerState {
+  items: ChatMediaItem[];
+  index: number;
+  open: boolean;
+  /** Counts the openings: each one is a fresh viewer (no zoom or copied
+   * check carried over), while a close keeps the same one to fade out. */
+  opening: number;
+}
+
 /** Gives the tiles of a conversation their bytes and the one viewer they
  * open. One per chat panel: the viewer belongs to the conversation, not to
  * whichever message happened to open it, so it survives that message
  * scrolling out of the virtualized log. */
 export function ChatMediaProvider({ source, onDownload, disabled = false, children }: ChatMediaProviderProps) {
-  const [viewer, setViewer] = useState<{ items: ChatMediaItem[]; index: number } | null>(null);
-  const handle = useMemo<ChatMediaHandle>(() => ({ source, open: (items, index) => setViewer({ items, index }) }), [source]);
+  const [viewer, setViewer] = useState<ViewerState | null>(null);
+  const handle = useMemo<ChatMediaHandle>(
+    () => ({ source, open: (items, index) => setViewer((last) => ({ items, index, open: true, opening: (last?.opening ?? 0) + 1 })) }),
+    [source],
+  );
 
   return (
     <ChatMediaContext.Provider value={disabled ? null : handle}>
       {children}
       {viewer && (
         <MediaViewer
+          key={viewer.opening}
           items={viewer.items}
           index={viewer.index}
           source={source}
-          onIndexChange={(index) => setViewer((open) => (open ? { ...open, index } : open))}
-          onClose={() => setViewer(null)}
+          open={viewer.open}
+          onIndexChange={(index) => setViewer((last) => (last ? { ...last, index } : last))}
+          onClose={() => setViewer((last) => (last ? { ...last, open: false } : last))}
           onDownload={onDownload}
         />
       )}

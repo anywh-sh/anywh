@@ -5,6 +5,7 @@ import { AssistantText } from "@/components/chat/Message";
 import { ChatMediaProvider } from "@/components/chat/media/ChatMediaProvider";
 import { MediaTile } from "@/components/chat/media/MediaTile";
 import { SAMPLE_FILES, simulatedMediaSource } from "@/components/chat/media/sampleMedia";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 interface ReplyProps {
   /** The agent's reply, as Markdown. */
@@ -32,6 +33,14 @@ const meta = {
   title: "Chat/Media",
   component: Reply,
   parameters: { layout: "padded" },
+  // The app provides this at its root; the viewer's controls have tooltips.
+  decorators: [
+    (Story) => (
+      <TooltipProvider>
+        <Story />
+      </TooltipProvider>
+    ),
+  ],
 } satisfies Meta<typeof Reply>;
 
 export default meta;

@@ -47,7 +47,6 @@ export const ptBr: Dictionary = {
       video: "Vídeo",
       unavailable: "Não está mais disponível",
       viewer: {
-        title: "Visualizador de mídia",
         counter: "{current} de {total}",
         previous: "Anterior",
         next: "Próxima",
