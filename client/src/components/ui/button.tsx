@@ -69,10 +69,6 @@ const buttonVariants = cva(
         // heavy in the full ink, which the pointer doesn't take away.
         media:
           "overflow-hidden border-border bg-bg-elevated text-muted-foreground hover:border-text-faint aria-pressed:border-foreground aria-pressed:ring-1 aria-pressed:ring-foreground",
-        // A control laid over media (the viewer's toolbar and arrows): light
-        // ink on the dark scrim whatever the theme, since what is under it is
-        // someone's picture, not an app surface (see `--media-scrim`).
-        scrim: "text-media-scrim-foreground/75 hover:bg-media-scrim hover:text-media-scrim-foreground focus-visible:text-media-scrim-foreground aria-pressed:text-media-scrim-foreground",
       },
       size: {
         default: "h-8 gap-2 px-3.5 text-xs",

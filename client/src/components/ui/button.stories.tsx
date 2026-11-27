@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { VariantProps } from "class-variance-authority";
-import { ArrowRight, ChevronRight, Download, Plus, Trash2, X } from "lucide-react";
+import { ArrowRight, Plus, Trash2, X } from "lucide-react";
 import { Button, type buttonVariants } from "./button";
 import { phoneScreenshot } from "@/components/chat/media/sampleMedia";
 
@@ -21,7 +21,6 @@ const VARIANTS = {
   chrome: true,
   quiet: true,
   media: true,
-  scrim: true,
 } satisfies Record<Variant, true>;
 
 const SIZES = {
@@ -128,22 +127,6 @@ export const Media: Story = {
   ),
 };
 
-/** Controls laid over media, light on the dark scrim in every theme. */
-export const Scrim: Story = {
-  args: { variant: "scrim", size: "icon", "aria-label": "Next", children: <ChevronRight /> },
-  render: (args) => (
-    <div className="flex items-center gap-1 bg-media-scrim p-3">
-      <Button {...args} />
-      <Button variant="scrim" size="icon" aria-label="Download">
-        <Download />
-      </Button>
-      <Button variant="scrim" size="icon" aria-label="Close">
-        <X />
-      </Button>
-    </div>
-  ),
-};
-
 /** A strip of them, as the media viewer lays its thumbnails: the one on
  * show is pressed, framed twice as heavy in the full ink. */
 export const MediaStrip: Story = {
@@ -197,8 +180,7 @@ export const Matrix: Story = {
   render: () => (
     <div className="grid gap-3">
       {variants.map((variant) => (
-        // `scrim` is only ever drawn over media, so its row gets the scrim.
-        <div key={variant} className={variant === "scrim" ? "flex items-center gap-3 bg-media-scrim" : "flex items-center gap-3"}>
+        <div key={variant} className="flex items-center gap-3">
           <span className="w-24 font-mono text-xs text-text-faint">{variant}</span>
           {textSizes.map((size) => (
             <Button key={size} variant={variant} size={size}>
