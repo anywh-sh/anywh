@@ -28,6 +28,7 @@ import { buildWireMessage } from "@/lib/composer/wireMessage";
 import { MessageLog, type MessageLogHandle } from "@/components/chat/MessageLog";
 import { ChatMediaProvider } from "@/components/chat/media/ChatMediaProvider";
 import { useRelayChatMedia } from "@/components/chat/media/useRelayChatMedia";
+import { lacksFeature, useRelayFeatures } from "@/hooks/relay/useRelayFeatures";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
 import { ChatIdleState } from "@/components/chat/ChatIdleState";
 import { Composer } from "@/components/chat/Composer";
@@ -325,6 +326,11 @@ export function ChatPanel({
 
   const images = useImageUpload(profile, (message) => window.alert(message));
   const chatMedia = useRelayChatMedia(profile, sessionId);
+  // A relay from before `/files/media` would answer every tile with a 404,
+  // read as "no longer available": there the log keeps showing an image as
+  // its caption, until the relay is updated (it is asked again meanwhile).
+  const relayFeatures = useRelayFeatures(profile, "chat_media");
+  const chatMediaServed = !lacksFeature(relayFeatures, "chat_media");
   // Either composer answers to the same handle; only the native one can close
   // the keyboard on its own (`blurIfFocused`).
   const composerRef = useRef<NativeComposerHandle>(null);
@@ -1113,7 +1119,7 @@ export function ChatPanel({
         // already been `false` for a long time.
         <ChatIdleState selector={canChooseType ? <SessionTypeSelector value={sessionType} onChange={setSessionType} /> : undefined} />
       ) : hydrated ? (
-        <ChatMediaProvider source={chatMedia.source} onDownload={chatMedia.onDownload}>
+        <ChatMediaProvider source={chatMedia.source} onDownload={chatMedia.onDownload} disabled={!chatMediaServed}>
         <MessageLog
           ref={messageLogRef}
           entries={log.entries}
