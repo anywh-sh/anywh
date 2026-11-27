@@ -189,7 +189,7 @@ export const UserBubble = memo(function UserBubble({
                     // video's first extracted frame standing in for it.
                     <MediaTile
                       key={image.path}
-                      item={{ path: image.path, kind: image.kind, poster: image.frames?.[0] }}
+                      item={{ path: image.path, kind: image.kind, poster: image.frames?.[0], alt: image.name }}
                       layout="grid"
                       previewSrc={image.previewUrl}
                     />

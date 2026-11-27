@@ -17,10 +17,10 @@ export const MediaLayoutContext = createContext<MediaTileLayout>("inline");
 
 /** A tile's height per layout, in px — fixed while the picture is on its way
  * so the message keeps its height, and the cap once it has landed. */
-const HEIGHT: Record<MediaTileLayout, number> = { single: 288, grid: 160, inline: 96 };
+const HEIGHT: Record<MediaTileLayout, number> = { single: 320, grid: 160, inline: 96 };
 
 const PICTURE_CLASS: Record<MediaTileLayout, string> = {
-  single: "max-h-72",
+  single: "max-h-80",
   grid: "h-40",
   inline: "max-h-24",
 };

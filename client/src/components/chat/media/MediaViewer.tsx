@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type TouchEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type TouchEvent } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Check, ChevronLeft, ChevronRight, Copy, Download, ImageOff, Play, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,10 @@ export function MediaViewer({ items, index, source, onIndexChange, onClose, onDo
   const toolbarAtBottom = isIOS();
   const [zoomed, setZoomed] = useState(false);
   const [copied, setCopied] = useState(false);
+  // The file the stage couldn't load: nothing to zoom into or download.
+  const [failedPath, setFailedPath] = useState<string | null>(null);
+  const failed = failedPath === item.path;
+  const markFailed = useCallback(() => setFailedPath(item.path), [item.path]);
 
   useEffect(() => setZoomed(false), [item.path]);
 
@@ -93,7 +97,7 @@ export function MediaViewer({ items, index, source, onIndexChange, onClose, onDo
       <span className="min-w-0 flex-1 truncate px-2 font-mono text-[11.5px] text-media-scrim-foreground" title={item.path}>
         {caption}
       </span>
-      {item.kind === "image" && (
+      {item.kind === "image" && !failed && (
         <Button
           variant="scrim"
           size="icon-sm"
@@ -107,7 +111,7 @@ export function MediaViewer({ items, index, source, onIndexChange, onClose, onDo
       <Button variant="scrim" size="icon-sm" aria-label={copied ? copy.pathCopied : copy.copyPath} onClick={copyPath}>
         {copied ? <Check /> : <Copy />}
       </Button>
-      {onDownload && (
+      {onDownload && !failed && (
         <Button variant="scrim" size="icon-sm" aria-label={dict.common.download} onClick={() => onDownload(item)}>
           <Download />
         </Button>
@@ -123,7 +127,9 @@ export function MediaViewer({ items, index, source, onIndexChange, onClose, onDo
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogPortal>
-        <DialogOverlay className="bg-media-scrim" />
+        {/* Blurred as well as darkened: the scrim alone leaves the
+         * conversation behind legible enough to compete with the picture. */}
+        <DialogOverlay className="bg-media-scrim backdrop-blur-md" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
           onKeyDown={onKeyDown}
@@ -140,13 +146,18 @@ export function MediaViewer({ items, index, source, onIndexChange, onClose, onDo
               onToggleZoom={() => setZoomed((value) => !value)}
               onBackdrop={onClose}
               onSwipe={go}
+              onFailed={markFailed}
             />
-            {many && (
+            {/* Filled, unlike the toolbar's: they sit over the picture itself,
+             * where a bare glyph vanishes on a light image. Not on iOS, where
+             * a swipe or the strip turns the page and the arrows would only
+             * cover its edges. */}
+            {many && !toolbarAtBottom && (
               <>
                 <Button
                   variant="scrim"
                   size="icon"
-                  className="absolute top-1/2 left-2 -translate-y-1/2"
+                  className="absolute top-1/2 left-2 -translate-y-1/2 bg-media-scrim"
                   disabled={current === 0}
                   aria-label={copy.previous}
                   onClick={() => go(-1)}
@@ -156,7 +167,7 @@ export function MediaViewer({ items, index, source, onIndexChange, onClose, onDo
                 <Button
                   variant="scrim"
                   size="icon"
-                  className="absolute top-1/2 right-2 -translate-y-1/2"
+                  className="absolute top-1/2 right-2 -translate-y-1/2 bg-media-scrim"
                   disabled={current === items.length - 1}
                   aria-label={copy.next}
                   onClick={() => go(1)}
@@ -181,16 +192,22 @@ interface MediaStageProps {
   onToggleZoom: () => void;
   onBackdrop: () => void;
   onSwipe: (delta: number) => void;
+  onFailed: () => void;
 }
 
 /** The current file, fitted or at its own size. Keyed by path at the call
  * site, so moving to another file starts from a clean load state. */
-function MediaStage({ item, source, zoomed, onToggleZoom, onBackdrop, onSwipe }: MediaStageProps) {
+function MediaStage({ item, source, zoomed, onToggleZoom, onBackdrop, onSwipe, onFailed }: MediaStageProps) {
   const copy = useDict().chat.media.viewer;
   const media = useMediaSrc(source, item.path);
   const poster = useMediaSrc(source, item.kind === "video" ? item.poster : undefined);
   const [failed, setFailed] = useState(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const gone = failed || media.failed;
+
+  useEffect(() => {
+    if (gone) onFailed();
+  }, [gone, onFailed]);
 
   // Only the empty stage around the picture closes, never the picture.
   function onClick(event: MouseEvent<HTMLDivElement>): void {
@@ -213,7 +230,7 @@ function MediaStage({ item, source, zoomed, onToggleZoom, onBackdrop, onSwipe }:
   }
 
   let content;
-  if (failed || media.failed) {
+  if (gone) {
     content = (
       <div className="m-auto flex max-w-md flex-col items-center gap-2 px-6 text-center">
         <ImageOff className="size-8 text-media-scrim-foreground/60" />
@@ -280,7 +297,7 @@ function Filmstrip({ items, current, source, onSelect }: { items: ChatMediaItem[
           size="media"
           aria-pressed={index === current}
           aria-label={copy.open.replace("{name}", mediaFileName(item.path))}
-          className="relative h-12 border-media-scrim-foreground/20 bg-media-scrim aria-pressed:border-media-scrim-foreground"
+          className="relative h-12 border-media-scrim-foreground/20 bg-media-scrim opacity-60 transition-opacity hover:opacity-100 aria-pressed:border-media-scrim-foreground aria-pressed:opacity-100"
           onClick={() => onSelect(index)}
         >
           <FilmstripPicture item={item} source={source} />
