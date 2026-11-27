@@ -22,8 +22,12 @@
 // open their report with the capture. Haiku still answered in prose with
 // every wording tried.
 //
-// Agent-agnostic on purpose. Claude reads it on every turn (`session.ts`);
-// the other agents have no channel for it yet.
+// Agent-agnostic on purpose; each agent gets it by the channel it has.
+// Claude: appended to the system prompt on every turn (`session.ts`). Codex:
+// a new thread's developer instructions, after the person's own
+// (`codex.ts`). Kimi: a `<system-reminder>` block ahead of a session's first
+// prompt (`kimi.ts`). The last two were measured on their real CLIs the same
+// way: each opened its report with the capture embedded.
 export const CHAT_MEDIA_HINT =
   "Your replies are not read in a terminal: they are rendered as Markdown in an app that also displays " +
   "image and video files from this machine inline, and that is usually the only way the user gets to see " +
