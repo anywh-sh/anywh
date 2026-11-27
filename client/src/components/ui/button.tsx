@@ -64,8 +64,11 @@ const buttonVariants = cva(
         quiet: "text-text-faint hover:text-foreground focus-visible:text-foreground",
         // A picture you open: an image or a video frame in a message, framed
         // by a hairline that firms up under the pointer. The picture is the
-        // content, so the tile clips it and adds no fill of its own.
-        media: "overflow-hidden border-border bg-bg-elevated text-muted-foreground hover:border-text-faint",
+        // content, so the tile clips it and adds no fill of its own. Pressed
+        // is the one on show (the media viewer's strip): a frame twice as
+        // heavy in the full ink, which the pointer doesn't take away.
+        media:
+          "overflow-hidden border-border bg-bg-elevated text-muted-foreground hover:border-text-faint aria-pressed:border-foreground aria-pressed:ring-1 aria-pressed:ring-foreground",
         // A control laid over media (the viewer's toolbar and arrows): light
         // ink on the dark scrim whatever the theme, since what is under it is
         // someone's picture, not an app surface (see `--media-scrim`).

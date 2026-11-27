@@ -144,6 +144,21 @@ export const Scrim: Story = {
   ),
 };
 
+/** A strip of them, as the media viewer lays its thumbnails: the one on
+ * show is pressed, framed twice as heavy in the full ink. */
+export const MediaStrip: Story = {
+  args: { variant: "media", size: "media" },
+  render: (args) => (
+    <div className="flex gap-1.5">
+      {(["Sign in", "Home", "Settings"] as const).map((title, index) => (
+        <Button key={title} {...args} aria-pressed={index === 1} aria-label={`Open ${title}`}>
+          <img src={phoneScreenshot(title, "royalblue")} alt="" className="h-12 w-auto" />
+        </Button>
+      ))}
+    </div>
+  ),
+};
+
 export const Disabled: Story = {
   args: { disabled: true },
 };
