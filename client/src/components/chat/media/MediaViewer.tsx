@@ -38,9 +38,9 @@ const SWIPE_MIN_PX = 60;
  * touch, or the strip of thumbnails along the bottom. The header band names
  * the file and holds what to do with it: its own pixels (an image fits the
  * stage, and a click or the magnifier shows it 1:1, scrollable, which is
- * what reading a simulator capture takes), copy it (the image itself; a
- * video's path, since no webview's clipboard takes a video), download it.
- * A video plays with the platform's own controls.
+ * what reading a simulator capture takes), copy it to the clipboard
+ * (an image only: no webview's clipboard takes a video), download it. A
+ * video plays with the platform's own controls.
  *
  * A Radix dialog, so it portals to `<body>` (a fixed box inside a tab would
  * anchor to the tab's `contain`ed wrapper instead of the window) and the iOS
@@ -89,17 +89,16 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
     }
   }
 
-  // An image goes on the clipboard as itself; a video, or a file that
-  // couldn't be loaded, as its path.
-  const copiesImage = item.kind === "image" && !failed;
+  // An image that loaded: what zooming and copying act on. A video has
+  // nothing to copy (no webview's clipboard takes one), and neither has a
+  // file that couldn't be loaded, whose path the stage already shows.
+  const isPicture = item.kind === "image" && !failed;
 
-  function copyToClipboard(): void {
+  function copyImage(): void {
     const { path } = item;
-    // Both writes start here, inside the click: WebKit only lets a page
-    // write the clipboard during the gesture.
-    const written = copiesImage
-      ? copyImageToClipboard(fetchMediaBlob(source, path))
-      : (navigator.clipboard?.writeText(path) ?? Promise.reject(new Error("no clipboard here")));
+    // Starts here, inside the click: WebKit only lets a page write the
+    // clipboard during the gesture.
+    const written = copyImageToClipboard(fetchMediaBlob(source, path));
     const settle = (outcome: "copied" | "failed"): void => {
       setCopyResult({ path, outcome });
       window.clearTimeout(copyResultTimer.current);
@@ -115,17 +114,7 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
   }
 
   const copyOutcome = copyResult?.path === item.path ? copyResult.outcome : null;
-  const copyLabel = copiesImage
-    ? copyOutcome === "copied"
-      ? copy.imageCopied
-      : copyOutcome === "failed"
-        ? copy.copyImageFailed
-        : copy.copyImage
-    : copyOutcome === "copied"
-      ? copy.pathCopied
-      : copyOutcome === "failed"
-        ? copy.copyPathFailed
-        : copy.copyPath;
+  const copyLabel = copyOutcome === "copied" ? copy.imageCopied : copyOutcome === "failed" ? copy.copyImageFailed : copy.copyImage;
 
   const name = mediaFileName(item.path);
   const caption = item.alt?.trim() || name;
@@ -153,20 +142,22 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
                   {copy.counter.replace("{current}", String(current + 1)).replace("{total}", String(items.length))}
                 </span>
               )}
-              {item.kind === "image" && !failed && (
+              {isPicture && (
                 <HeaderAction label={zoomed ? copy.fitToScreen : copy.actualSize} pressed={zoomed} onClick={() => setZoomed((value) => !value)} onEscape={onClose}>
                   {zoomed ? <ZoomOut className="size-3.5" /> : <ZoomIn className="size-3.5" />}
                 </HeaderAction>
               )}
-              <HeaderAction label={copyLabel} onClick={copyToClipboard} onEscape={onClose}>
-                {copyOutcome === "copied" ? (
-                  <Check className="size-3.5" />
-                ) : copyOutcome === "failed" ? (
-                  <TriangleAlert className="size-3.5" />
-                ) : (
-                  <Copy className="size-3.5" />
-                )}
-              </HeaderAction>
+              {isPicture && (
+                <HeaderAction label={copyLabel} onClick={copyImage} onEscape={onClose}>
+                  {copyOutcome === "copied" ? (
+                    <Check className="size-3.5" />
+                  ) : copyOutcome === "failed" ? (
+                    <TriangleAlert className="size-3.5" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                </HeaderAction>
+              )}
               {onDownload && !failed && (
                 <HeaderAction label={dict.common.download} onClick={() => onDownload(item)} onEscape={onClose}>
                   <Download className="size-3.5" />

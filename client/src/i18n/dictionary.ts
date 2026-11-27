@@ -496,15 +496,11 @@ export interface Dictionary {
         /** Toggles between fitting the screen and the image's own pixels. */
         actualSize: string;
         fitToScreen: string;
-        /** Puts the image itself on the clipboard, as a PNG. */
+        /** Puts the image itself on the clipboard, as a PNG. A video has no
+         * copy: no webview's clipboard takes one. */
         copyImage: string;
         imageCopied: string;
         copyImageFailed: string;
-        /** A video's path, or a file that couldn't be loaded: no webview's
-         * clipboard takes a video. */
-        copyPath: string;
-        pathCopied: string;
-        copyPathFailed: string;
         failed: string;
         downloadFailed: string;
       };

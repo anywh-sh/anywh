@@ -79,14 +79,14 @@ describe("media viewer stories", () => {
     expect(await within(dialog).findByRole("button", { name: copy.copyImageFailed })).toBeInTheDocument();
   });
 
-  it("Gallery copies a video's path, since no webview's clipboard takes a video", async () => {
-    const user = userEvent.setup();
-    render(<Gallery />);
+  it("a video offers no copy, since no webview's clipboard takes one: only the download", async () => {
+    // Still loading, so neither played nor failed.
+    render(<Loading items={[{ path: "/tmp/sim/checkout.mov", kind: "video", poster: "/tmp/sim/checkout-frame.jpg" }]} />);
     const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: en.chat.media.open.replace("{name}", "checkout.mov") }));
-    await user.click(within(dialog).getByRole("button", { name: copy.copyPath }));
-    expect(await within(dialog).findByRole("button", { name: copy.pathCopied })).toBeInTheDocument();
-    expect(await navigator.clipboard.readText()).toBe("/tmp/sim/checkout.mov");
+    const names = within(header(dialog))
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+    expect(names).toEqual([en.common.download, en.common.close]);
   });
 
   it("Gallery steps with the arrows and the ← → keys, stopping at the ends", async () => {
@@ -147,15 +147,17 @@ describe("media viewer stories", () => {
     expect(strip(dialog)).toEqual([]);
   });
 
-  it("Failed says the file couldn't be loaded, and which one, with nothing to zoom or download", async () => {
+  it("Failed says the file couldn't be loaded, and which one, with nothing to zoom, copy or download", async () => {
     render(<Failed />);
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText(copy.failed)).toBeInTheDocument();
     expect(within(dialog).getByText("/tmp/sim/gone.png")).toBeInTheDocument();
     // The header learns it from the stage a render later.
     await waitFor(() => expect(within(dialog).queryByRole("button", { name: copy.actualSize })).not.toBeInTheDocument());
-    expect(within(dialog).queryByRole("button", { name: en.common.download })).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: copy.copyPath })).toBeInTheDocument();
+    const names = within(header(dialog))
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+    expect(names).toEqual([en.common.close]);
   });
 
   it("Loading shows progress until the file arrives", async () => {
