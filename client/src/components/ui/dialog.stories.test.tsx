@@ -1,5 +1,5 @@
 import { composeStories } from "@storybook/react-vite";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import * as stories from "./dialog.stories";
@@ -15,6 +15,18 @@ describe("Dialog stories", () => {
       expect(await screen.findByRole("dialog")).toHaveAttribute("data-size", size);
       act(() => cleanup());
     }
+  });
+
+  it("Large plays its entrance only once it has been painted, and Default never waits", async () => {
+    render(<Large />);
+    const large = await screen.findByRole("dialog");
+    await waitFor(() => expect(large).toHaveAttribute("data-entered"));
+    act(() => cleanup());
+
+    render(<Default />);
+    const small = await screen.findByRole("dialog");
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(small).not.toHaveAttribute("data-entered");
   });
 
   it("Default is a form: the title names the dialog, and Escape closes it", async () => {

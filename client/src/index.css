@@ -592,25 +592,31 @@ body {
 }
 
 /* The large dialog (`DialogContent size="large"`, the media viewer): a frame
- * over almost the whole window grows into place from a little smaller as it
- * fades in, over a backdrop that fades alone, and leaves with the fade only,
- * shorter — the palette's fades above, with the panel durations of the
- * motion budget. A scale rather than a drop: the frame is centred, not hung
- * from the top like the palette. `transform` and `opacity` only, so nothing
- * is laid out for it; Radix's `Presence` holds it mounted until the `closed`
- * animation ends. Reduced motion is covered by the blanket rule above. */
+ * over almost the whole window grows into place from 95% as it fades in,
+ * over a backdrop that fades alone, and leaves with the fade only, shorter.
+ * A scale rather than the palette's drop: the frame is centred, not hung
+ * from the top. Both wait, transparent, for `data-entered`, set once the
+ * frame has been painted (dialog.tsx says why), so the whole entrance is
+ * seen. `ease-out` rather than `--motion-ease` for the way in: that curve
+ * is most of the way there in the first few frames, and a frame this size
+ * then reads as popping in, as it did; `ease-out` spreads the same change
+ * over the duration. `transform` and `opacity` only, so nothing is laid out
+ * for it; Radix's `Presence` holds it mounted until the `closed` animation
+ * ends. Reduced motion is covered by the blanket rule above. */
 @keyframes dialog-grow-in {
   from {
     opacity: 0;
-    transform: scale(0.97);
+    transform: scale(0.95);
   }
 }
 [data-slot="dialog-content"][data-size="large"] {
-  &[data-state="open"] { animation: dialog-grow-in var(--motion-medium) var(--motion-ease) both; }
+  &[data-state="open"]:not([data-entered]) { opacity: 0; }
+  &[data-state="open"][data-entered] { animation: dialog-grow-in var(--motion-medium) ease-out both; }
   &[data-state="closed"] { animation: search-out var(--motion-fast) linear both; }
 }
 [data-slot="dialog-overlay"]:has(+ [data-slot="dialog-content"][data-size="large"]) {
-  &[data-state="open"] { animation: search-fade-in var(--motion-medium) ease both; }
+  &[data-state="open"]:has(+ :not([data-entered])) { opacity: 0; }
+  &[data-state="open"]:has(+ [data-entered]) { animation: search-fade-in var(--motion-medium) ease-out both; }
   &[data-state="closed"] { animation: search-out var(--motion-fast) linear both; }
 }
 

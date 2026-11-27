@@ -64,7 +64,8 @@ function DialogOverlay({
  *   the top of the webview there (`--native-top-inset`, unset elsewhere),
  *   and the home indicator. A frame that big appearing at once is a jolt,
  *   so it grows into place and fades out (`data-size="large"` in
- *   index.css).
+ *   index.css). The growing waits for the frame to be painted once
+ *   (`markEnteredAfterFirstPaint`).
  */
 const dialogContentVariants = cva(
   "fixed z-50 flex flex-col overflow-hidden border border-border bg-bg-sidebar shadow-popover outline-none",
@@ -82,16 +83,51 @@ const dialogContentVariants = cva(
   }
 )
 
+/**
+ * Sets `data-entered` on a large dialog two frames after it mounts, once its
+ * first frame is painted, and only then does its entrance play (index.css).
+ * Mounting it (the focus trap, the scroll lock, a picture inside) is what
+ * that first frame pays for, and WebKit times an animation from the moment
+ * its style is resolved, not from the frame that shows it: started on mount,
+ * the frame was already most of the way in by the time it appeared, and
+ * opening looked instant on macOS and iOS while closing visibly faded. Until
+ * then the frame and its backdrop stay transparent.
+ */
+function markEnteredAfterFirstPaint(node: HTMLElement): () => void {
+  let frame = requestAnimationFrame(() => {
+    frame = requestAnimationFrame(() => node.setAttribute("data-entered", ""))
+  })
+  return () => cancelAnimationFrame(frame)
+}
+
 function DialogContent({
   className,
   size = "default",
+  ref,
   children,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & VariantProps<typeof dialogContentVariants>) {
+  // Stable for a given ref, so a re-render doesn't restart the wait.
+  const contentRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      if (typeof ref === "function") ref(node)
+      else if (ref) ref.current = node
+      if (!node) return
+      const cancel = size === "large" ? markEnteredAfterFirstPaint(node) : undefined
+      return () => {
+        cancel?.()
+        if (typeof ref === "function") ref(null)
+        else if (ref) ref.current = null
+      }
+    },
+    [ref, size]
+  )
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
+        ref={contentRef}
         data-slot="dialog-content"
         data-size={size}
         className={cn(dialogContentVariants({ size, className }))}
