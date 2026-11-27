@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { VariantProps } from "class-variance-authority";
 import { useState, type ReactNode } from "react";
+import { Copy, Download } from "lucide-react";
 import { Button } from "./button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle, type dialogContentVariants } from "./dialog";
 import { Input } from "./input";
@@ -22,12 +23,14 @@ export const sizes = Object.keys(SIZES) as Size[];
 interface ExampleProps {
   size?: Size;
   title?: string;
+  /** Controls in the header band, before the close button. */
+  actions?: ReactNode;
   children?: ReactNode;
 }
 
 /** A dialog with the state its owner keeps: open at first, and once closed,
  * a button to open it again — which is how to watch it come and go. */
-function Example({ size = "default", title = "Rename session", children }: ExampleProps) {
+function Example({ size = "default", title = "Rename session", actions, children }: ExampleProps) {
   const [open, setOpen] = useState(true);
   return (
     <>
@@ -36,7 +39,7 @@ function Example({ size = "default", title = "Rename session", children }: Examp
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size={size} aria-describedby={undefined}>
-          <DialogHeader>
+          <DialogHeader actions={actions}>
             <DialogTitle>{title}</DialogTitle>
           </DialogHeader>
           {children ?? (
@@ -76,11 +79,22 @@ export const Default: Story = {
   args: { size: "default" },
 };
 
-/** Room for what it shows — here a picture, edge to edge under the band. */
+/** Room for what it shows — here a picture, edge to edge under the band,
+ * with actions about it before the close button. */
 export const Large: Story = {
   args: {
     size: "large",
     title: "Requests per day",
+    actions: (
+      <>
+        <Button variant="ghost" size="icon-sm" aria-label="Copy path">
+          <Copy className="size-3.5" />
+        </Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Download">
+          <Download className="size-3.5" />
+        </Button>
+      </>
+    ),
     children: (
       <div className="flex min-h-0 flex-1 bg-background p-6">
         <img src={landscapeChart("Requests per day")} alt="Requests per day" className="m-auto max-h-full max-w-full" />

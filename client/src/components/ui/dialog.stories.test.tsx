@@ -26,10 +26,14 @@ describe("Dialog stories", () => {
     expect(screen.getByRole("button", { name: "Open the dialog" })).toBeInTheDocument();
   });
 
-  it("Large holds its content edge to edge under the band", async () => {
+  it("Large lays its actions in the header band, just before the close button", async () => {
     render(<Large />);
     const dialog = await screen.findByRole("dialog", { name: "Requests per day" });
-    expect(dialog).toHaveAttribute("data-size", "large");
+    const band = dialog.querySelector<HTMLElement>("[data-slot=dialog-header]")!;
+    const names = within(band)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+    expect(names).toEqual(["Copy path", "Download", "Close"]);
     expect(within(dialog).getByRole("img", { name: "Requests per day" })).toBeInTheDocument();
   });
 });

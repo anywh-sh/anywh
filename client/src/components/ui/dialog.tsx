@@ -107,13 +107,16 @@ function DialogContent({
  * The header band: title on the left, close button squared off on the
  * right. `children` is normally just a `DialogTitle` — a description
  * belongs in the body, where it can wrap without pushing the band around.
+ * `actions` are controls about what the dialog shows (the media viewer's
+ * zoom, copy and download), laid out just before the close button.
  */
 function DialogHeader({
   className,
   children,
+  actions,
   showCloseButton = true,
   ...props
-}: React.ComponentProps<"div"> & { showCloseButton?: boolean }) {
+}: React.ComponentProps<"div"> & { actions?: React.ReactNode; showCloseButton?: boolean }) {
   const dict = useDict()
 
   return (
@@ -126,6 +129,7 @@ function DialogHeader({
       {...props}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">{children}</div>
+      {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
       {showCloseButton && (
         <DialogPrimitive.Close asChild>
           <Button variant="ghost" size="icon-sm" aria-label={dict.common.close}>
