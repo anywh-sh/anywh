@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildTurnArgs, extractContextUsage, isMainThreadEvent, isSessionInvalidError, type ClaudeEvent } from "./session.js";
+import { CHAT_MEDIA_HINT } from "../../chatMediaHint.js";
 
 /** The value passed to `--append-system-prompt` — every case below folds
  * something into this single joined string rather than a separate flag. */
@@ -204,6 +205,12 @@ test("buildTurnArgs: extraSystemPrompt folds into --append-system-prompt alongsi
   const withExtra = appendSystemPromptValue(buildTurnArgs("hi", "default", undefined, "use present_choice for this"));
   assert.ok(withExtra.includes("use present_choice for this"));
   assert.ok(withExtra.startsWith(withoutExtra));
+});
+
+test("buildTurnArgs: every turn, in every mode, tells the agent how to show an image inline", () => {
+  for (const mode of ["default", "acceptEdits", "plan", "bypassPermissions"] as const) {
+    assert.ok(appendSystemPromptValue(buildTurnArgs("hi", mode, undefined)).includes(CHAT_MEDIA_HINT), mode);
+  }
 });
 
 test("buildTurnArgs: base flags and prompt text are always present, in a stable order", () => {
