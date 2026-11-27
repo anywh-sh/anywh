@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { CollapsibleText } from "@/components/chat/CollapsibleText";
 import { MediaTile } from "@/components/chat/media/MediaTile";
+import { MentionedMedia } from "@/components/chat/media/MentionedMedia";
 
 interface UserBubbleProps {
   id: string;
@@ -308,6 +309,8 @@ export const AssistantText = memo(function AssistantText({ text, streaming, onCo
       <div className="prose-chat min-w-0 max-w-full text-sm text-foreground">
         <MarkdownContent text={stripPlanChoiceMarkers(text)} onOpenPath={onOpenPath} />
       </div>
+      {/* Once the block is whole: mid-stream, a name may come before the file. */}
+      {!streaming && <MentionedMedia text={text} />}
     </div>
   );
 });

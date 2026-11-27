@@ -65,3 +65,21 @@ describe("media in an agent's reply", () => {
     expect(document.querySelector('img[src*="/files/media"]')).toBeNull();
   });
 });
+
+describe("media a reply only names", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    seedShellProfile();
+  });
+
+  it("previews the files under the finished reply, from the relay's /files/media", async () => {
+    relay = installFakeRelay("Here are the two screens:\n\n- `/tmp/sim/sign-in.png`\n- `/tmp/sim/home.png`");
+    await sendAndAwaitReply();
+
+    const signIn = await screen.findByRole("button", { name: en.chat.media.open.replace("{name}", "sign-in.png") });
+    const image = signIn.querySelector("img");
+    expect(new URL(image!.getAttribute("src")!).searchParams.get("path")).toBe("/tmp/sim/sign-in.png");
+    expect(screen.getByRole("button", { name: en.chat.media.open.replace("{name}", "home.png") })).toBeInTheDocument();
+  });
+});
+

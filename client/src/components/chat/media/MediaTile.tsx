@@ -42,6 +42,10 @@ interface MediaTileProps {
   /** A picture already on this device — the sender's own preview of what
    * they just attached — shown instead of fetching one. */
   previewSrc?: string;
+  /** A file the reply only named (`MentionedMedia`): if the relay can't
+   * serve it, the tile goes away instead of saying so — a path in prose may
+   * never have been a file at all. */
+  quiet?: boolean;
 }
 
 /**
@@ -53,7 +57,7 @@ interface MediaTileProps {
  * A file the relay can't serve (moved, deleted, a temp dir wiped) becomes a
  * one-line chip with its name, which still opens the viewer to say why.
  */
-export const MediaTile = memo(function MediaTile({ item, layout: layoutOverride, previewSrc }: MediaTileProps) {
+export const MediaTile = memo(function MediaTile({ item, layout: layoutOverride, previewSrc, quiet = false }: MediaTileProps) {
   const media = useChatMedia();
   const copy = useDict().chat.media;
   const galleryLayout = useContext(MediaLayoutContext);
@@ -80,6 +84,7 @@ export const MediaTile = memo(function MediaTile({ item, layout: layoutOverride,
   }
 
   if (failed) {
+    if (quiet) return null;
     return (
       <Button
         variant="media"

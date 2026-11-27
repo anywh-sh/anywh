@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo } from "react";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
+import { AssistantText } from "@/components/chat/Message";
 import { ChatMediaProvider } from "@/components/chat/media/ChatMediaProvider";
 import { MediaTile } from "@/components/chat/media/MediaTile";
 import { SAMPLE_FILES, simulatedMediaSource } from "@/components/chat/media/sampleMedia";
@@ -105,6 +106,27 @@ export const SentVideo: Story = {
         <div data-media-scope="" className="flex gap-1.5">
           <MediaTile item={{ path: "/tmp/anywh-uploads/checkout.mov", kind: "video", poster: "/tmp/sim/checkout-frame.jpg" }} layout="grid" />
           <MediaTile item={{ path: "/tmp/sim/01-sign-in.png", kind: "image" }} layout="grid" />
+        </div>
+      </ChatMediaProvider>
+    );
+  },
+};
+
+/** A reply that only names the files it made, as an agent often does after
+ * writing several: the chat previews them under it once the reply is whole.
+ * A name the relay has no file for (`gone.png`) drops out quietly. */
+export const MentionedFiles: Story = {
+  args: { text: "" },
+  render: () => {
+    const source = simulatedMediaSource(SAMPLE_FILES);
+    return (
+      <ChatMediaProvider source={source}>
+        <div className="max-w-2xl">
+          <AssistantText
+            text={"Saved the screens of the flow:\n\n- `/tmp/sim/02-home.png`\n- `/tmp/sim/03-settings.png`\n- `/tmp/sim/gone.png`"}
+            streaming={false}
+            onCopy={() => {}}
+          />
         </div>
       </ChatMediaProvider>
     );

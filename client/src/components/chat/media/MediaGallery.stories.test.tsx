@@ -1,13 +1,15 @@
 import { composeStories } from "@storybook/react-vite";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { en } from "@/i18n/en";
-import { SAMPLE_FILES } from "./sampleMedia";
+import { SAMPLE_FILES, simulatedMediaSource } from "./sampleMedia";
+import { AssistantText } from "@/components/chat/Message";
+import { ChatMediaProvider } from "./ChatMediaProvider";
 import * as stories from "./MediaGallery.stories";
 
 const copy = en.chat.media;
-const { One, Several, MixedShapes, Interleaved, InlinePath, Unavailable, RemoteImage, Waiting, SentVideo, Simulated } = composeStories(stories);
+const { One, Several, MixedShapes, Interleaved, InlinePath, Unavailable, RemoteImage, Waiting, SentVideo, MentionedFiles, Simulated } = composeStories(stories);
 
 function tile(name: string): HTMLElement {
   return screen.getByRole("button", { name: copy.open.replace("{name}", name) });
@@ -86,6 +88,24 @@ describe("chat media stories", () => {
     expect(frame).toHaveAttribute("src", SAMPLE_FILES["/tmp/sim/checkout-frame.jpg"]);
     fireEvent.load(frame!);
     expect(within(video).getByLabelText(copy.video)).toBeInTheDocument();
+  });
+
+  it("MentionedFiles previews the files a reply only names, and drops the one the relay doesn't have", async () => {
+    const { container } = render(<MentionedFiles />);
+    const previews = container.querySelector("[data-mentioned-media]") as HTMLElement;
+    expect(within(previews).getByRole("button", { name: copy.open.replace("{name}", "02-home.png") })).toBeInTheDocument();
+    expect(within(previews).getByRole("button", { name: copy.open.replace("{name}", "03-settings.png") })).toBeInTheDocument();
+    await waitFor(() => expect(within(previews).queryByRole("button", { name: copy.open.replace("{name}", "gone.png") })).toBeNull());
+    expect(screen.queryByText(copy.unavailable)).not.toBeInTheDocument();
+  });
+
+  it("previews nothing while a reply is still streaming in: a name may come before its file", () => {
+    const { container } = render(
+      <ChatMediaProvider source={simulatedMediaSource(SAMPLE_FILES)}>
+        <AssistantText text={"Saving it to `/tmp/sim/02-home.png`"} streaming onCopy={() => {}} />
+      </ChatMediaProvider>,
+    );
+    expect(container.querySelector("[data-mentioned-media]")).toBeNull();
   });
 
   it("Simulated steps through every file of the reply, the gone one included, once each", async () => {
