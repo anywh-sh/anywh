@@ -73,6 +73,23 @@ test("a replay rebuilds the turn boundary from the user's message and drops the 
   assert.equal(events.filter((event) => event.type === "turn_started").length, 2);
 });
 
+test("a replayed opening prompt keeps the person's text alone: the relay's reminder and Kimi's come back as chunks of their own", () => {
+  // The shape `session/load` gave on Kimi Code 2.6.0 for a prompt sent as a
+  // `<system-reminder>` block and the text (reminders shortened).
+  const chunk = (text: string) => ({ sessionUpdate: "user_message_chunk", content: { type: "text", text } });
+  const events = withoutDeltas(
+    run([
+      chunk("<system-reminder>\nYour replies are not read in a terminal: ...\n</system-reminder>"),
+      chunk("Look at the screenshot and report back."),
+      chunk("<system-reminder>\nToday's date is 2026-11-27.\n</system-reminder>"),
+      chunk("<system-reminder>\nAuto permission mode is active.\n</system-reminder>"),
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "![Sign in](/tmp/s.png)" } },
+    ]),
+  );
+  const users = events.filter((event) => event.type === "user_message");
+  assert.deepEqual(users.map((user) => user.text), ["Look at the screenshot and report back."]);
+});
+
 test("usage_update carries the session's whole context and the model's window", () => {
   const events = mapAcpUpdate({ update: { sessionUpdate: "usage_update", used: 14495, size: 1048576 } }, createAcpTurnState(), options);
   assert.deepEqual(events, [{ type: "usage", inputTokens: 14495, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, prefixTokens: 14495, outputTokens: 0, contextWindowSize: 1048576 }]);

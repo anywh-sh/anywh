@@ -569,8 +569,10 @@ export interface JsonRpcDaemonPlan {
      * because it's daemon-session state, not per-turn input. Confirmed
      * against Codex's real generated bindings that `turn/start` requires it
      * (`TurnStartParams.threadId`); found the same way the `interrupt`
-     * fix below was. */
-    readonly start: (ctx: TurnContext, threadId: string) => JsonRpcRequestSpec;
+     * fix below was. `opening` is true for the first turn of a thread the
+     * engine has just created, which is where an agent with no instructions
+     * channel gets them (Kimi, see `kimiTurnStart`). */
+    readonly start: (ctx: TurnContext, threadId: string, opening?: boolean) => JsonRpcRequestSpec;
     /** Builds the interrupt request from the ids the engine captured off
      * `thread.start`/`turn.start`'s own responses — a bare method name (the
      * shape this replaced) can't express it: confirmed against Codex's real

@@ -9,6 +9,7 @@ import type { ApprovalRequest } from "../types.js";
 import type { AcpPermissionParams } from "./acp.js";
 import { acpApprovalRequest } from "./acp.js";
 import { classifyKimiFailure, kimiApprovalParams, kimiDeferrable, parseKimiTurnFailure, kimiQuestion, kimiRuntimeDef, parseKimiLoginPrompt, parseKimiProviderList } from "./kimi.js";
+import { CHAT_MEDIA_HINT } from "../chatMediaHint.js";
 
 // Shapes recorded from Kimi Code CLI 2.6.0 (`kimi acp`, `kimi provider list`).
 const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../tests/fixtures/kimi-acp-2.6.0-updates.json"), "utf8")) as { questionTurn: unknown[] };
@@ -17,6 +18,23 @@ function exec() {
   if (kimiRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
   return kimiRuntimeDef.exec;
 }
+
+test("a session's opening prompt carries the chat media hint as a <system-reminder> block of its own, ahead of the text", () => {
+  const ctx = { cwd: "/tmp/p", prompt: "look at the screen", permissionModeId: "default" };
+  assert.deepEqual(exec().turn.start(ctx, "s1", true), {
+    method: "session/prompt",
+    params: {
+      sessionId: "s1",
+      prompt: [
+        { type: "text", text: `<system-reminder>\n${CHAT_MEDIA_HINT}\n</system-reminder>` },
+        { type: "text", text: "look at the screen" },
+      ],
+    },
+  });
+  // Every later prompt is the text alone: the hint stays in the conversation.
+  assert.deepEqual(exec().turn.start(ctx, "s1", false), { method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: "look at the screen" }] } });
+  assert.deepEqual(exec().turn.start(ctx, "s1"), exec().turn.start(ctx, "s1", false));
+});
 
 test("kimiRuntimeDef is coherent", () => {
   assert.deepEqual(assertCoherent(kimiRuntimeDef), []);

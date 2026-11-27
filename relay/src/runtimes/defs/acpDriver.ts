@@ -124,6 +124,9 @@ export class AcpSessionDriver implements AgentSessionDriver {
    * process knows no session until `session/new`, `session/resume` or
    * `session/load` names it. */
   private attached = false;
+  /** A session this process created whose first prompt is still to be
+   * sent: that prompt opens it (`turn.start`'s `opening`). */
+  private opening = false;
   /** The last `configureSession` request sent per key on this session. */
   private sentConfig = new Map<string, string>();
   /** The model the session runs, as the agent last reported it. */
@@ -242,6 +245,7 @@ export class AcpSessionDriver implements AgentSessionDriver {
       const sessionId = (result as { sessionId?: unknown } | null)?.sessionId;
       if (typeof sessionId !== "string") throw new Error(`${this.def.identity.id}: ${spec.method} answered without a sessionId`);
       this.sessionId = sessionId;
+      this.opening = true;
       this.noteConfig(result);
     } else if (exec.thread.resume) {
       const spec = exec.thread.resume(ctx, this.sessionId);
@@ -308,7 +312,8 @@ export class AcpSessionDriver implements AgentSessionDriver {
       };
       // Stopped while the session was still being created, resumed or set up.
       if (this.stopRequested) return { stopped: true, lastAssistantText: undefined };
-      const spec = exec.turn.start(ctx, sessionId);
+      const spec = exec.turn.start(ctx, sessionId, this.opening);
+      this.opening = false;
       this.promptSent = true;
       const result = (await daemon.request(spec.method, spec.params)) as StopReasonResult | null;
       const usageWait = exec.usageAfterTurnMs;

@@ -20,6 +20,7 @@ import {
   type AcpQuestion,
 } from "./acp.js";
 import { acpNotificationMapping } from "../streams/acpSessionUpdate.js";
+import { CHAT_MEDIA_HINT } from "../chatMediaHint.js";
 
 /** Kimi's question tool. It asks through `session/request_permission`, one
  * option per answer (`q0_opt_<n>`, named by the label) plus `q0_skip` — and
@@ -29,6 +30,25 @@ const QUESTION_TOOL = "AskUserQuestion";
 
 interface QuestionInput {
   readonly questions?: readonly { readonly question?: string; readonly header?: string; readonly options?: readonly { readonly label?: string; readonly description?: string }[] }[];
+}
+
+/**
+ * `session/prompt`, with the relay's chat media hint ahead of a session's
+ * first prompt as a `<system-reminder>` block of its own. ACP gives an agent
+ * no instructions channel (`session/new` takes a cwd and MCP servers, and
+ * `kimi acp` reads none of the CLI's `--agent-file`), but Kimi's system
+ * prompt tells the model a `<system-reminder>` block is an authoritative
+ * directive from the harness, and it is how Kimi itself adds the date to a
+ * prompt. Measured on 2.6.0: with it, the reply to "look at this screenshot
+ * and report back" opened with the capture embedded, and on `session/load`
+ * the block came back as a user chunk of its own, which the replay already
+ * drops. Once per session: from there it stays in the conversation.
+ */
+export function kimiTurnStart(ctx: TurnContext, sessionId: string, opening?: boolean): JsonRpcRequestSpec {
+  const spec = acpTurnStart(ctx, sessionId);
+  if (!opening) return spec;
+  const params = spec.params as { sessionId: string; prompt: readonly unknown[] };
+  return { ...spec, params: { ...params, prompt: [{ type: "text", text: `<system-reminder>\n${CHAT_MEDIA_HINT}\n</system-reminder>` }, ...params.prompt] } };
 }
 
 /** The question a permission request for `AskUserQuestion` asks, from the
@@ -250,7 +270,7 @@ export const kimiRuntimeDef: AgentRuntimeDef<undefined> = {
     initialize: acpInitialize,
     framing: "ndjson",
     thread: { start: acpThreadStart, resume: acpThreadResume },
-    turn: { start: acpTurnStart, interrupt: acpInterrupt },
+    turn: { start: kimiTurnStart, interrupt: acpInterrupt },
     replayHistoryMethod: ACP_HISTORY_METHOD,
     configureSession,
     // Measured against 2.6.0: the only `usage_update` of a turn (with the

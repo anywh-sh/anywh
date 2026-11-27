@@ -172,9 +172,17 @@ async function runPrompt(id, params) {
   const sessions = loadSessions();
   const session = sessions[params.sessionId];
   if (!session || !attached.has(params.sessionId)) return error(id, `Invalid params: Unknown sessionId: ${params.sessionId}`);
-  const text = params.prompt.map((block) => block.text ?? "").join("");
+  // What the person typed: a `<system-reminder>` block the client put ahead
+  // of it is an instruction, not part of what this fake echoes or scripts on.
+  const text = params.prompt
+    .map((block) => block.text ?? "")
+    .filter((blockText) => !/^\s*<system-reminder>/.test(blockText))
+    .join("");
   prompts += 1;
-  session.history.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text } });
+  // One user chunk per prompt block, the way 2.6.0 replays a prompt the
+  // client sent in several (measured with a `<system-reminder>` block ahead
+  // of the text: two chunks, then Kimi's own reminders).
+  for (const block of params.prompt) session.history.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text: block.text ?? "" } });
   session.history.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "<system-reminder>\nToday's date is 2026-11-12.\n</system-reminder>" } });
   const say = (reply) => {
     for (const piece of [reply.slice(0, 3), reply.slice(3)]) update(params.sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: piece } });
