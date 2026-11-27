@@ -24,6 +24,9 @@ interface MediaViewerProps {
   onDownload?: (item: ChatMediaItem) => void;
 }
 
+/** Which way the viewer last moved: the file it lands on comes in from that side. */
+type Step = "next" | "prev";
+
 /** A horizontal swipe at least this long, and mostly sideways, turns the page. */
 const SWIPE_MIN_PX = 60;
 
@@ -53,6 +56,7 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
   const arrows = many && !isIOS();
   const [zoomed, setZoomed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [step, setStep] = useState<Step | null>(null);
   // The file the stage couldn't load: nothing to zoom into or download.
   const [failedPath, setFailedPath] = useState<string | null>(null);
   const failed = failedPath === item.path;
@@ -63,6 +67,7 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
 
   function select(next: number): void {
     if (next < 0 || next >= items.length || next === current) return;
+    setStep(next > current ? "next" : "prev");
     onIndexChange(next);
   }
 
@@ -149,6 +154,7 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
             key={item.path}
             item={item}
             source={source}
+            step={step}
             zoomed={zoomed}
             onToggleZoom={() => setZoomed((value) => !value)}
             onSwipe={(delta) => select(current + delta)}
@@ -203,6 +209,8 @@ function StepButton({ label, shortcut, disabled, onClick, children }: { label: s
 interface MediaStageProps {
   item: ChatMediaItem;
   source: ChatMediaSource;
+  /** How the viewer got here, if by moving: the file slides in from that side. */
+  step: Step | null;
   zoomed: boolean;
   onToggleZoom: () => void;
   onSwipe: (delta: number) => void;
@@ -210,8 +218,9 @@ interface MediaStageProps {
 }
 
 /** The current file, fitted or at its own size. Keyed by path at the call
- * site, so moving to another file starts from a clean load state. */
-function MediaStage({ item, source, zoomed, onToggleZoom, onSwipe, onFailed }: MediaStageProps) {
+ * site, so moving to another file starts from a clean load state (and plays
+ * the step in). */
+function MediaStage({ item, source, step, zoomed, onToggleZoom, onSwipe, onFailed }: MediaStageProps) {
   const dict = useDict();
   const copy = dict.chat.media.viewer;
   const media = useMediaSrc(source, item.path);
@@ -279,6 +288,7 @@ function MediaStage({ item, source, zoomed, onToggleZoom, onSwipe, onFailed }: M
 
   return (
     <div
+      data-media-step={step ?? undefined}
       className={cn("flex min-h-0 min-w-0 flex-1 p-4", zoomed ? "overflow-auto" : "overflow-hidden")}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}

@@ -73,6 +73,17 @@ describe("media viewer stories", () => {
     expect(within(dialog).getByRole("button", { name: copy.previous })).toBeDisabled();
   });
 
+  it("Gallery brings the file it lands on in from the side it lies on", async () => {
+    render(<Gallery />);
+    const dialog = await screen.findByRole("dialog");
+    // Opening is the dialog's own motion, not a step.
+    expect(dialog.querySelector("[data-media-step]")).toBeNull();
+    await userEvent.click(within(dialog).getByRole("button", { name: copy.next }));
+    expect(dialog.querySelector("[data-media-step]")).toHaveAttribute("data-media-step", "next");
+    await userEvent.click(within(dialog).getByRole("button", { name: copy.previous }));
+    expect(dialog.querySelector("[data-media-step]")).toHaveAttribute("data-media-step", "prev");
+  });
+
   it("Gallery jumps to a file from the strip, which marks the one on show", async () => {
     render(<Gallery />);
     const dialog = await screen.findByRole("dialog");

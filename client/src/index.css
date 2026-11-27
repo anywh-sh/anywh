@@ -614,6 +614,25 @@ body {
   &[data-state="closed"] { animation: search-out var(--motion-fast) linear both; }
 }
 
+/* The media viewer moving to another file (`MediaViewer`'s stage): the one
+ * it lands on comes in from the side it lies on, fading in — the mascot
+ * carousel's move, over a shorter way. Only the stage that changed moves,
+ * and only by `transform` and `opacity`. */
+@keyframes media-step-next {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+@keyframes media-step-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+[data-media-step="next"] { animation: media-step-next var(--motion-medium) var(--motion-ease) both; }
+[data-media-step="prev"] { animation: media-step-prev var(--motion-medium) var(--motion-ease) both; }
+
 /* The mascot picker's carousel: the character picked slides in from the
  * side it came from, and its neighbours fade in. `transform` only on the
  * carousel's own faces (pixel art stays crisp once it lands). */
