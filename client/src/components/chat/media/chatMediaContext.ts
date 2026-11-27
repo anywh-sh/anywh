@@ -16,6 +16,20 @@ export function useChatMedia(): ChatMediaHandle | null {
   return useContext(ChatMediaContext);
 }
 
+/** How big a tile draws its picture: alone (`single`), one of several in a
+ * gallery (`grid`), or inside a line of text or a table cell (`inline`). */
+export type MediaTileLayout = "single" | "grid" | "inline";
+
+/** Set by `MediaGallery` for the tiles inside it; a tile outside any
+ * gallery is `inline`. */
+export const MediaLayoutContext = createContext<MediaTileLayout>("inline");
+
+/** Whether a path written as inline code opens the viewer here: it names
+ * an image or video, and there is a conversation to open it in. */
+export function useOpensAsMedia(path: string): boolean {
+  return useChatMedia() !== null && chatMediaKind(path) !== undefined;
+}
+
 /**
  * `src` for `path`: the direct URL right away, or the fetched object URL once
  * it arrives (`ChatMediaSource`). `failed` only covers the fetch — a direct

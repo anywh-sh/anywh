@@ -1,19 +1,18 @@
-import { createContext, memo, useContext, useState, type CSSProperties, type MouseEvent } from "react";
+import { memo, useContext, useState, type CSSProperties, type MouseEvent } from "react";
 import { ImageOff, Play, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDict } from "@/i18n";
 import { mediaFileName, type ChatMediaItem } from "@/lib/media/chatMedia";
 import { cn } from "@/lib/utils";
-import { mediaAround, mediaDataAttributes, useChatMedia, useMediaSrc } from "@/components/chat/media/chatMediaContext";
-
-/** How big a tile draws its picture: alone (`single`), one of several in a
- * gallery (`grid`), or inside a line of text or a table cell (`inline`). */
-export type MediaTileLayout = "single" | "grid" | "inline";
-
-/** Set by `MediaGallery` for the tiles inside it; a tile outside any
- * gallery is `inline`. */
-export const MediaLayoutContext = createContext<MediaTileLayout>("inline");
+import {
+  mediaAround,
+  mediaDataAttributes,
+  MediaLayoutContext,
+  useChatMedia,
+  useMediaSrc,
+  type MediaTileLayout,
+} from "@/components/chat/media/chatMediaContext";
 
 /** A tile's height per layout, in px — fixed while the picture is on its way
  * so the message keeps its height, and the cap once it has landed. */

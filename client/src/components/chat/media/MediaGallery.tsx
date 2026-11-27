@@ -1,5 +1,5 @@
 import { Children, isValidElement, type ReactNode } from "react";
-import { MediaLayoutContext } from "@/components/chat/media/MediaTile";
+import { MediaLayoutContext } from "@/components/chat/media/chatMediaContext";
 
 /**
  * A run of images or videos in a message (`remarkMediaGallery` groups

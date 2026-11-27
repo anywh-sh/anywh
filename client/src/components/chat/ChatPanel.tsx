@@ -26,7 +26,8 @@ import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundAc
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
 import { buildWireMessage } from "@/lib/composer/wireMessage";
 import { MessageLog, type MessageLogHandle } from "@/components/chat/MessageLog";
-import { ChatMediaProvider, useRelayChatMedia } from "@/components/chat/media/ChatMediaProvider";
+import { ChatMediaProvider } from "@/components/chat/media/ChatMediaProvider";
+import { useRelayChatMedia } from "@/components/chat/media/useRelayChatMedia";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
 import { ChatIdleState } from "@/components/chat/ChatIdleState";
 import { Composer } from "@/components/chat/Composer";

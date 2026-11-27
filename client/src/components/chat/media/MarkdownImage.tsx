@@ -81,9 +81,3 @@ export function MediaPathLink({ path, ...props }: { path: string } & ComponentPr
     </TextButton>
   );
 }
-
-/** Whether `MediaPathLink` would draw something for `path` here — the
- * check `MarkdownContent` makes before falling back to its other links. */
-export function useOpensAsMedia(path: string): boolean {
-  return useChatMedia() !== null && chatMediaKind(path) !== undefined;
-}
