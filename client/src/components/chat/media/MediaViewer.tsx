@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type TouchEvent } from "react";
-import { Check, ChevronLeft, ChevronRight, Copy, Download, ImageOff, Video, ZoomIn, ZoomOut } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, Download, ImageOff, TriangleAlert, Video, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDict } from "@/i18n";
 import { mediaFileName, type ChatMediaItem } from "@/lib/media/chatMedia";
+import { copyImageToClipboard, fetchMediaBlob } from "@/lib/media/mediaClipboard";
 import type { ChatMediaSource } from "@/lib/media/relayMediaSource";
 import { isIOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
@@ -37,8 +38,9 @@ const SWIPE_MIN_PX = 60;
  * touch, or the strip of thumbnails along the bottom. The header band names
  * the file and holds what to do with it: its own pixels (an image fits the
  * stage, and a click or the magnifier shows it 1:1, scrollable, which is
- * what reading a simulator capture takes), copy its path, download it. A
- * video plays with the platform's own controls.
+ * what reading a simulator capture takes), copy it (the image itself; a
+ * video's path, since no webview's clipboard takes a video), download it.
+ * A video plays with the platform's own controls.
  *
  * A Radix dialog, so it portals to `<body>` (a fixed box inside a tab would
  * anchor to the tab's `contain`ed wrapper instead of the window) and the iOS
@@ -55,7 +57,10 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
   // take width from the picture.
   const arrows = many && !isIOS();
   const [zoomed, setZoomed] = useState(false);
-  const [copied, setCopied] = useState(false);
+  // What the last copy did, for the file it copied: the button says so
+  // for a moment.
+  const [copyResult, setCopyResult] = useState<{ path: string; outcome: "copied" | "failed" } | null>(null);
+  const copyResultTimer = useRef<number | undefined>(undefined);
   const [step, setStep] = useState<Step | null>(null);
   // The file the stage couldn't load: nothing to zoom into or download.
   const [failedPath, setFailedPath] = useState<string | null>(null);
@@ -64,6 +69,7 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setZoomed(false), [item.path]);
+  useEffect(() => () => window.clearTimeout(copyResultTimer.current), []);
 
   function select(next: number): void {
     if (next < 0 || next >= items.length || next === current) return;
@@ -83,15 +89,43 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
     }
   }
 
-  function copyPath(): void {
-    navigator.clipboard.writeText(item.path).then(
-      () => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
+  // An image goes on the clipboard as itself; a video, or a file that
+  // couldn't be loaded, as its path.
+  const copiesImage = item.kind === "image" && !failed;
+
+  function copyToClipboard(): void {
+    const { path } = item;
+    // Both writes start here, inside the click: WebKit only lets a page
+    // write the clipboard during the gesture.
+    const written = copiesImage
+      ? copyImageToClipboard(fetchMediaBlob(source, path))
+      : (navigator.clipboard?.writeText(path) ?? Promise.reject(new Error("no clipboard here")));
+    const settle = (outcome: "copied" | "failed"): void => {
+      setCopyResult({ path, outcome });
+      window.clearTimeout(copyResultTimer.current);
+      copyResultTimer.current = window.setTimeout(() => setCopyResult(null), 1500);
+    };
+    written.then(
+      () => settle("copied"),
+      (error: unknown) => {
+        console.error("[anywh] failed to copy a chat media file:", path, error);
+        settle("failed");
       },
-      () => {},
     );
   }
+
+  const copyOutcome = copyResult?.path === item.path ? copyResult.outcome : null;
+  const copyLabel = copiesImage
+    ? copyOutcome === "copied"
+      ? copy.imageCopied
+      : copyOutcome === "failed"
+        ? copy.copyImageFailed
+        : copy.copyImage
+    : copyOutcome === "copied"
+      ? copy.pathCopied
+      : copyOutcome === "failed"
+        ? copy.copyPathFailed
+        : copy.copyPath;
 
   const name = mediaFileName(item.path);
   const caption = item.alt?.trim() || name;
@@ -124,8 +158,14 @@ export function MediaViewer({ items, index, source, open, onIndexChange, onClose
                   {zoomed ? <ZoomOut className="size-3.5" /> : <ZoomIn className="size-3.5" />}
                 </HeaderAction>
               )}
-              <HeaderAction label={copied ? copy.pathCopied : copy.copyPath} onClick={copyPath} onEscape={onClose}>
-                {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              <HeaderAction label={copyLabel} onClick={copyToClipboard} onEscape={onClose}>
+                {copyOutcome === "copied" ? (
+                  <Check className="size-3.5" />
+                ) : copyOutcome === "failed" ? (
+                  <TriangleAlert className="size-3.5" />
+                ) : (
+                  <Copy className="size-3.5" />
+                )}
               </HeaderAction>
               {onDownload && !failed && (
                 <HeaderAction label={dict.common.download} onClick={() => onDownload(item)} onEscape={onClose}>

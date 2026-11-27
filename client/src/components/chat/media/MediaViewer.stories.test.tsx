@@ -1,8 +1,9 @@
 import { composeStories } from "@storybook/react-vite";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
+import { SWATCH_PNG } from "./sampleMedia";
 import * as stories from "./MediaViewer.stories";
 
 const copy = en.chat.media.viewer;
@@ -17,7 +18,10 @@ function strip(dialog: HTMLElement): HTMLElement[] {
 }
 
 describe("media viewer stories", () => {
-  afterEach(() => act(() => cleanup()));
+  afterEach(() => {
+    act(() => cleanup());
+    vi.restoreAllMocks();
+  });
 
   it("Image opens a large dialog named by the caption, with no counter, arrows or strip", async () => {
     render(<Image />);
@@ -41,7 +45,7 @@ describe("media viewer stories", () => {
     const names = within(header(dialog))
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
-    expect(names).toEqual([copy.actualSize, copy.copyPath, en.common.download, en.common.close]);
+    expect(names).toEqual([copy.actualSize, copy.copyImage, en.common.download, en.common.close]);
   });
 
   it("Image toggles between fitting the stage and its own pixels", async () => {
@@ -51,13 +55,38 @@ describe("media viewer stories", () => {
     expect(within(dialog).getByRole("button", { name: copy.fitToScreen })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("Image copies the file's path", async () => {
+  it("Image copies the picture itself, as a PNG", async () => {
     const user = userEvent.setup();
+    render(<Image items={[{ path: "/tmp/sim/swatch.png", kind: "image", alt: "Swatch" }]} />);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: copy.copyImage }));
+    expect(await within(dialog).findByRole("button", { name: copy.imageCopied })).toBeInTheDocument();
+    const [copied] = await navigator.clipboard.read();
+    expect(copied.types).toEqual(["image/png"]);
+    const png = await copied.getType("image/png");
+    expect(new Uint8Array(await png.arrayBuffer())).toEqual(new Uint8Array(await (await fetch(SWATCH_PNG)).arrayBuffer()));
+  });
+
+  it("Image says so when the clipboard won't take it", async () => {
+    const user = userEvent.setup();
+    // The platform refusing (the window not focused, no permission). The test
+    // clipboard never reads what it is given, so that is the one way to fail.
+    vi.spyOn(navigator.clipboard, "write").mockRejectedValue(new Error("denied"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
     render(<Image />);
     const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: copy.copyImage }));
+    expect(await within(dialog).findByRole("button", { name: copy.copyImageFailed })).toBeInTheDocument();
+  });
+
+  it("Gallery copies a video's path, since no webview's clipboard takes a video", async () => {
+    const user = userEvent.setup();
+    render(<Gallery />);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: en.chat.media.open.replace("{name}", "checkout.mov") }));
     await user.click(within(dialog).getByRole("button", { name: copy.copyPath }));
     expect(await within(dialog).findByRole("button", { name: copy.pathCopied })).toBeInTheDocument();
-    expect(await navigator.clipboard.readText()).toBe("/tmp/sim/01-sign-in.png");
+    expect(await navigator.clipboard.readText()).toBe("/tmp/sim/checkout.mov");
   });
 
   it("Gallery steps with the arrows and the ← → keys, stopping at the ends", async () => {
@@ -105,8 +134,8 @@ describe("media viewer stories", () => {
   it("Gallery closes on the first Escape even while a tooltip shows", async () => {
     render(<Gallery />);
     const dialog = await screen.findByRole("dialog");
-    await userEvent.hover(within(dialog).getByRole("button", { name: copy.copyPath }));
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(copy.copyPath);
+    await userEvent.hover(within(dialog).getByRole("button", { name: copy.copyImage }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(copy.copyImage);
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

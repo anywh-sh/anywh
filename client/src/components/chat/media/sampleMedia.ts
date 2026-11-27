@@ -76,6 +76,11 @@ export const pendingMediaSource = {
   load: (): Promise<string> => new Promise<string>(() => {}),
 };
 
+/** A real PNG, 4×4 and one colour (every other picture here is an SVG
+ * drawn above): what a test that copies the bytes as they are needs, since
+ * the test DOM has no canvas to redraw an SVG with. */
+export const SWATCH_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR42mNwzHz4HxkzkC4AAFA/KKEUvz3gAAAAAElFTkSuQmCC";
+
 export const SAMPLE_FILES: Record<string, string> = {
   "/tmp/sim/01-sign-in.png": phoneScreenshot("Sign in", "royalblue"),
   "/tmp/sim/02-home.png": phoneScreenshot("Home", "seagreen"),
@@ -83,4 +88,5 @@ export const SAMPLE_FILES: Record<string, string> = {
   "/tmp/sim/04-error.png": phoneScreenshot("Couldn't sign in", "crimson"),
   "/tmp/sim/usage-chart.png": landscapeChart("Requests per day"),
   "/tmp/sim/checkout-frame.jpg": phoneScreenshot("Checkout", "slateblue"),
+  "/tmp/sim/swatch.png": SWATCH_PNG,
 };
