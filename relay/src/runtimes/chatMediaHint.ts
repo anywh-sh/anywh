@@ -11,14 +11,27 @@
 // shown as a link and never fetched, since fetching one is how a prompt
 // injection smuggles data out in an image request.
 //
+// The wording is measured, not guessed (Claude Code 2.1.323, a turn that
+// reads a simulator screenshot and is asked to report on how it looks). A
+// first version that only said the app shows images inline was ignored by
+// Sonnet: the CLI's own system prompt tells the model its output is shown
+// in a terminal, so it concluded no image could display and described the
+// screen in prose. Saying outright that replies are not read in a terminal,
+// that the app is the only way the person sees the file, and that this
+// holds even when asked only to check or describe it, made Sonnet and Opus
+// open their report with the capture. Haiku still answered in prose with
+// every wording tried.
+//
 // Agent-agnostic on purpose. Claude reads it on every turn (`session.ts`);
 // the other agents have no channel for it yet.
 export const CHAT_MEDIA_HINT =
-  "Replies are shown in an app that displays image and video files from this machine inline. To " +
-  "show the user one (a screenshot, a simulator capture, a screen recording, a generated chart), " +
-  "embed it with Markdown image syntax and its absolute path, `![what it shows](/absolute/path/to/file.png)`, " +
-  "instead of only naming the path; a path with spaces goes in angle brackets, `![x](</path/my shot.png>)`. " +
-  "Videos (.mp4, .mov, .webm) take the same syntax, and images on consecutive lines form a gallery. Do " +
-  "this whenever you produce or point to a visual result the user would want to see. Save each new " +
-  "capture under its own file name rather than overwriting one already shown, so earlier messages keep " +
-  "showing what they showed.";
+  "Your replies are not read in a terminal: they are rendered as Markdown in an app that also displays " +
+  "image and video files from this machine inline, and that is usually the only way the user gets to see " +
+  "them. Whenever you take, generate or look at an image or video the user would want to see (a simulator " +
+  "or browser screenshot, a screen recording, a chart you rendered), embed it in your reply with Markdown " +
+  "image syntax and its absolute path, `![what it shows](/absolute/path/to/file.png)`, right before what " +
+  "you say about it. Do this even when you were only asked to check or describe it: the user wants to see " +
+  "what you saw, and a description or a bare path is no substitute. A path with spaces goes in angle " +
+  "brackets, `![x](</path/my shot.png>)`. Videos (.mp4, .mov, .webm) take the same syntax, and images on " +
+  "consecutive lines form a gallery. Save each new capture under its own file name rather than overwriting " +
+  "one already shown, so earlier messages keep showing what they showed.";
