@@ -62,6 +62,14 @@ const buttonVariants = cva(
         // An icon that only brightens: the × of a tab, a banner or a field.
         // No fill, because it sits inside something that already has one.
         quiet: "text-text-faint hover:text-foreground focus-visible:text-foreground",
+        // A picture you open: an image or a video frame in a message, framed
+        // by a hairline that firms up under the pointer. The picture is the
+        // content, so the tile clips it and adds no fill of its own.
+        media: "overflow-hidden border-border bg-bg-elevated text-muted-foreground hover:border-text-faint",
+        // A control laid over media (the viewer's toolbar and arrows): light
+        // ink on the dark scrim whatever the theme, since what is under it is
+        // someone's picture, not an app surface (see `--media-scrim`).
+        scrim: "text-media-scrim-foreground/75 hover:bg-media-scrim hover:text-media-scrim-foreground focus-visible:text-media-scrim-foreground aria-pressed:text-media-scrim-foreground",
       },
       size: {
         default: "h-8 gap-2 px-3.5 text-xs",
@@ -84,6 +92,8 @@ const buttonVariants = cva(
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-7",
         "icon-lg": "size-9",
+        // No box of its own: the picture inside decides it (a media tile).
+        media: "gap-0 p-0",
       },
     },
     defaultVariants: {
@@ -105,6 +115,7 @@ const SPINNER_SIZE = {
   bar: "sm",
   toolbar: "sm",
   "icon-lg": "md",
+  media: "md",
 } as const satisfies Record<NonNullable<VariantProps<typeof buttonVariants>["size"]>, string>
 
 function Button({

@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { VariantProps } from "class-variance-authority";
-import { ArrowRight, Plus, Trash2, X } from "lucide-react";
+import { ArrowRight, ChevronRight, Download, Plus, Trash2, X } from "lucide-react";
 import { Button, type buttonVariants } from "./button";
+import { phoneScreenshot } from "@/components/chat/media/sampleMedia";
 
 type Variant = NonNullable<VariantProps<typeof buttonVariants>["variant"]>;
 type Size = NonNullable<VariantProps<typeof buttonVariants>["size"]>;
@@ -19,6 +20,8 @@ const VARIANTS = {
   link: true,
   chrome: true,
   quiet: true,
+  media: true,
+  scrim: true,
 } satisfies Record<Variant, true>;
 
 const SIZES = {
@@ -33,7 +36,8 @@ const SIZES = {
   "icon-sm": "icon",
   icon: "icon",
   "icon-lg": "icon",
-} satisfies Record<Size, "text" | "icon">;
+  media: "media",
+} satisfies Record<Size, "text" | "icon" | "media">;
 
 export const variants = Object.keys(VARIANTS) as Variant[];
 export const textSizes = (Object.keys(SIZES) as Size[]).filter((size) => SIZES[size] === "text");
@@ -113,6 +117,33 @@ export const Bar: Story = {
   args: { variant: "chrome", size: "bar", children: "Group" },
 };
 
+/** A picture you open — a screenshot in a message. The tile has no box of
+ * its own (`size="media"`): the picture inside sizes it. */
+export const Media: Story = {
+  args: { variant: "media", size: "media", "aria-label": "Open login.png" },
+  render: (args) => (
+    <Button {...args}>
+      <img src={phoneScreenshot("Sign in", "royalblue")} alt="" className="h-40 w-auto" />
+    </Button>
+  ),
+};
+
+/** Controls laid over media, light on the dark scrim in every theme. */
+export const Scrim: Story = {
+  args: { variant: "scrim", size: "icon", "aria-label": "Next", children: <ChevronRight /> },
+  render: (args) => (
+    <div className="flex items-center gap-1 bg-media-scrim p-3">
+      <Button {...args} />
+      <Button variant="scrim" size="icon" aria-label="Download">
+        <Download />
+      </Button>
+      <Button variant="scrim" size="icon" aria-label="Close">
+        <X />
+      </Button>
+    </div>
+  ),
+};
+
 export const Disabled: Story = {
   args: { disabled: true },
 };
@@ -151,7 +182,8 @@ export const Matrix: Story = {
   render: () => (
     <div className="grid gap-3">
       {variants.map((variant) => (
-        <div key={variant} className="flex items-center gap-3">
+        // `scrim` is only ever drawn over media, so its row gets the scrim.
+        <div key={variant} className={variant === "scrim" ? "flex items-center gap-3 bg-media-scrim" : "flex items-center gap-3"}>
           <span className="w-24 font-mono text-xs text-text-faint">{variant}</span>
           {textSizes.map((size) => (
             <Button key={size} variant={variant} size={size}>
