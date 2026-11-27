@@ -209,7 +209,12 @@ export class CodexSessionDriver implements AgentSessionDriver {
     const endTurn = this.planUsage.turnStarted("codex");
     try {
       if (!this.threadId) {
-        const startSpec = exec.thread.start(ctx);
+        // What the thread must keep of the agent's own configuration (see
+        // `JsonRpcDaemonPlan.thread.configRead`); a failed read starts it
+        // without, never fails the turn.
+        const read = exec.thread.configRead?.(ctx.cwd);
+        const configuration = read ? await daemon.request(read.method, read.params).catch(() => undefined) : undefined;
+        const startSpec = exec.thread.start(ctx, configuration);
         const threadResult = (await daemon.request(startSpec.method, startSpec.params)) as ThreadStartResult;
         this.threadId = threadResult.thread.id;
         this.model = threadResult.model;

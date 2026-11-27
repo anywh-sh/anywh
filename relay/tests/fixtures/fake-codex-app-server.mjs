@@ -163,6 +163,13 @@ process.stdin.on("data", (chunk) => {
         else send(answer);
         break;
       }
+      // `ConfigReadResponse`, reduced to the one key the relay reads:
+      // FAKE_CODEX_DEVELOPER_INSTRUCTIONS stands for the person's own.
+      // FAKE_CODEX_CONFIG_READ_FAILS=1 answers an error instead.
+      case "config/read":
+        if (process.env.FAKE_CODEX_CONFIG_READ_FAILS === "1") send({ id: message.id, error: { code: -32603, message: "config unreadable" } });
+        else send({ id: message.id, result: { config: { developer_instructions: process.env.FAKE_CODEX_DEVELOPER_INSTRUCTIONS ?? null }, origins: {} } });
+        break;
       case "thread/resume": {
         const { threadId } = message.params;
         // Dynamic tools survive a resume in the real app-server; this fake

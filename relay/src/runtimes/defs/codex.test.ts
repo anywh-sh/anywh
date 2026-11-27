@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { assertCoherent } from "../registry.js";
 import { classifyCodexFailure, codexRuntimeDef, parseCodexLoginCompleted, parseCodexLoginStart, parseCodexModelList } from "./codex.js";
 import type { TurnContext } from "../types.js";
+import { CHAT_MEDIA_HINT } from "../chatMediaHint.js";
 
 function turnContext(overrides: Partial<TurnContext> = {}): TurnContext {
   return { cwd: "/tmp/project", prompt: "hi", permissionModeId: "workspace-write", ...overrides };
@@ -15,6 +16,37 @@ test("codexRuntimeDef is coherent", () => {
 test("exec.thread.start: builds a minimal ThreadStartParams (cwd only — everything else is optional)", () => {
   if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
   assert.deepEqual(codexRuntimeDef.exec.thread.start(turnContext()), { method: "thread/start", params: { cwd: "/tmp/project" } });
+});
+
+test("exec.thread.configRead: the effective config as seen from the thread's cwd", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  assert.deepEqual(codexRuntimeDef.exec.thread.configRead?.("/tmp/project"), { method: "config/read", params: { cwd: "/tmp/project", includeLayers: false } });
+});
+
+test("exec.thread.start: the chat media hint goes out as developerInstructions once the person's own are known to be none", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const spec = codexRuntimeDef.exec.thread.start(turnContext(), { config: { developer_instructions: null }, origins: {} });
+  assert.deepEqual(spec, { method: "thread/start", params: { cwd: "/tmp/project", developerInstructions: CHAT_MEDIA_HINT } });
+});
+
+test("exec.thread.start: the person's own developer_instructions come first, the hint after, since the param replaces theirs", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const spec = codexRuntimeDef.exec.thread.start(turnContext(), { config: { developer_instructions: "Always answer in Portuguese." } });
+  assert.deepEqual(spec.params, { cwd: "/tmp/project", developerInstructions: `Always answer in Portuguese.\n\n${CHAT_MEDIA_HINT}` });
+});
+
+test("exec.thread.start: an unreadable configuration sends no developerInstructions, leaving the person's untouched", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  for (const configuration of [undefined, null, { error: "x" }, { config: "nope" }]) {
+    assert.deepEqual(codexRuntimeDef.exec.thread.start(turnContext(), configuration).params, { cwd: "/tmp/project" });
+  }
+});
+
+test("exec.thread.start: a room agent keeps its room instructions alone", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const room = { role: "worker" as const, instructions: "You are a worker.", tools: [] };
+  const params = codexRuntimeDef.exec.thread.start(turnContext({ room }), { config: { developer_instructions: "mine" } }).params as { developerInstructions?: string };
+  assert.equal(params.developerInstructions, "You are a worker.");
 });
 
 test("exec.turn.start: threadId comes from the engine, not TurnContext; prompt becomes a UserInput text block", () => {

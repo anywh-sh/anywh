@@ -550,7 +550,14 @@ export interface JsonRpcDaemonPlan {
    * so far). `lsp-headers`: `Content-Length`-framed, like LSP. */
   readonly framing: "ndjson" | "lsp-headers";
   readonly thread: {
-    readonly start: (ctx: TurnContext) => JsonRpcRequestSpec;
+    /** Asked of the daemon before `start`, its answer handed to `start`: the
+     * agent's own configuration as it applies to the thread's cwd, for what a
+     * start must keep rather than overwrite (Codex's `developerInstructions`
+     * replaces the person's own `developer_instructions`, so its start reads
+     * them here first and carries both). A read that fails hands `start`
+     * nothing. Optional. */
+    readonly configRead?: (cwd: string) => JsonRpcRequestSpec;
+    readonly start: (ctx: TurnContext, configuration?: unknown) => JsonRpcRequestSpec;
     /** Re-attaches an existing thread to a daemon process that did not start
      * it, re-applying the per-thread settings `start` gave it. Optional: a
      * daemon that needs no explicit resume leaves it out. */

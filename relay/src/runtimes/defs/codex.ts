@@ -46,6 +46,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, FailureClass, JsonRpcRequestSpec, EffortOption, LoginPrompt, RuntimeFailure, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
+import { CHAT_MEDIA_HINT } from "../chatMediaHint.js";
 
 /** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
  * against generated bindings (`v2/AskForApproval.ts`). The `granular` object
@@ -226,9 +227,37 @@ export function codexInitialize(clientVersion: string): JsonRpcRequestSpec {
   };
 }
 
-function startThread(ctx: TurnContext): JsonRpcRequestSpec {
+/** `config/read` for the thread's cwd: "the effective config as seen from
+ * that directory" (`ConfigReadParams.cwd`, codex-cli 0.154.0), so every layer
+ * Codex merges counts — the person's config.toml, a project's `.codex/`, a
+ * managed one. What `startThread` needs to keep their own developer
+ * instructions. */
+function codexConfigRead(cwd: string): JsonRpcRequestSpec {
+  return { method: "config/read", params: { cwd, includeLayers: false } };
+}
+
+/** The person's own `developer_instructions` out of `config/read`'s answer:
+ * `null` when they set none, `undefined` when the read failed and nothing is
+ * known. */
+function userDeveloperInstructions(configuration: unknown): string | null | undefined {
+  const config = (configuration as { config?: unknown } | null | undefined)?.config;
+  if (!config || typeof config !== "object") return undefined;
+  const value = (config as { developer_instructions?: unknown }).developer_instructions;
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function startThread(ctx: TurnContext, configuration?: unknown): JsonRpcRequestSpec {
   const room = ctx.room;
-  if (!room) return { method: "thread/start", params: { cwd: ctx.cwd } };
+  if (!room) {
+    // `developerInstructions` replaces the person's own
+    // `developer_instructions` instead of adding to them (measured on
+    // 0.154.0: with both set, the session's rollout carried only the
+    // param's). So the chat media hint only goes out when theirs are known,
+    // after them; with the read failed, none at all, keeping theirs intact.
+    const own = userDeveloperInstructions(configuration);
+    if (own === undefined) return { method: "thread/start", params: { cwd: ctx.cwd } };
+    return { method: "thread/start", params: { cwd: ctx.cwd, developerInstructions: own ? `${own}\n\n${CHAT_MEDIA_HINT}` : CHAT_MEDIA_HINT } };
+  }
   return {
     method: "thread/start",
     params: {
@@ -733,7 +762,7 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
     args: ["app-server"],
     initialize: codexInitialize,
     framing: "ndjson",
-    thread: { start: startThread, resume: resumeThread },
+    thread: { configRead: codexConfigRead, start: startThread, resume: resumeThread },
     turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },
     // Stored turns of a thread, read back over the same daemon.
     replayHistoryMethod: "thread/turns/list",
