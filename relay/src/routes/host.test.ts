@@ -7,6 +7,7 @@ test("self_update is named only by a relay that can install a release over itsel
   assert.ok(!relayFeatures(false).includes("self_update"));
   // Everything else stays either way.
   assert.ok(relayFeatures(false).includes("bots"));
+  assert.ok(relayFeatures(false).includes("chat_media"));
 });
 
 test("updateSupport names why a relay cannot update itself, and stays supported through an install", () => {
