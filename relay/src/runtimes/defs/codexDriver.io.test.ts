@@ -9,6 +9,7 @@ import { claudeRuntimeDef } from "./claude/index.js";
 import type { AgentEvent } from "../../protocol/agent-event.js";
 import type { TurnContext } from "../types.js";
 import type { SessionDriverHost } from "../sessionDriver.js";
+import { CHAT_MEDIA_HINT } from "../chatMediaHint.js";
 
 // Real child process speaking real ndjson JSON-RPC over real stdio — same
 // spirit as codexDaemon.io.test.ts's own fixture, extended here to answer
@@ -54,6 +55,13 @@ interface FixtureBehavior {
   /** Pages `thread/turns/list` answers with, in order — the cursor the
    * request carries picks the page (absent = the first). */
   historyPages?: { data: unknown[]; nextCursor: string | null }[];
+  /** What `config/read` reports as the person's own `developer_instructions`
+   * (`null`: none set). */
+  developerInstructions?: string | null;
+  /** `config/read` answers an error. */
+  configReadFails?: boolean;
+  /** Gets `thread/start`'s params as JSON, one line per call. */
+  threadStartFile?: string;
 }
 
 function writeFixture(dir: string, behavior: FixtureBehavior): string {
@@ -79,7 +87,16 @@ process.stdin.on("data", (chunk) => {
       send({ jsonrpc: "2.0", id: msg.id, result: { userAgent: "fixture" } });
       continue;
     }
+    if (msg.method === "config/read") {
+      if (behavior.configReadFails) {
+        send({ jsonrpc: "2.0", id: msg.id, error: { code: -32603, message: "config unreadable" } });
+        continue;
+      }
+      send({ jsonrpc: "2.0", id: msg.id, result: { config: { developer_instructions: behavior.developerInstructions ?? null }, origins: {} } });
+      continue;
+    }
     if (msg.method === "thread/start") {
+      if (behavior.threadStartFile) fs.appendFileSync(behavior.threadStartFile, JSON.stringify(msg.params) + "\\n");
       send({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: "thread-1" }, model: behavior.model || "gpt-5-codex" } });
       continue;
     }
@@ -393,6 +410,37 @@ test("readHistory: a session with no thread yet has nothing to replay, and never
     try {
       assert.deepEqual(await driver.readHistory(dir), []);
       assert.throws(() => readFileSync(pidFile), /ENOENT/);
+    } finally {
+      driver.dispose();
+    }
+  });
+});
+
+test("a new thread carries the person's own developer instructions, then the chat media hint", async () => {
+  await withTmpDir(async (dir) => {
+    const threadStartFile = join(dir, "thread-start.jsonl");
+    const bin = writeFixture(dir, { reply: "done", developerInstructions: "Prefer short answers.", threadStartFile });
+    const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost });
+    try {
+      await driver.sendTurn(turnContext(dir), () => {});
+      const [params] = readFileSync(threadStartFile, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { developerInstructions?: string });
+      assert.equal(params.developerInstructions, `Prefer short answers.\n\n${CHAT_MEDIA_HINT}`);
+    } finally {
+      driver.dispose();
+    }
+  });
+});
+
+test("a configuration that can't be read starts the thread with no developer instructions, and the turn still runs", async () => {
+  await withTmpDir(async (dir) => {
+    const threadStartFile = join(dir, "thread-start.jsonl");
+    const bin = writeFixture(dir, { reply: "done", configReadFails: true, threadStartFile });
+    const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost });
+    try {
+      const result = await driver.sendTurn(turnContext(dir), () => {});
+      assert.equal(result.lastAssistantText, "done");
+      const [params] = readFileSync(threadStartFile, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+      assert.equal("developerInstructions" in params, false);
     } finally {
       driver.dispose();
     }

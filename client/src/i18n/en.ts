@@ -42,6 +42,23 @@ export const en: Dictionary = {
       showAll: "Show all",
       showLess: "Show less",
     },
+    media: {
+      open: "Open {name}",
+      video: "Video",
+      unavailable: "No longer available",
+      viewer: {
+        counter: "{current} of {total}",
+        previous: "Previous",
+        next: "Next",
+        actualSize: "Actual size",
+        fitToScreen: "Fit to screen",
+        copyImage: "Copy image",
+        imageCopied: "Image copied",
+        copyImageFailed: "Couldn't copy the image",
+        failed: "This file couldn't be loaded. It may have been moved or deleted.",
+        downloadFailed: "Couldn't download the file.",
+      },
+    },
     toolCall: {
       attributionEstimatedHint: "Estimated — split proportionally across tool calls that ran in parallel",
     },

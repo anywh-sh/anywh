@@ -44,7 +44,7 @@ const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { 
  * empty" without guessing from version numbers (a relay from a checkout has
  * none). A relay that predates the list sends none, which means "none of
  * them". */
-export const RELAY_FEATURES: readonly string[] = ["bots", "self_update"];
+export const RELAY_FEATURES: readonly string[] = ["bots", "self_update", "chat_media"];
 
 /** The features this relay has right now. `self_update` only when it can
  * actually install a release over itself: a Homebrew build, a source

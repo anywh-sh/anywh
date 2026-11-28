@@ -8,7 +8,7 @@ import { dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 
 export type FilesError = "not_found" | "permission_denied" | "invalid_path" | "outside_root";
 
-function errorFromErrno(error: unknown): FilesError {
+export function errorFromErrno(error: unknown): FilesError {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === "ENOENT") return "not_found";
   if (code === "EACCES" || code === "EPERM") return "permission_denied";

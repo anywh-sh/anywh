@@ -1,4 +1,5 @@
 import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
 import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
@@ -52,21 +53,84 @@ function DialogOverlay({
  * out by `DialogBody`/`DialogFooter`. Hence no padding here — a consumer
  * that needs an edge-to-edge region (the settings dialog's two panes) just
  * doesn't use `DialogBody`.
+ *
+ * Two sizes:
+ *
+ * - `default` fits its content, up to a form's width (callers narrow or
+ *   widen it with a `sm:max-w-*`), and opens and closes at once.
+ * - `large` is a fixed frame over almost the whole window, a margin all
+ *   round, for content that wants the room rather than a size of its own (a
+ *   picture, a video). It clears the native top bar on iOS, which covers
+ *   the top of the webview there (`--native-top-inset`, unset elsewhere),
+ *   and the home indicator. A frame that big appearing at once is a jolt,
+ *   so it grows into place and fades out (`data-size="large"` in
+ *   index.css). The growing waits for the frame to be painted once
+ *   (`markEnteredAfterFirstPaint`).
  */
+const dialogContentVariants = cva(
+  "fixed z-50 flex flex-col overflow-hidden border border-border bg-bg-sidebar shadow-popover outline-none",
+  {
+    variants: {
+      size: {
+        default: "inset-0 m-auto h-fit max-h-[calc(100%-3rem)] w-full max-w-[calc(100%-2rem)] sm:max-w-lg",
+        large:
+          "inset-x-2 top-[calc(var(--native-top-inset,0px)+0.5rem)] bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:inset-x-12 sm:top-[calc(var(--native-top-inset,0px)+3rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3rem)]",
+      },
+    },
+    defaultVariants: {
+      size: "default",
+    },
+  }
+)
+
+/**
+ * Sets `data-entered` on a large dialog two frames after it mounts, once its
+ * first frame is painted, and only then does its entrance play (index.css).
+ * Mounting it (the focus trap, the scroll lock, a picture inside) is what
+ * that first frame pays for, and WebKit times an animation from the moment
+ * its style is resolved, not from the frame that shows it: started on mount,
+ * the frame was already most of the way in by the time it appeared, and
+ * opening looked instant on macOS and iOS while closing visibly faded. Until
+ * then the frame and its backdrop stay transparent.
+ */
+function markEnteredAfterFirstPaint(node: HTMLElement): () => void {
+  let frame = requestAnimationFrame(() => {
+    frame = requestAnimationFrame(() => node.setAttribute("data-entered", ""))
+  })
+  return () => cancelAnimationFrame(frame)
+}
+
 function DialogContent({
   className,
+  size = "default",
+  ref,
   children,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content>) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> & VariantProps<typeof dialogContentVariants>) {
+  // Stable for a given ref, so a re-render doesn't restart the wait.
+  const contentRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      if (typeof ref === "function") ref(node)
+      else if (ref) ref.current = node
+      if (!node) return
+      const cancel = size === "large" ? markEnteredAfterFirstPaint(node) : undefined
+      return () => {
+        cancel?.()
+        if (typeof ref === "function") ref(null)
+        else if (ref) ref.current = null
+      }
+    },
+    [ref, size]
+  )
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
+        ref={contentRef}
         data-slot="dialog-content"
-        className={cn(
-          "fixed inset-0 z-50 m-auto flex h-fit max-h-[calc(100%-3rem)] w-full max-w-[calc(100%-2rem)] flex-col overflow-hidden border border-border bg-bg-sidebar shadow-popover outline-none sm:max-w-lg",
-          className
-        )}
+        data-size={size}
+        className={cn(dialogContentVariants({ size, className }))}
         {...props}
       >
         {children}
@@ -79,13 +143,16 @@ function DialogContent({
  * The header band: title on the left, close button squared off on the
  * right. `children` is normally just a `DialogTitle` — a description
  * belongs in the body, where it can wrap without pushing the band around.
+ * `actions` are controls about what the dialog shows (the media viewer's
+ * zoom, copy and download), laid out just before the close button.
  */
 function DialogHeader({
   className,
   children,
+  actions,
   showCloseButton = true,
   ...props
-}: React.ComponentProps<"div"> & { showCloseButton?: boolean }) {
+}: React.ComponentProps<"div"> & { actions?: React.ReactNode; showCloseButton?: boolean }) {
   const dict = useDict()
 
   return (
@@ -98,6 +165,7 @@ function DialogHeader({
       {...props}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">{children}</div>
+      {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
       {showCloseButton && (
         <DialogPrimitive.Close asChild>
           <Button variant="ghost" size="icon-sm" aria-label={dict.common.close}>
@@ -165,6 +233,7 @@ export {
   DialogBody,
   DialogClose,
   DialogContent,
+  dialogContentVariants,
   DialogDescription,
   DialogFooter,
   DialogHeader,

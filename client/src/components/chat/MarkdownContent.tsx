@@ -1,15 +1,32 @@
 import { TextButton } from "@/components/ui/text-button";
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import { createContext, useContext, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import ReactMarkdown, { defaultUrlTransform, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { handleExternalLinkClick } from "@/lib/platform/externalLink";
 import { looksLikeExternalUrl, looksLikeFilePath } from "@/lib/composer/filePathLinks";
 import { MarkdownCodeBlock } from "@/components/chat/MarkdownCodeBlock";
+import { MarkdownImage, MediaPathLink } from "@/components/chat/media/MarkdownImage";
+import { useOpensAsMedia } from "@/components/chat/media/chatMediaContext";
+import { MediaGallery } from "@/components/chat/media/MediaGallery";
 import { remarkUserMessage, USER_MESSAGE_REHYPE_OPTIONS } from "@/lib/format/remarkUserMessage";
+import { MEDIA_GALLERY_PROPERTY, remarkMediaGallery } from "@/lib/media/remarkMediaGallery";
 
-const REMARK_PLUGINS = [remarkGfm];
-const USER_REMARK_PLUGINS = [remarkGfm, remarkUserMessage];
+const REMARK_PLUGINS = [remarkGfm, remarkMediaGallery];
+const USER_REMARK_PLUGINS = [remarkGfm, remarkUserMessage, remarkMediaGallery];
+
+/** react-markdown blanks a `file://` URL as unsafe. An image's is a local
+ * path this app shows through the relay (`MarkdownImage`), never a `src`
+ * handed to the webview as is, so for an image it is kept. */
+const urlTransform: UrlTransform = (url, key, node) =>
+  key === "src" && node.tagName === "img" && /^file:\/\//i.test(url) ? url : defaultUrlTransform(url);
+
+/** `onOpenPath` for the overrides below, which are module-level components
+ * (not closures over the prop) so their identity holds across renders: a
+ * new function per render would be a new component type to React, and a
+ * streaming reply re-renders on every token — each one remounting every
+ * media tile in it, back to its loading state. */
+const OpenPathContext = createContext<((path: string) => void) | undefined>(undefined);
 
 /** A cell with at most this many characters never wraps. Table layout shares
  * the width out in proportion to each column's text, so a short column next to
@@ -41,6 +58,59 @@ function tableCell(Tag: "td" | "th") {
 const TableTd = tableCell("td");
 const TableTh = tableCell("th");
 
+type ImgProps = ComponentPropsWithoutRef<"img"> & { node?: unknown };
+
+function MarkdownImg({ src, alt, title }: ImgProps) {
+  const onOpenPath = useContext(OpenPathContext);
+  return <MarkdownImage src={typeof src === "string" ? src : undefined} alt={alt} title={title} onOpenPath={onOpenPath} />;
+}
+
+type DivProps = ComponentPropsWithoutRef<"div"> & { node?: { properties?: Record<string, unknown> } };
+
+/** A gallery `remarkMediaGallery` made; any other `div` as it came. */
+function MarkdownDiv({ node, children, ...props }: DivProps) {
+  if (node?.properties?.[MEDIA_GALLERY_PROPERTY] !== undefined) return <MediaGallery>{children}</MediaGallery>;
+  return <div {...props}>{children}</div>;
+}
+
+type CodeProps = ComponentPropsWithoutRef<"code"> & { node?: unknown };
+
+/** Only inline spans (no `className` — react-markdown/remark only stamps
+ * `language-xxx` on a fenced block's `code`, never on an inline one) are
+ * candidates: a fenced block's own `code` still renders through here as a
+ * second pass, and linkifying paths inside real code snippets would fight
+ * rehype-highlight's spans for the same text. */
+function MarkdownCode({ node: _node, className, children, ...props }: CodeProps) {
+  const onOpenPath = useContext(OpenPathContext);
+  const text = typeof children === "string" ? children : String(children);
+  const inlinePath = !className && looksLikeFilePath(text);
+  const opensAsMedia = useOpensAsMedia(text);
+  if (inlinePath && opensAsMedia) return <MediaPathLink path={text} />;
+  if (inlinePath && onOpenPath) {
+    return (
+      <TextButton tone="none" className="prose-chat-path-link" onClick={() => onOpenPath(text)}>
+        {text}
+      </TextButton>
+    );
+  }
+  // A URL written as backtick code (`` `https://example.com` ``) instead of a
+  // real markdown link — a common enough style choice from the assistant
+  // that it's worth making clickable too, instead of leaving it as inert
+  // styled text.
+  if (!className && looksLikeExternalUrl(text)) {
+    return (
+      <a href={text} rel="noopener noreferrer" className="prose-chat-path-link" onClick={(event) => handleExternalLinkClick(event, text)}>
+        {text}
+      </a>
+    );
+  }
+  return (
+    <code className={className} {...props}>
+      {children}
+    </code>
+  );
+}
+
 /**
  * GFM + syntax-highlighted code blocks + external links opened via the
  * platform's own handler — extracted from `AssistantText` so the
@@ -67,10 +137,12 @@ export function MarkdownContent({
   userMessage?: boolean;
 }) {
   return (
+    <OpenPathContext.Provider value={onOpenPath}>
     <ReactMarkdown
       remarkPlugins={userMessage ? USER_REMARK_PLUGINS : REMARK_PLUGINS}
       remarkRehypeOptions={userMessage ? USER_MESSAGE_REHYPE_OPTIONS : undefined}
       rehypePlugins={[rehypeHighlight]}
+      urlTransform={urlTransform}
       components={{
         // Cells wrap at `break-word` (see `.prose-chat th`), which keeps short
         // columns from collapsing but lets one long unbreakable string widen
@@ -107,43 +179,13 @@ export function MarkdownContent({
           );
         },
         pre: MarkdownCodeBlock,
-        // Only inline spans (no `className` — react-markdown/remark only
-        // stamps `language-xxx` on a fenced block's `code`, never on an
-        // inline one) are candidates: a fenced block's own `code` still
-        // renders through here as a second pass, and linkifying paths
-        // inside real code snippets would fight rehype-highlight's spans
-        // for the same text.
-        code: ({ className, children, ...props }) => {
-          const text = typeof children === "string" ? children : String(children);
-          if (!className) {
-            if (onOpenPath && looksLikeFilePath(text)) {
-              return (
-                <TextButton tone="none" className="prose-chat-path-link" onClick={() => onOpenPath(text)}>
-                  {text}
-                </TextButton>
-              );
-            }
-            // A URL written as backtick code (`` `https://example.com` ``)
-            // instead of a real markdown link — a common enough style choice
-            // from the assistant that it's worth making clickable too,
-            // instead of leaving it as inert styled text.
-            if (looksLikeExternalUrl(text)) {
-              return (
-                <a href={text} rel="noopener noreferrer" className="prose-chat-path-link" onClick={(event) => handleExternalLinkClick(event, text)}>
-                  {text}
-                </a>
-              );
-            }
-          }
-          return (
-            <code className={className} {...props}>
-              {children}
-            </code>
-          );
-        },
+        code: MarkdownCode,
+        img: MarkdownImg,
+        div: MarkdownDiv,
       }}
     >
       {text}
     </ReactMarkdown>
+    </OpenPathContext.Provider>
   );
 }

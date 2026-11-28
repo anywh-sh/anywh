@@ -7,7 +7,7 @@ import * as stories from "./button.stories";
 // The stories are the spec: each one renders here exactly as it does in the
 // Storybook canvas, so a story that stops rendering what it claims fails CI
 // instead of drifting unnoticed in a catalog nobody opened.
-const { Default, Destructive, Disabled, Loading, IconOnly, AsChild, Chrome, Quiet, Inline, Matrix } = composeStories(stories);
+const { Default, Destructive, Disabled, Loading, IconOnly, AsChild, Chrome, Quiet, Inline, MediaStrip, Matrix } = composeStories(stories);
 
 describe("Button stories", () => {
   afterEach(cleanup);
@@ -96,6 +96,13 @@ describe("Button stories", () => {
     const button = screen.getByRole("button", { name: "v0.2.0" });
     expect(button).toHaveClass("text-[length:inherit]");
     expect(button.querySelector('[data-slot="spinner"]')).toHaveAttribute("data-size", "xs");
+  });
+
+  it("lays media tiles in a strip with the one on show pressed", () => {
+    render(<MediaStrip />);
+    const tiles = screen.getAllByRole("button");
+    expect(tiles.map((tile) => tile.getAttribute("data-variant"))).toEqual(["media", "media", "media"]);
+    expect(tiles.filter((tile) => tile.getAttribute("aria-pressed") === "true")).toEqual([screen.getByRole("button", { name: "Open Home" })]);
   });
 
   it("covers every variant at every size in the matrix", () => {

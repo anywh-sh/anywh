@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { isFilesCreateBody, isFilesDeleteBody, isFilesRenameBody } from "../protocol/guards.js";
 import { readJsonBody } from "../protocol/httpBody.js";
 import { listDirectories } from "../fs/fsBrowse.js";
@@ -14,6 +15,7 @@ import {
   type FilesError,
 } from "../fs/fsFiles.js";
 import { MAX_UPLOAD_BYTES, readRawBody, sanitizeUploadName, saveUpload, uploadExtension } from "../fs/uploads.js";
+import { chatMediaEtag, etagMatches, parseByteRange, resolveChatMedia } from "../fs/chatMedia.js";
 import { defaultCwd } from "../host/paths.js";
 import type { RouteHandler } from "./context.js";
 
@@ -22,6 +24,46 @@ function statusForFilesError(error: FilesError | "invalid_name" | "already_exist
   if (error === "not_found") return 404;
   if (error === "already_exists") return 409;
   return 400; // invalid_path, outside_root, invalid_name
+}
+
+/** Streams a file `resolveChatMedia` accepted: whole, as the one byte range
+ * a media element asked for (WebKit plays no `<video>` without ranges), or
+ * as a 304 when the client's copy is still the file on disk. `no-cache`
+ * because an agent rewrites a screenshot in place, under the same name. */
+function sendChatMedia(req: IncomingMessage, res: ServerResponse, media: { path: string; mime: string; size: number; mtimeMs: number }): void {
+  const etag = chatMediaEtag(media);
+  res.setHeader("Content-Type", media.mime);
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("ETag", etag);
+  res.setHeader("Last-Modified", new Date(media.mtimeMs).toUTCString());
+  res.setHeader("Cache-Control", "no-cache");
+  // Opened on its own (not inside an `<img>`), an SVG would otherwise run
+  // its scripts on the relay's origin.
+  res.setHeader("Content-Security-Policy", "sandbox");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, ETag");
+  if (etagMatches(req.headers["if-none-match"], etag)) {
+    res.writeHead(304);
+    res.end();
+    return;
+  }
+  const range = parseByteRange(req.headers.range, media.size);
+  if (range === null) {
+    res.setHeader("Content-Range", `bytes */${String(media.size)}`);
+    res.writeHead(416);
+    res.end();
+    return;
+  }
+  if (range) {
+    res.setHeader("Content-Range", `bytes ${String(range.start)}-${String(range.end)}/${String(media.size)}`);
+    res.setHeader("Content-Length", range.end - range.start + 1);
+    res.writeHead(206);
+    createReadStream(media.path, { start: range.start, end: range.end }).on("error", () => res.end()).pipe(res);
+    return;
+  }
+  res.setHeader("Content-Length", media.size);
+  res.writeHead(200);
+  createReadStream(media.path).on("error", () => res.end()).pipe(res);
 }
 
 export const handleFilesRoutes: RouteHandler = async (req, res, ctx) => {
@@ -139,6 +181,31 @@ export const handleFilesRoutes: RouteHandler = async (req, res, ctx) => {
     // client's download progress reads `Content-Length` off the response.
     res.setHeader("Access-Control-Expose-Headers", "Content-Length");
     createReadStream(result.path).on("error", () => res.end()).pipe(res);
+    return true;
+  }
+
+  // Images and videos shown inline in a conversation, by the path the agent
+  // (or an attachment) gave — the one `/files/*` route not rooted at the
+  // session's cwd, bounded by media type instead (see `fs/chatMedia.ts`).
+  // The cwd still matters: a relative path is resolved against it.
+  if (req.method === "GET" && req.url?.startsWith("/files/media")) {
+    const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+    const sessionId = url.searchParams.get("session")?.trim() || ctx.defaultSession;
+    const rawPath = url.searchParams.get("path");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    if (!rawPath) {
+      res.writeHead(400);
+      res.end();
+      return true;
+    }
+    const cwd = ctx.sessionStore.getCwdState(sessionId).cwd;
+    const media = resolveChatMedia(rawPath, cwd, defaultCwd(ctx.homeOverride));
+    if (!media.ok) {
+      res.writeHead(media.error === "not_media" ? 415 : statusForFilesError(media.error));
+      res.end();
+      return true;
+    }
+    sendChatMedia(req, res, media);
     return true;
   }
 

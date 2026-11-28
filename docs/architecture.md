@@ -104,7 +104,9 @@ relay/src/
                            defer approvals instead of blocking on them, see
                            deferred-approval.md
   fs/                      the file panel's own read/write/browse of a
-                           session's working directory
+                           session's working directory, and the images
+                           and videos a chat shows inline (chatMedia.ts:
+                           any path on the machine, media types only)
   portability/             reading and writing a runtime's *config home*
                            (`~/.claude`, `~/.codex`) so a setup can be
                            carried to another machine or profile — the
@@ -112,8 +114,9 @@ relay/src/
                            allowlisted slice of its MCP declaration, never
                            a credential. Separate from `fs/` because that
                            one is rooted at the session's cwd by
-                           construction and cannot reach a config home at
-                           all
+                           construction (its one route that isn't,
+                           chatMedia.ts, serves image and video files and
+                           nothing else) and cannot read a config home
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

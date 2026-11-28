@@ -5,6 +5,7 @@ import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../../execut
 import { buildChildEnv } from "../../../host/childEnv.js";
 import { AGENT_WORKER_SETTING_SOURCES, mergeAgentWorkerMcpConfig, readSharedMcpServers, readUserMcpServers, sweepStaleAgentWorkerMcpFiles, writeAgentWorkerMcpFile } from "./agentWorker.js";
 import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "../../../bridges/planChoiceMarker.js";
+import { CHAT_MEDIA_HINT } from "../../chatMediaHint.js";
 // Known reverse-direction dependency, surfaced by turning on the boundary
 // lint (not by this file changing): a def reaching into session/ for two
 // types it should be the one describing.
@@ -220,11 +221,13 @@ export function buildTurnArgs(text: string, permissionMode: ClaudePermissionMode
     // requested) in `plan` mode: it's the fallback for the one mode where
     // the real `present_choice` MCP tool can't be offered at all, so
     // appending it in every other mode would just be dead weight on every
-    // spawn for nothing. `extraSystemPrompt` and the plan-mode marker never
+    // spawn for nothing. `CHAT_MEDIA_HINT` rides on every turn like the base
+    // prompt: how an image reaches the person doesn't depend on the mode.
+    // `extraSystemPrompt` and the plan-mode marker never
     // coexist in practice (`present_choice` is never registered in `plan`
     // mode, `SharedSession.runTurn`), but both are folded in here
     // regardless so this stays correct if that changes.
-    [APPEND_SYSTEM_PROMPT, permissionMode === "plan" ? PLAN_MODE_CHOICE_MARKER_PROMPT : undefined, extraSystemPrompt]
+    [APPEND_SYSTEM_PROMPT, CHAT_MEDIA_HINT, permissionMode === "plan" ? PLAN_MODE_CHOICE_MARKER_PROMPT : undefined, extraSystemPrompt]
       .filter(Boolean)
       .join("\n\n"),
     ...(model ? ["--model", model] : []),

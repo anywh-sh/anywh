@@ -6,6 +6,8 @@ import { join, resolve } from "node:path";
 import { AcpSessionDriver } from "./acpDriver.js";
 import { ACP_HISTORY_METHOD, acpInitialize, acpInterrupt, acpThreadResume, acpThreadStart, acpTurnStart, answerAcpApproval, type AcpPermissionParams } from "./acp.js";
 import { acpNotificationMapping } from "../streams/acpSessionUpdate.js";
+import { kimiTurnStart } from "./kimi.js";
+import { CHAT_MEDIA_HINT } from "../chatMediaHint.js";
 import type { AgentEvent } from "../../protocol/agent-event.js";
 import type { AgentRuntimeDef, ApprovalRequest, TurnContext } from "../types.js";
 import type { SessionDriverHost } from "../sessionDriver.js";
@@ -261,6 +263,46 @@ test("an agent error on the prompt reaches the session as the turn's failure, in
     assert.equal(driver.getSessionId(), "session_1", "a plan error is not a dead session");
   } finally {
     driver.dispose();
+    h.cleanup();
+  }
+});
+
+test("an opening prompt carries the chat media hint once, as a reminder the replay keeps out of the person's message", async () => {
+  const h = harness();
+  const base = fixtureDef();
+  if (base.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  // Kimi's own turn builder on the fake agent: what the driver's `opening` feeds.
+  const def: AgentRuntimeDef = { ...base, exec: { ...base.exec, turn: { ...base.exec.turn, start: kimiTurnStart } } };
+  const prompts = (): string[][] =>
+    h
+      .received()
+      .filter((message) => message.method === "session/prompt")
+      .map((message) => (message.params?.prompt as { text: string }[]).map((block) => block.text));
+  const driver = new AcpSessionDriver(def, { host: h.host });
+  let sessionId: string | undefined;
+  try {
+    await turn(driver, ctx(h.dir, "show me the screen"));
+    await turn(driver, ctx(h.dir, "and again"));
+    sessionId = driver.getSessionId();
+    const [opening, later] = prompts();
+    assert.equal(opening.length, 2);
+    assert.equal(opening[0], `<system-reminder>\n${CHAT_MEDIA_HINT}\n</system-reminder>`);
+    assert.equal(opening[1], "show me the screen");
+    assert.deepEqual(later, ["and again"]);
+  } finally {
+    driver.dispose();
+  }
+  // A fresh process picking the session up resumes it: nothing opens again,
+  // and the replay shows only what the person typed.
+  const resumed = new AcpSessionDriver(def, { host: h.host, initialSessionId: sessionId });
+  try {
+    await turn(resumed, ctx(h.dir, "third"));
+    assert.deepEqual(prompts().at(-1), ["third"]);
+    const history = await resumed.readHistory(h.dir);
+    const users = history.flatMap((event) => (event.type === "user_message" ? [event.text] : []));
+    assert.deepEqual(users, ["show me the screen", "and again", "third"]);
+  } finally {
+    resumed.dispose();
     h.cleanup();
   }
 });

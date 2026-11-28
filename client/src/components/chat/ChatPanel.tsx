@@ -24,7 +24,11 @@ import { useWindowFocus } from "@/hooks/platform/useWindowFocus";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
 import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
+import { buildWireMessage } from "@/lib/composer/wireMessage";
 import { MessageLog, type MessageLogHandle } from "@/components/chat/MessageLog";
+import { ChatMediaProvider } from "@/components/chat/media/ChatMediaProvider";
+import { useRelayChatMedia } from "@/components/chat/media/useRelayChatMedia";
+import { lacksFeature, useRelayFeatures } from "@/hooks/relay/useRelayFeatures";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
 import { ChatIdleState } from "@/components/chat/ChatIdleState";
 import { Composer } from "@/components/chat/Composer";
@@ -200,39 +204,6 @@ interface ChatPanelProps {
   besideRoom?: boolean;
 }
 
-/** A file name inside `[arquivo anexado (…): …]` must not be able to close
- * the bracket or the parenthesis and write its own instructions. */
-function wireSafeName(name: string): string {
-  return name.replace(/[[\]()\r\n]/g, "_");
-}
-
-function buildWireMessage(text: string, attachments: PendingAttachment[]): string {
-  // Claude only "sees" an image via `Read` — video becomes a sequence of
-  // frames extracted on the relay (ffmpeg, `uploads.ts`), referenced in
-  // chronological order, plus the original video's path in case it needs to
-  // run ffmpeg/ffprobe on it directly via Bash for something more specific.
-  // Any other file is read as is; its original name rides along, since the
-  // relay saved it under a fresh id.
-  const refs = attachments
-    .map((attachment) => {
-      if (attachment.kind === "file") {
-        return attachment.name
-          ? `[arquivo anexado (${wireSafeName(attachment.name)}): ${attachment.path}]`
-          : `[arquivo anexado: ${attachment.path}]`;
-      }
-      if (attachment.kind !== "video") return `[imagem anexada: ${attachment.path}]`;
-      if (!attachment.frames || attachment.frames.length === 0) {
-        return `[vídeo anexado (sem preview de frames): ${attachment.path}]`;
-      }
-      const frameLines = attachment.frames
-        .map((frame, index) => `[frame ${String(index + 1)}/${String(attachment.frames!.length)}: ${frame}]`)
-        .join("\n");
-      return `[vídeo anexado, ${String(attachment.frames.length)} frames extraídos em ordem cronológica (arquivo original: ${attachment.path})]\n${frameLines}`;
-    })
-    .join("\n");
-  return [text, refs].filter(Boolean).join("\n\n");
-}
-
 /** Message editing — counts how many `kind: "user"` entries exist
  * between `id` and the end of `entries` (inclusive), counting from the end
  * (`1` = the last one). Always computable from what's already loaded: history
@@ -354,6 +325,12 @@ export function ChatPanel({
   const [resyncing, setResyncing] = useState(false);
 
   const images = useImageUpload(profile, (message) => window.alert(message));
+  const chatMedia = useRelayChatMedia(profile, sessionId);
+  // A relay from before `/files/media` would answer every tile with a 404,
+  // read as "no longer available": there the log keeps showing an image as
+  // its caption, until the relay is updated (it is asked again meanwhile).
+  const relayFeatures = useRelayFeatures(profile, "chat_media");
+  const chatMediaServed = !lacksFeature(relayFeatures, "chat_media");
   // Either composer answers to the same handle; only the native one can close
   // the keyboard on its own (`blurIfFocused`).
   const composerRef = useRef<NativeComposerHandle>(null);
@@ -1142,6 +1119,7 @@ export function ChatPanel({
         // already been `false` for a long time.
         <ChatIdleState selector={canChooseType ? <SessionTypeSelector value={sessionType} onChange={setSessionType} /> : undefined} />
       ) : hydrated ? (
+        <ChatMediaProvider source={chatMedia.source} onDownload={chatMedia.onDownload} disabled={!chatMediaServed}>
         <MessageLog
           ref={messageLogRef}
           entries={log.entries}
@@ -1175,6 +1153,7 @@ export function ChatPanel({
           trailing={logTrailing}
           reconnect={reconnect}
         />
+        </ChatMediaProvider>
       ) : (
         <MessageLogSkeleton />
       )}

@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { VariantProps } from "class-variance-authority";
 import { ArrowRight, Plus, Trash2, X } from "lucide-react";
 import { Button, type buttonVariants } from "./button";
+import { phoneScreenshot } from "@/components/chat/media/sampleMedia";
 
 type Variant = NonNullable<VariantProps<typeof buttonVariants>["variant"]>;
 type Size = NonNullable<VariantProps<typeof buttonVariants>["size"]>;
@@ -19,6 +20,7 @@ const VARIANTS = {
   link: true,
   chrome: true,
   quiet: true,
+  media: true,
 } satisfies Record<Variant, true>;
 
 const SIZES = {
@@ -33,7 +35,8 @@ const SIZES = {
   "icon-sm": "icon",
   icon: "icon",
   "icon-lg": "icon",
-} satisfies Record<Size, "text" | "icon">;
+  media: "media",
+} satisfies Record<Size, "text" | "icon" | "media">;
 
 export const variants = Object.keys(VARIANTS) as Variant[];
 export const textSizes = (Object.keys(SIZES) as Size[]).filter((size) => SIZES[size] === "text");
@@ -111,6 +114,32 @@ export const Toolbar: Story = {
 /** An action in a bar of them, like the room's selection bar. */
 export const Bar: Story = {
   args: { variant: "chrome", size: "bar", children: "Group" },
+};
+
+/** A picture you open — a screenshot in a message. The tile has no box of
+ * its own (`size="media"`): the picture inside sizes it. */
+export const Media: Story = {
+  args: { variant: "media", size: "media", "aria-label": "Open login.png" },
+  render: (args) => (
+    <Button {...args}>
+      <img src={phoneScreenshot("Sign in", "royalblue")} alt="" className="h-40 w-auto" />
+    </Button>
+  ),
+};
+
+/** A strip of them, as the media viewer lays its thumbnails: the one on
+ * show is pressed, framed twice as heavy in the full ink. */
+export const MediaStrip: Story = {
+  args: { variant: "media", size: "media" },
+  render: (args) => (
+    <div className="flex gap-1.5">
+      {(["Sign in", "Home", "Settings"] as const).map((title, index) => (
+        <Button key={title} {...args} aria-pressed={index === 1} aria-label={`Open ${title}`}>
+          <img src={phoneScreenshot(title, "royalblue")} alt="" className="h-12 w-auto" />
+        </Button>
+      ))}
+    </div>
+  ),
 };
 
 export const Disabled: Story = {

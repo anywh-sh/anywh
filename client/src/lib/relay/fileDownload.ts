@@ -1,6 +1,7 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { mkdir, writeFile } from "@tauri-apps/plugin-fs";
-import { listFiles, rawFileUrl, type FileEntry } from "@/lib/relay/filesClient";
+import { fetchChatMedia, listFiles, rawFileUrl, type FileEntry } from "@/lib/relay/filesClient";
+import { mediaFileName } from "@/lib/media/chatMedia";
 import type { Profile } from "@/lib/profiles/profiles";
 
 /** What every download accepts: an abort signal, and `onBytes` firing as
@@ -96,6 +97,25 @@ export async function downloadFile(
 
   const bytes = await fetchFileBytes(profile, sessionId, entry, options.signal, options.onBytes);
   await writeFile(target, bytes);
+  return true;
+}
+
+/** `downloadFile` for an image or video the chat shows: the same save
+ * dialog and progress, read through `/files/media`, since the file may live
+ * outside the session's cwd (a simulator screenshot in /tmp) where
+ * `/files/raw` won't serve it. Its size is known only once the relay
+ * answers (`Content-Length`). */
+export async function downloadChatMedia(
+  profile: Profile,
+  sessionId: string,
+  path: string,
+  options: DownloadOptions & { onStart?: () => void } = {},
+): Promise<boolean> {
+  const target = await save({ defaultPath: mediaFileName(path) });
+  if (!target) return false;
+  options.onStart?.();
+  const response = await fetchChatMedia(profile, sessionId, path, options.signal);
+  await writeFile(target, await readBodyWithProgress(response, 0, options.onBytes));
   return true;
 }
 

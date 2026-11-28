@@ -479,6 +479,32 @@ export interface Dictionary {
       showAll: string;
       showLess: string;
     };
+    /** Images and videos shown inline: the tiles in a message (a reply's
+     * gallery, a sent attachment) and the viewer a tile opens. `{name}` is a
+     * file name, `{current}`/`{total}` positions in the viewer. */
+    media: {
+      /** Accessible name of a tile. */
+      open: string;
+      /** Badge over a tile that is a video. */
+      video: string;
+      /** A tile whose file the relay can no longer serve (deleted, moved). */
+      unavailable: string;
+      viewer: {
+        counter: string;
+        previous: string;
+        next: string;
+        /** Toggles between fitting the screen and the image's own pixels. */
+        actualSize: string;
+        fitToScreen: string;
+        /** Puts the image itself on the clipboard, as a PNG. A video has no
+         * copy: no webview's clipboard takes one. */
+        copyImage: string;
+        imageCopied: string;
+        copyImageFailed: string;
+        failed: string;
+        downloadFailed: string;
+      };
+    };
     toolCall: {
       /** Tooltip on the context-cost badge (`+13.5k`) when it was divided
        * proportionally across a parallel batch of tool calls, rather than

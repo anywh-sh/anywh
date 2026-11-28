@@ -591,6 +591,54 @@ body {
   &[data-state="closed"] { animation: search-out 100ms linear both; }
 }
 
+/* The large dialog (`DialogContent size="large"`, the media viewer): a frame
+ * over almost the whole window grows into place from 95% as it fades in,
+ * over a backdrop that fades alone, and leaves with the fade only, shorter.
+ * A scale rather than the palette's drop: the frame is centred, not hung
+ * from the top. Both wait, transparent, for `data-entered`, set once the
+ * frame has been painted (dialog.tsx says why), so the whole entrance is
+ * seen. `ease-out` rather than `--motion-ease` for the way in: that curve
+ * is most of the way there in the first few frames, and a frame this size
+ * then reads as popping in, as it did; `ease-out` spreads the same change
+ * over the duration. `transform` and `opacity` only, so nothing is laid out
+ * for it; Radix's `Presence` holds it mounted until the `closed` animation
+ * ends. Reduced motion is covered by the blanket rule above. */
+@keyframes dialog-grow-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+[data-slot="dialog-content"][data-size="large"] {
+  &[data-state="open"]:not([data-entered]) { opacity: 0; }
+  &[data-state="open"][data-entered] { animation: dialog-grow-in var(--motion-medium) ease-out both; }
+  &[data-state="closed"] { animation: search-out var(--motion-fast) linear both; }
+}
+[data-slot="dialog-overlay"]:has(+ [data-slot="dialog-content"][data-size="large"]) {
+  &[data-state="open"]:has(+ :not([data-entered])) { opacity: 0; }
+  &[data-state="open"]:has(+ [data-entered]) { animation: search-fade-in var(--motion-medium) ease-out both; }
+  &[data-state="closed"] { animation: search-out var(--motion-fast) linear both; }
+}
+
+/* The media viewer moving to another file (`MediaViewer`'s stage): the one
+ * it lands on comes in from the side it lies on, fading in — the mascot
+ * carousel's move, over a shorter way. Only the stage that changed moves,
+ * and only by `transform` and `opacity`. */
+@keyframes media-step-next {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+@keyframes media-step-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+[data-media-step="next"] { animation: media-step-next var(--motion-medium) var(--motion-ease) both; }
+[data-media-step="prev"] { animation: media-step-prev var(--motion-medium) var(--motion-ease) both; }
+
 /* The mascot picker's carousel: the character picked slides in from the
  * side it came from, and its neighbours fade in. `transform` only on the
  * carousel's own faces (pixel art stays crisp once it lands). */
